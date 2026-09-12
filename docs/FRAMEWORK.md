@@ -1,8 +1,10 @@
-# Is AVStudio a reusable base framework? (honest answer)
+# mediabase as a reusable base (honest answer)
 
-TL;DR: as a **reference implementation / scaffold** — yes, today. As a
-**generic base framework** for a second product — not yet; it needs one more
-layer of abstraction. Full details (in Chinese): `docs/FRAMEWORK.zh.md`.
+> **产品/引擎相关内容已迁至消费仓（如 avstudio）；本仓为中立基座。**
+
+TL;DR: this repo **is** the extracted neutral base (`@mediabase/*`). Product
+engines and domain verbs live in consumer repos. Remaining gaps are UI chrome
+polish and packaging opinions — not "still bound inside AVStudio source". Full details (in Chinese): `docs/FRAMEWORK.zh.md`.
 
 ## Reusable today
 
@@ -29,7 +31,7 @@ layer of abstraction. Full details (in Chinese): `docs/FRAMEWORK.zh.md`.
   (`@mediabase/ui-web`) names no capability: it depends only on `ui`, cordis and
   React, and `ui-media`/`ui-panels` can be dropped from the composition.
 
-## Not yet generic (what binds it to avstudio)
+## Remaining gaps (UI chrome / packaging — not product verbs)
 
 A panel registry with only three coarse areas and no visibility/ordering
 configuration, `App.tsx`-level title and CSS class names, no method-level
@@ -45,7 +47,7 @@ are validated by one schema dialect with coded errors, and logging goes through
 ## Three routes to make it generic
 
 - **A. Fork and rebrand** — fastest; fine if you only build one product.
-- **B. Extract an avstudio-base** (recommended): pull rpc/server/engine-session/
+- **B. Extract a neutral base** (done as this repo): pull rpc/server/engine-session/
   plugins/workflow/agent/packaging into a neutral `base/`; keep media/python as
   example capability packages. Each new product = base + its capability
   packages + its UI.

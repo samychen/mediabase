@@ -1,4 +1,4 @@
-// avstudio / packages/protocol / rpc.ts
+// mediabase / packages/base/rpc
 //
 // Tiny JSON-RPC 2.0 over any message channel (WebSocket here). Both sides share
 // this file:
@@ -51,7 +51,7 @@ interface Response {
 const VERSION = '2.0'
 
 /**
- * Transport codes are JSON-RPC standard; the -320xx block is avstudio's
+ * Transport codes are JSON-RPC standard; the -320xx block is mediabase's
  * application surface, so clients branch on `code` instead of matching prose.
  */
 export const RpcCode = {

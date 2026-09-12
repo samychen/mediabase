@@ -1,4 +1,4 @@
-// @mediabase/schema — avstudio's schema dialect (neutral base, no domain, no cordis).
+// @mediabase/schema — mediabase schema dialect (neutral base, no domain, no cordis).
 //
 // One schema language for every boundary that used to take `unknown` + an `as`
 // assertion: plugin Config, RPC/api method params, tool arguments, settings
@@ -75,7 +75,7 @@ export function describe(schema: Schema<any, any>): string {
 
 /**
  * Convert a schema to the JSON-Schema subset used by function-calling tool
- * declarations. Only the types avstudio declares are handled; anything unknown
+ * declarations. Only the types this dialect declares are handled; anything unknown
  * degrades to a bare `{}` (the model still sees the description).
  */
 export function toJsonSchema(schema: Schema<any, any>): JsonSchema {

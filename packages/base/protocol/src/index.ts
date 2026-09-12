@@ -1,6 +1,6 @@
 // @mediabase/protocol — NEUTRAL contracts: the vocabulary a capability-agnostic host
-// understands. @avstudio/protocol re-exports this and adds the product contracts
-// (media/python/workflow), so capability packages can import one package while
+// understands. Product protocol packages (e.g. @avstudio/protocol) re-export this
+// and add domain contracts, so capability packages can import one package while
 // the base stays free of any product concept.
 //
 // Schema/JSON-Schema types are imported type-only, so nothing schema-related

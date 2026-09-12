@@ -1,11 +1,12 @@
-# @avstudio/cli
+# @mediabase/cli
 
-Host entrypoint (mirrors DSH's `apps/cli`): creates the root Cordis context,
-mounts the plugin tree — `@avstudio/media` then `@mediabase/server` — and runs it
-until SIGINT/SIGTERM, which disposes the whole application tree.
+Thin host entrypoint for this base repo: resolves `BootIdentity`, delegates to
+`@mediabase/boot` (profile / bundle / patch Loader), verifies capability
+manifests, and disposes the tree on SIGINT/SIGTERM.
 
 Run from the repo root: `pnpm run host` (tsx on `src/index.ts`).
 
-Composition values (engine binary path, dist index, port) are injected here as
-plugin configs rather than hardcoded in packages — same seam DSH uses for
-deployment-specific knowledge.
+Default identity: `mediabase` / `MEDIABASE_` / `~/.mediabase`. A product keeps
+its own thin entry and passes a different `BootIdentity` — do not fork
+`profile-boot`. Composition values (port, dist index, sandbox paths) are injected
+as row configs via `!!js ctx.env…`, same seam DSH uses for deployment knowledge.

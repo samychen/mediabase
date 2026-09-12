@@ -47,7 +47,7 @@
         "type": "object",
         "properties": {
           "file": {
-            "description": "settings JSON path; default ~/.mediabase/settings.json",
+            "description": "settings JSON path; default <appPaths.home>/settings.json",
             "type": "string"
           }
         }

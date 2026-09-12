@@ -49,7 +49,7 @@ export interface LogService extends Logger {
 
 export interface LogOptions {
   level?: LogLevel
-  /** Scope prefix, e.g. `avstudio` or `engine`. */
+  /** Scope prefix, e.g. `mediabase` or `plugins`. */
   scope?: string
   sink?: LogSink
   /** Timestamps on/off for the default stderr sink (records always carry time). */

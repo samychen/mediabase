@@ -32,8 +32,8 @@ export const name = 'my-plugin'
 export const api = { sum: (xs: number[]) => xs.reduce((a, b) => a + b, 0) }   // 宿主可 plugins.call
 export function apply(ctx) {
   ctx.log.info('启动', { id: ctx.id })
-  ctx.events.on('media.play.tick', (p) => ctx.log.info('tick', { p }))          // 订阅不需要服务权限
-  return ctx.services.media.probe({ file: '/tmp/a.mp4' })                       // 仅限 requires 声明的服务
+  ctx.events.on('demo.tick', (p) => ctx.log.info('tick', { p }))          // 订阅不需要服务权限
+  return ctx.services.api.list()                       // 仅限 requires 声明的服务
 }
 ```
 
@@ -45,12 +45,12 @@ export function apply(ctx) {
 (只有这一套消息)。真正的权限隔离需要容器/seccomp 一类机制,不在本仓范围内。
 
 配置:`isolation: 'process'`(目录条目)、`restarts: n`(崩溃后重启次数,默认 0 = 保持停止并显示错误)、
-`config`(结构化克隆给插件);沙箱入口由组合层注入(`AVSTUDIO_SANDBOX_ENTRY`,打包版是
+`config`(结构化克隆给插件);沙箱入口由组合层注入(`${prefix}SANDBOX_ENTRY`,打包版是
 `Resources/sandbox/sandbox.cjs`,仓库内是 TS 源码走 tsx)。
 
 ## 最小权限(`requires`)
 
-每个条目可以声明 `requires: ['media', …]`。声明后:
+每个条目可以声明 `requires: ['api', …]`。声明后:
 
 - 模块拿到的**不是**宿主 ctx,而是它自己 fiber ctx 的受限代理:框架成员
   (`effect`/`reflect`/`events`/`get`/`plugin`/`isolate` …)始终可用,其它属性一律拒绝,
@@ -61,6 +61,6 @@ export function apply(ctx) {
 
 **这不是安全沙箱**:插件与宿主同进程、同权限,`require('node:fs')` 之类照样能拿到。
 它是**最小权限 + 可审计**:越权访问会立刻失败,加载/卸载都有 `ctx.log` 审计
-(`avstudio.plugins` 作用域)。真正的进程隔离(worker/子进程 + RPC 桥)仍未做。
+(`mediabase.plugins` 等日志作用域)。进程沙箱见上文 `isolation: 'process'`;OS 级限制见 `@mediabase/confine`。
 
 未声明 `requires` 的条目保持旧的"完整 ctx"行为(向后兼容);新写的运行时插件应显式声明。

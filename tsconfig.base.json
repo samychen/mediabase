@@ -1,4 +1,4 @@
-// avstudio shared TypeScript base — trimmed from deepseek-harness/tsconfig.base.json
+// mediabase shared TypeScript base — trimmed from deepseek-harness/tsconfig.base.json
 // (keeps the same strictness spine: strict, noUncheckedIndexedAccess,
 // exactOptionalPropertyTypes, noUnusedLocals/Parameters, allowImportingTsExtensions).
 {

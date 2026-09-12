@@ -1,6 +1,8 @@
-# 依赖边界:每样东西在哪一层、怎么换掉它
+# 依赖边界（基座视角）
 
-本仓有**四个进程/世界**,依赖按"离媒体多近"分层。搞清楚边界后,"换掉 ffmpeg""不用 MediaComponent"
+> **产品/引擎相关内容已迁至消费仓（如 avstudio）；本仓为中立基座。**
+
+消费仓的完整产品常见**四个进程/世界**（基座只覆盖宿主+浏览器）,依赖按"离媒体多近"分层。搞清楚边界后,"换掉 ffmpeg""不用 MediaComponent"
 这类需求的改动面是可以精确到文件的 —— 这张表就是为此写的。
 
 ```
@@ -123,7 +125,7 @@ MediaComponent 代码。代价:必须有 ffmpeg 在 PATH(或设 `AVSTUDIO_FFMPEG
 | `PORT` / `AVSTUDIO_DIST_INDEX` / `AVSTUDIO_TOKEN` / `AVSTUDIO_READONLY` / `AVSTUDIO_ACL_ALLOW` / `AVSTUDIO_ACL_DENY` | `@mediabase/server` | 监听、静态目录、鉴权、方法级 ACL |
 | `AVSTUDIO_HELLO` / `AVSTUDIO_SANDBOX_ENTRY` / `AVSTUDIO_SANDBOX_HELLO` | `@mediabase/plugins` | 插件目录条目与沙箱入口 |
 | `AVSTUDIO_SANDBOX_CONFINE_REQUIRED` | `@mediabase/plugins` + `@mediabase/confine` | `1` = 限制无法完全生效时拒绝加载沙箱插件(fail closed) |
-| `AVSTUDIO_PLUGIN_DATA_ROOT` | `@mediabase/plugins` | 受限插件的数据目录根(默认 `~/.avstudio`,不可写则依次回退) |
+| `AVSTUDIO_PLUGIN_DATA_ROOT` | `@mediabase/plugins` | 受限插件的数据目录根(默认身份 home，基座为 `~/.mediabase`) |
 | `AVSTUDIO_CROSS_ORIGIN_ISOLATION` | `@mediabase/server` + `@mediabase/gateway` | `1` = 发 COOP/COEP/CORP,页面才能用 `SharedArrayBuffer`(共享内存环前置条件) |
 | `AVSTUDIO_CAPABILITY_DIR` / `AVSTUDIO_STRICT_CAPABILITIES` | `apps/cli`(组合层) | drop-in 能力、启动门禁 |
 | `AVSTUDIO_LLM_*` | `@mediabase/agent` | 模型端点(可被 `ctx.settings` 覆盖) |

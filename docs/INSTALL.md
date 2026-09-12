@@ -1,40 +1,27 @@
-# AVStudio packaging & install
+# mediabase packaging & install
 
-> TL;DR: today avstudio ships as **source + toolchain** (Mode B). There is no
-> one-click installer yet; that needs Mode A (Tauri) or Node bundling, which
-> are still scaffolding (see `desktop/README.md`). This page documents what
-> works right now. 中文完整版见 `INSTALL.zh.md`。
+> **产品/引擎相关内容已迁至消费仓（如 avstudio）；本仓为中立基座。**
 
-## Ship contents
 
-engine binary (`engine/bin/engine`, machine/architecture specific — it links
-MediaComponent + local brew/system libs), native plugin
-(`engine/bin/plugins/checker.<dylib|so>`), web bundle (`apps/web/dist`), Node
-host source (`apps/cli` + `packages`), python sidecar (`python/sidecar`), and
-`pnpm-lock.yaml`.
+## Ship contents (this base)
 
-## Install on a new machine (recommended)
+Host packages (`@mediabase/*`), web bundle (`apps/web/dist`), thin CLI, optional
+Electron shell template, and `pnpm-lock.yaml`. **No** C++ engine or product
+sidecars — those stay in consumer repos.
 
-1. Prereqs: Node ≥ 20, pnpm, C++ compiler, python3, ffmpeg (or
-   `AVSTUDIO_FFMPEG`); cmake optional. `pnpm doctor` tells you what's missing.
-2. Get the source (clone, or the tarball from `pnpm run package`).
-3. `pnpm install && pnpm doctor`
-4. **Rebuild for THIS machine**: `pnpm run build:engine` (falls back to the
-   ffmpeg-CLI decode path automatically when MediaComponent is absent) and
-   `pnpm run build:web`.
-5. `pnpm run host` → open http://127.0.0.1:3088 (change port with `PORT=`).
+## Install on a new machine
 
-Do **not** copy the engine binary across machines — always rebuild (step 4).
+1. Prereqs: Node ≥ 20, pnpm. `pnpm doctor` reports what is missing for the base.
+2. `pnpm install`
+3. `pnpm run build:web` (optional if you only need the host smoke)
+4. `pnpm run host` → http://127.0.0.1:3088 (`PORT=` to change; env prefix
+   `MEDIABASE_`).
 
-## Source distribution tarball
+## Packaging
 
-`pnpm run package` → `release/avstudio-src-<version>.tar.gz` (source + built
-artifacts, minus node_modules/.git/build dirs).
+- `pnpm run build:base` / `build:host` / `package` — base artifacts (MIT-friendly;
+  default Electron resources exclude an engine).
+- Product installers, native rebuilds, and GPL bundling: see the consumer repo.
 
-## Real installers (not done yet)
-
-- Mode A (Tauri): scaffold only — needs Rust compile, Node sidecar bundling,
-  icons, signing (desktop/README.md).
-- Node SEA/single-binary host: not started (needs an esbuild pass first).
-
-Full troubleshooting in `INSTALL.zh.md` §5.
+Full Chinese notes in `INSTALL.zh.md` (historical product steps may remain below
+the banner — treat engine sections as consumer-facing).

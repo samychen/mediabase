@@ -1,6 +1,6 @@
 // Access control + plugin least privilege.
 //
-// Honest scope: AVStudio runs the host as a LOCAL service for one user, so
+// Honest scope: the host runs as a LOCAL service for one user, so
 // `MEDIABASE_TOKEN` is a local trust boundary (another process on the machine),
 // not a login system — the base has no TLS, sessions or user model. What is
 // checked here:
@@ -193,7 +193,7 @@ export function apply(ctx) {
     const descriptor = await ctx.plugins.load('greeter')
     expect(descriptor).toMatchObject({ id: 'greeter', state: 'loaded' })
     expect(ctx.reflect.get('greeter')).toBeDefined()
-    // the manager audits load/unload through ctx.log (scope: avstudio.plugins)
+    // the manager audits load/unload through ctx.log (scoped child logger)
     expect(records.some((r) => r.msg.includes('插件已加载') && r.scope === 'mediabase.plugins')).toBe(true)
 
     await ctx.plugins.unload('greeter')

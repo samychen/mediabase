@@ -1,14 +1,14 @@
 # @mediabase/agent
 
-Host plugin: **LLM agent loop** (`ctx.agent`) over the same tools the WS control
-plane exposes. OpenAI-compatible function calling: the model plans steps, we run
-them through `ctx.media` / `ctx.python` / `ctx.workflow`, feed results back, and
-loop until the model answers.
+Host plugin: **LLM agent loop** (`ctx.agent`) over whatever tools the host tool
+registry currently exposes. OpenAI-compatible function calling: the model plans
+steps, we run them through `ctx.tools`, feed results back, and loop until the
+model answers.
 
-Runtime config (env, composed by `apps/cli`):
-`AVSTUDIO_LLM_BASE` (default `https://api.deepseek.com/v1`) · `AVSTUDIO_LLM_KEY` ·
-`AVSTUDIO_LLM_MODEL` (default `deepseek-chat`).
+Runtime config comes from the composition row via short env names
+(`LLM_BASE` / `LLM_KEY` / `LLM_MODEL` → `${prefix}…`). Base default prefix is
+`MEDIABASE_`; a product that boots with `AVSTUDIO_` reads `AVSTUDIO_LLM_*` instead.
 
-Tools the model can call: `media.probe`, `media.decode`, `python.run`,
-`workflow.run`. Verified against a mock OpenAI-compatible endpoint in the host
-integration suite; a real endpoint only needs the env vars above.
+Which tools the model can call is entirely registry-driven — this package hard-codes
+none. Verified against a mock OpenAI-compatible endpoint in tests; a real endpoint
+only needs the env vars above.

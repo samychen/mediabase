@@ -1,10 +1,12 @@
-# 许可证与分发合规(licensing)
+# 许可证与分发合规
+
+> **产品/引擎相关内容已迁至消费仓（如 avstudio）；本仓为中立基座。**
 
 ## 结论速览
 
 | 部分 | 许可 | 能不能随安装包分发 |
 |---|---|---|
-| 本仓库全部自有代码(26 个包 + apps + engine 源码 + 脚本) | **MIT**(根目录 `LICENSE`) | ✅ 可以 |
+| 本仓库自有代码（`@mediabase/*` + apps + 脚本；无 engine） | **MIT**(根目录 `LICENSE`) | ✅ 可以 |
 | npm 运行时依赖(cordis / cosmokit / schemastery / react / react-dom / scheduler / ws / js-tokens / loose-envify / standard-schema) | **全部 MIT**(`pnpm licenses list --prod` 实测) | ✅ 可以 |
 | **FFmpeg**(引擎静态链接 + 打包脚本会拷进 app bundle) | 取决于**那份 FFmpeg 的构建参数** | ⚠️ **当前这份不行** —— 见下 |
 | MediaComponent(本机检出 `/Users/chensi/develop/MediaComponent`) | 以该仓库自身许可为准(此仓库未声明 license 文件) | 视其许可而定 |

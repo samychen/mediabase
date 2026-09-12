@@ -59,7 +59,7 @@ file: !!js ctx.env.str('SETTINGS_FILE')
 
 | 字段 | 类型 | 必填 | 默认 | 说明 |
 |---|---|---|---|---|
-| `file` | string | no |  | settings JSON path; default ~/.mediabase/settings.json |
+| `file` | string | no |  | settings JSON path; default <appPaths.home>/settings.json |
 
 ## `tools` — `@mediabase/tools`
 

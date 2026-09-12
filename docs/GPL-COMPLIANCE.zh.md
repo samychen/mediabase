@@ -1,6 +1,8 @@
-# 路线 3:GPL 分发合规清单(已选)
+# GPL 分发合规说明
 
-本仓选择 **整体按 GPL 分发**(引擎静态链接 FFmpeg + x264 ⇒ 整个分发包受 GPL 约束),
+> **产品/引擎相关内容已迁至消费仓（如 avstudio）；本仓为中立基座。**
+
+消费仓若链接 FFmpeg/x264，可能选择 **整体按 GPL 分发**(引擎静态链接 FFmpeg + x264 ⇒ 整个分发包受 GPL 约束),
 自有代码仍为 MIT(见 `LICENSE`;MIT 与 GPLv3 兼容,可包含在 GPL 分发物中)。
 
 **但 GPL 不代表什么都能带**:`--enable-nonfree`(fdk-aac)的 FFmpeg 构建按 FFmpeg 自身

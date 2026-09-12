@@ -2,7 +2,7 @@
 //
 // Provides ctx.tools: capability packages register tools here once —
 // { name, description, params?, execute } — and generic consumers
-// (@avstudio/workflow, @mediabase/agent) only know the registry: adding a
+// (product workflow runners, @mediabase/agent) only know the registry: adding a
 // capability no longer requires editing core dispatch code.
 //
 // `params` is an @mediabase/schema (schemastery) schema, not a hand-written JSON

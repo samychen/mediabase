@@ -167,7 +167,7 @@ export function apply(ctx: Context): void {
           handshake.compatible = handshake.host === null ? null : handshake.host === CONTROL_PROTOCOL_VERSION
           if (handshake.compatible === false) {
             console.error(
-              `[avstudio] 控制面协议不匹配:宿主 v${String(handshake.host)} vs 客户端 v${CONTROL_PROTOCOL_VERSION}` +
+              `[mediabase] 控制面协议不匹配:宿主 v${String(handshake.host)} vs 客户端 v${CONTROL_PROTOCOL_VERSION}` +
               '(请把宿主与前端一起升级)',
             )
           }
