@@ -17,8 +17,9 @@ import { CLIENT_ROSTER } from './roster.generated.ts'
 const ctx = new Context()
 for (const entry of CLIENT_ROSTER) {
   // Mount order comes from the roster: a registry before whatever registers into it, the
-  // shell last (the roster file and `pnpm run verify:compose` state why).
-  ctx.plugin(entry.plugin)
+  // shell last (the roster file and `pnpm run verify:compose` state why). Optional
+  // `config` (e.g. shell title) is passed through — same gesture as a host row.
+  ctx.plugin(entry.plugin, entry.config)
 }
 
 // expose for devtools / debugging

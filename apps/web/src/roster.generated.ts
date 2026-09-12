@@ -14,8 +14,11 @@ import * as plugin3 from '@mediabase/ui-web'
 /** A client plugin module, as the roster names it. */
 export type ClientPlugin = Plugin.Object
 
+/** One roster row: optional config is passed to `ctx.plugin` (e.g. shell title). */
+export type ClientRosterEntry = { id: string; name: string; plugin: ClientPlugin; config?: Record<string, unknown> }
+
 /** The browser roster in MOUNT ORDER: registries first, the shell last. */
-export const CLIENT_ROSTER: ReadonlyArray<{ id: string; name: string; plugin: ClientPlugin }> = [
+export const CLIENT_ROSTER: ReadonlyArray<ClientRosterEntry> = [
   { id: 'connection', name: '@mediabase/connection', plugin: plugin0 as ClientPlugin },
   { id: 'i18n', name: '@mediabase/i18n', plugin: plugin1 as ClientPlugin },
   { id: 'ui', name: '@mediabase/ui', plugin: plugin2 as ClientPlugin },

@@ -78,7 +78,7 @@ function renderPanel(panel: UiPanel, ctx: Context, title: boolean, t: (key: stri
   )
 }
 
-export function App({ ctx }: { ctx: Context }): JSX.Element {
+export function App({ ctx, title = 'Mediabase' }: { ctx: Context; title?: string }): JSX.Element {
   const ui = ctx.get('ui')
   // Translating the shell is a subscription: switching locale re-renders every
   // registered panel (they read the same store through useI18n).
@@ -91,7 +91,7 @@ export function App({ ctx }: { ctx: Context }): JSX.Element {
     <div className="app">
       <div className="panel">
         <h1>
-          Mediabase
+          {title}
           {header.map((panel) => (
             <Fragment key={panel.id}>
               <PanelBoundary label={panel.id} t={t}>{createElement(panel.component, { ctx })}</PanelBoundary>

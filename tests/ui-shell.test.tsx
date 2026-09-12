@@ -52,7 +52,7 @@ describe('<App/> shell', () => {
     container = document.createElement('div')
     document.body.appendChild(container)
     root = createRoot(container)
-    await act(async () => { root.render(createElement(App, { ctx })) })
+    await act(async () => { root.render(createElement(App, { ctx, title: 'Mediabase' })) })
   })
 
   afterEach(async () => {
@@ -65,6 +65,12 @@ describe('<App/> shell', () => {
   it('renders an empty but working shell when no capability registered a panel', () => {
     expect(container.textContent).toContain('Mediabase')
     expect(container.textContent).toContain('未注册任何面板')
+  })
+
+  it('uses the configured title when the product passes one', async () => {
+    await act(async () => { root.render(createElement(App, { ctx, title: 'AVStudio' })) })
+    expect(container.textContent).toContain('AVStudio')
+    expect(container.textContent).not.toContain('Mediabase')
   })
 
   it('renders a panel registered AFTER mount, and drops it on unregister', async () => {

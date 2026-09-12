@@ -132,7 +132,8 @@ export function isClientRoster(file) {
  * Validate a client roster: the browser's composition, in the same row shape.
  *
  * A roster has no patch step (nothing to override at runtime in a page that is built), so a
- * row is exactly `id` + `name`, and mount ORDER is the whole meaning of the file — which is
+ * row is `id` + `name` plus an optional plain `config` object (no `!!js` — the page never
+ * evaluates loader expressions), and mount ORDER is the whole meaning of the file — which is
  * why the shell's position is checked against the manifest's own `mediabase.uiBundle.shell`
  * (with a legacy `avstudio.uiBundle.shell` fallback) rather than trusted to a comment.
  */
@@ -156,8 +157,23 @@ export function checkClientRoster(file) {
   entries.forEach((entry, index) => {
     const path = `[${index}]`
     if (!isRecord(entry) || typeof entry.id !== 'string' || typeof entry.name !== 'string') {
-      fail(file, `${path} 客户端名册每行只能是 id + name(页面里没有 patch 这一步)`)
+      fail(file, `${path} 客户端名册每行需要 id + name(可选 config)`)
       return
+    }
+    const keys = Object.keys(entry)
+    for (const key of keys) {
+      if (key !== 'id' && key !== 'name' && key !== 'config') {
+        fail(file, `${path} 客户端名册不允许字段 "${key}"(只认 id/name/config)`)
+      }
+    }
+    if ('config' in entry) {
+      if (!isRecord(entry.config) || Array.isArray(entry.config)) {
+        fail(file, `${path}.config 必须是对象`)
+      } else {
+        for (const where of jsExprPaths(entry.config)) {
+          fail(file, `${path}.config 里有 !!js 表达式(${where}):页面不会对名册求值`)
+        }
+      }
     }
     if (ids.has(entry.id)) fail(file, `客户端插件 id "${entry.id}" 重复`)
     ids.add(entry.id)

@@ -261,6 +261,9 @@ importers:
       '@mediabase/i18n':
         specifier: workspace:^
         version: link:../i18n
+      '@mediabase/schema':
+        specifier: workspace:^
+        version: link:../../base/schema
       '@mediabase/ui':
         specifier: workspace:^
         version: link:../ui
