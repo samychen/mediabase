@@ -4,19 +4,15 @@ node_modules/
 
 # Builds / generated
 apps/web/dist/
-engine/bin/
 
 # Logs / runtime
 *.log
 # runtime state a running host creates (confined plugins get a data dir here)
-.avstudio/
+.mediabase/
 .DS_Store
 
 # scratch dirs created by tests
 tests/.tmp-plugins/
-
-# CMake build dir
-engine/build*/
 
 # source distribution
 release/

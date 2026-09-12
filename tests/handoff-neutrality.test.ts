@@ -12,7 +12,12 @@
 //      connection/i18n do not hard-default to `.avstudio` paths or `avstudio:` storage keys;
 //   4. anything that IS deployment-specific is confined to a marked block, so a fork has
 //      one place to edit (verified by the marker being present);
-//   5. the app shell (Electron main.cjs) keeps its identity in the PRODUCT block.
+//   5. the app shell (Electron main.cjs) keeps its identity in the PRODUCT block;
+//   6. the files a consumer actually RECEIVES (NOTICE.md, the packaged licence notice,
+//      the licensing docs) describe the base, not one product's engine — no machine
+//      paths, no product prefix, no "our engine ships ffmpeg" claims;
+//   7. every package.json version equals the root version, so a release tag cannot
+//      describe a tree that disagrees with it.
 
 import { readFileSync, readdirSync, statSync } from 'node:fs'
 import { join } from 'node:path'
@@ -157,4 +162,43 @@ describe('handoff neutrality', () => {
     const shell = read('packaging/desktop-electron/main.cjs')
     expect(shell).toMatch(/for \(const \[key, packaged, dev\] of PRODUCT\.resources\)/)
   })
+
+  it('ships notices that describe this base, not a product engine', () => {
+    // The generated NOTICE is handed to whoever receives the app; a product's engine
+    // measurements have no business in it.
+    const notice = read('NOTICE.md')
+    expect(notice).not.toMatch(ABSOLUTE_PATH)
+    expect(notice).not.toMatch(/\/opt\/homebrew/)
+    expect(notice).not.toMatch(/AVSTUDIO|MEDIACOMPONENT|MediaComponent|fdk-aac|x264/)
+    expect(notice).toContain('base-only')
+
+    // The packaged distribution notice must describe the default (no native binaries)
+    // and tell a consumer where THEIR obligations start — never claim a GPL distribution
+    // this template does not produce.
+    const shipped = read('packaging/desktop-electron/GPL-NOTICE.txt')
+    expect(shipped).not.toMatch(ABSOLUTE_PATH)
+    expect(shipped).not.toMatch(/AVSTUDIO|MEDIACOMPONENT|MediaComponent/)
+    expect(shipped).toContain('PRODUCT.resources')
+    expect(shipped).toContain('MIT')
+    expect(shipped).toContain('--enable-nonfree')
+  })
+
+  it('keeps the licensing docs free of one machine and one engine', () => {
+    for (const file of [
+      'docs/LICENSING.zh.md',
+      'docs/GPL-COMPLIANCE.zh.md',
+      'docs/DEPENDENCIES.zh.md',
+    ]) {
+      const source = read(file)
+      expect(source, `${file} carries a machine path`).not.toMatch(ABSOLUTE_PATH)
+      expect(source, `${file} carries a homebrew path`).not.toMatch(/\/opt\/homebrew/)
+      expect(source, `${file} quotes a machine-specific build root`).not.toContain('MEDIACOMPONENT_ROOT')
+    }
+    // The native scanner is part of the template, so it must read the BASE prefix.
+    expect(read('packaging/desktop-electron/scripts/prepare-ffmpeg.mjs')).not.toContain('AVSTUDIO')
+    // …and `check:native` must exist, because the docs tell a consumer to run it.
+    const scripts = (JSON.parse(read('package.json')) as { scripts: Record<string, string> }).scripts
+    expect(scripts['check:native']).toBeDefined()
+  })
+
 })

@@ -118,7 +118,15 @@ export function apply(ctx: Context, rawConfig: ServerConfig): void {
   void gateway.ready()
     .then(() => {
       const auth = config.token !== undefined ? ' · 已启用 token 校验' : ''
-      log.info(`宿主就绪: http://${config.host ?? '127.0.0.1'}:${gateway.port()}  (ws /rpc, ws /stream, 帧 /api/preview.rgb)${auth}`)
+      // Report what the registries actually hold — the base names no capability, so it
+      // must not advertise one product's data-plane route in its own ready line.
+      const methods = ctx.api.list().length
+      const channels = Object.keys(ctx.api.streamMap()).length
+      const routes = ctx.api.routes().length
+      log.info(
+        `宿主就绪: http://${config.host ?? '127.0.0.1'}:${gateway.port()}  ` +
+          `(ws /rpc ${methods} 方法, ws /stream ${channels} 通道, /api/* ${routes} 条数据面路由)${auth}`,
+      )
     })
     .catch((e) => {
       log.error('宿主监听失败', { error: e instanceof Error ? e.message : String(e) })

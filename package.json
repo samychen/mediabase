@@ -7,6 +7,7 @@
     "build:web": "node scripts/gen-client-roster.mjs && pnpm --filter @mediabase/web run build",
     "build:base": "node scripts/build-base.mjs",
     "notice": "node scripts/notice.mjs",
+    "check:native": "node scripts/check-native-licenses.mjs",
     "build": "pnpm run build:web",
     "host": "tsx apps/cli/src/index.ts",
     "dev": "pnpm run build:web && tsx apps/cli/src/index.ts",

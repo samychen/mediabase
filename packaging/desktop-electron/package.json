@@ -67,6 +67,18 @@
       {
         "from": "../../NOTICE.md",
         "to": "licenses/NOTICE.md"
+      },
+      {
+        "from": "LICENSE-MIT.txt",
+        "to": "licenses/LICENSE-MIT.txt"
+      },
+      {
+        "from": "LICENSE-GPL-3.0.txt",
+        "to": "licenses/LICENSE-GPL-3.0.txt"
+      },
+      {
+        "from": "GPL-NOTICE.txt",
+        "to": "licenses/GPL-NOTICE.txt"
       }
     ],
     "mac": {

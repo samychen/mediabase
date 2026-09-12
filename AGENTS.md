@@ -44,8 +44,10 @@ packages/    packages/<face>/<capability> (DSH convention).
 packaging/   desktop-electron: generic shell + sample PRODUCT block (no engine)
 scripts/     build-base · build-host · verify:compose · verify:base · notice · …
 tests/       package + composition + handoff-neutrality (no engine required)
-.agents/     agent skills (mirrored under .claude/)
 ```
+
+This repo ships **no** agent notes or repo-local skills: `.agents/notes` and the
+`.agents/skills` set describe a *product's* history and belong to the consumer repo.
 
 Product layers (elsewhere) typically add: domain packages, a C++/native engine, a
 product protocol package, media/preview UI, and profile bundles stacked **after**
@@ -240,8 +242,12 @@ base scripts product-free, `@mediabase/*` never importing a product scope). Keep
 true: a change that makes a base-usable script product-specific belongs in the
 consumer repo.
 
-## Agent notes
+## Where design decisions live
 
-Design decisions worth keeping live can be recorded under `.agents/notes/`
-(proposed → implemented). Notes are evidence, not gospel; a later, better
-argument wins over an old note.
+This base has **no** `.agents/notes/` and **no** repo-local skills: a base that is
+handed to many consumers must not carry one product's history. Decisions that a
+consumer or a future maintainer needs are written into the durable docs —
+`docs/FRAMEWORK.zh.md` (what is reusable, what stayed product-side),
+`docs/HANDOFF.zh.md` (adoption checklist), `docs/CONFIG-CATALOG.md` (generated row
+contracts), `docs/STATUS.zh.md` (deliberate deltas from DSH) — or into this file as
+a rule. Anything else is a commit message.
