@@ -1,17 +1,18 @@
-// avstudio / scripts / package.mjs
+// mediabase / scripts / package.mjs
 //
 // Builds a portable SOURCE distribution tarball (Mode B style). Honest scope:
 // this project today ships as "source + toolchain", not a binary installer — the
-// tarball carries the built artifacts (engine binary + plugins, web dist,
-// python sidecar) plus the full source & lockfile, and the target machine
-// runs `pnpm install` + (optional) `pnpm run build:engine` to fit its own
-// toolchain. See docs/INSTALL.zh.md for the full packaging story.
+// tarball carries the built artifacts (web dist when present) plus the full
+// source & lockfile, and the target machine runs `pnpm install` to fit its own
+// toolchain.
 //
-// Run: pnpm run package   ->  release/avstudio-src-<version>.tar.gz
+// Soft-skip note: engine/ is optional in a base checkout; absence is fine.
+//
+// Run: pnpm run package   ->  release/mediabase-src-<version>.tar.gz
 
 import { execFileSync } from 'node:child_process'
 import { existsSync, mkdirSync } from 'node:fs'
-import { dirname, join } from 'node:path'
+import { join } from 'node:path'
 import { fileURLToPath } from 'node:url'
 
 const ROOT = fileURLToPath(new URL('..', import.meta.url))

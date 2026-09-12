@@ -56,8 +56,8 @@ const probe = (available: Probe['available'], unavailable: Probe['unavailable'] 
 
 describe('@mediabase/confine: the plan is the policy, as text', () => {
   it('realpath-resolves roots (an unresolved symlink denies what it meant to allow)', () => {
-    const target = tempDir('avstudio-confine-target-')
-    const link = join(tempDir('avstudio-confine-link-'), 'link')
+    const target = tempDir('mediabase-confine-target-')
+    const link = join(tempDir('mediabase-confine-link-'), 'link')
     symlinkSync(target, link)
     mkdirSync(join(target, 'sub'), { recursive: true })
     const roots = resolveRoots({ read: [link], write: [join(link, 'sub')] })
@@ -225,7 +225,7 @@ export const api = {
     await attempt('read-outside', () => readFileSync('/etc/hosts', 'utf8').length)
     await attempt('read-module', () => readFileSync(new URL(import.meta.url).pathname, 'utf8').length)
     await attempt('write-data-dir', () => writeFileSync(join(dataDir, 'probe.txt'), 'ok'))
-    await attempt('write-outside', () => writeFileSync('/tmp/avstudio-confinement-should-not-exist.txt', 'x'))
+    await attempt('write-outside', () => writeFileSync('/tmp/mediabase-confinement-should-not-exist.txt', 'x'))
     await attempt('spawn', () => execSync('echo should-not-run'))
     await attempt('worker', () => new Worker('1', { eval: true }))
     await attempt('network', () => new Promise((resolve, reject) => {
@@ -272,7 +272,7 @@ async function compose(entry: PluginEntry): Promise<Fixture> {
   await ctx.plugin(plugins, {
     catalog: [entry],
     root: ROOT,
-    dataRoot: join(tempDir('avstudio-plugin-data-'), 'data'),
+    dataRoot: join(tempDir('mediabase-plugin-data-'), 'data'),
     // The SAME entry resolution the app uses (a confined child cannot start under
     // a worker-based transpiler loader — see @mediabase/confine).
     sandbox: { ...sandboxEntryFor(ROOT, {})!, applyTimeoutMs: 15_000, callTimeoutMs: 15_000 },

@@ -25,7 +25,7 @@ afterEach(() => {
   while (made.length > 0) rmSync(made.pop()!, { recursive: true, force: true })
 })
 
-function tempDir(prefix = 'avstudio-settings-'): string {
+function tempDir(prefix = 'mediabase-settings-'): string {
   const dir = mkdtempSync(join(tmpdir(), prefix))
   made.push(dir)
   return dir

@@ -1,4 +1,4 @@
-// avstudio / scripts / build-host-bundle.mjs
+// mediabase / scripts / build-host-bundle.mjs
 //
 // Bundles the Node host (apps/cli + workspace packages, tsx-free) into a single
 // file for packaging (plain `node build/host.cjs`, Node SEA, or an Electron child

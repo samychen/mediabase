@@ -1,4 +1,4 @@
-// avstudio / vitest config — unit + integration suites in tests/.
+// mediabase / vitest config — unit + integration suites in tests/.
 // Integration tests spawn real processes (engine binary, whole host), so time
 // out generously. Files inside a file run sequentially (default). Client-shell
 // suites opt into jsdom with a `// @vitest-environment jsdom` docblock.

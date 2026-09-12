@@ -20,28 +20,9 @@ jobs:
           node-version: 22
           cache: pnpm
 
-      # MediaComponent is a local checkout (machine-specific), so CI builds the
-      # engine in ffmpeg-CLI fallback mode. The suite adapts: it asks the engine
-      # (`caps`) what the build supports and skips only the MediaComponent-only
-      # cases (extended metadata, streaming sessions) instead of failing.
-      - name: Install system deps
-        run: sudo apt-get update && sudo apt-get install -y --no-install-recommends ffmpeg
-
       - run: pnpm install --no-frozen-lockfile
         env:
           CI: 'true'
-
-      - name: Build engine (no MediaComponent -> CLI fallback)
-        run: pnpm run build:engine
-
-      - name: Build web
-        run: pnpm run build:web
-
-      # Distribution gate: the engine CI just built links NO static FFmpeg (no
-      # MediaComponent on the runner) and no ffmpeg binary is bundled, so this must pass —
-      # it is the same check `pnpm run dist` runs before packaging a DMG.
-      - name: Native licence gate (distribution-clean engine)
-        run: AVSTUDIO_BUNDLE_FFMPEG=0 node scripts/check-native-licenses.mjs --gate
 
       - name: Typecheck (host + client + tests)
         run: pnpm run typecheck
@@ -56,24 +37,22 @@ jobs:
       - name: Composition gate
         run: pnpm run verify:compose
 
-      - name: Test (rpc + registries + supervision + UI + engine + host)
+      - name: Test (rpc + registries + UI + host; browserless)
         run: pnpm test
         env:
           CI: 'true'
+          MEDIABASE_NO_BROWSER: '1'
 
-      # Boot gate: every capability's manifest must match what it actually
-      # registered. Strict mode turns a lying declaration into a non-zero exit,
-      # so a capability that forgets to expose an API method fails CI instead of
-      # shipping a method-not-found to users.
-      # The single-file host composes from its own closed runtime (bundled modules beside
-      # the bundle). Booted here because the failure mode is invisible until packaged: with
-      # `@mediabase/rpc` bundled per plugin, every capability error came back as -32603 and the
-      # error-contract checks below catch exactly that.
+      - name: Build web
+        run: pnpm run build:web
+
+      # Boot gate: the single-file host composes from its closed runtime. Base-only
+      # — no engine build.
       - name: Single-file host boots from its closed runtime
         run: |
           set -euo pipefail
           pnpm run build:host
-          AVSTUDIO_HOME="$RUNNER_TEMP/avstudio-bundle-home" PORT=3098 AVSTUDIO_SAMPLES_DIRS=/tmp \
+          MEDIABASE_HOME="$RUNNER_TEMP/mediabase-bundle-home" PORT=3098 \
             node build/host.cjs > /tmp/hostbundle.log 2>&1 &
           host=$!
           for i in $(seq 1 40); do
@@ -81,7 +60,7 @@ jobs:
             if ! kill -0 "$host" 2>/dev/null; then echo 'host bundle exited early'; cat /tmp/hostbundle.log; exit 1; fi
             sleep 1
           done
-          AVSTUDIO_URL=http://127.0.0.1:3098 node scripts/verify.base.mjs
+          MEDIABASE_URL=http://127.0.0.1:3098 node scripts/verify.base.mjs
           kill -TERM "$host"
           wait "$host" || true
           cat /tmp/hostbundle.log
@@ -89,9 +68,8 @@ jobs:
       - name: Boot with strict capability verification
         run: |
           set -euo pipefail
-          # A throwaway profile home: the composition reads (and creates) one on first boot.
-          PORT=3099 AVSTUDIO_STRICT_CAPABILITIES=1 AVSTUDIO_DIST_INDEX=apps/web/dist/index.html \
-            AVSTUDIO_HOME="$RUNNER_TEMP/avstudio-home" \
+          PORT=3099 MEDIABASE_STRICT_CAPABILITIES=1 MEDIABASE_DIST_INDEX=apps/web/dist/index.html \
+            MEDIABASE_HOME="$RUNNER_TEMP/mediabase-home" \
             node --import tsx apps/cli/src/index.ts > /tmp/host.log 2>&1 &
           host=$!
           for i in $(seq 1 40); do

@@ -20,7 +20,7 @@ afterEach(() => {
 })
 
 const home = (): string => {
-  const dir = mkdtempSync(join(tmpdir(), 'avstudio-dump-'))
+  const dir = mkdtempSync(join(tmpdir(), 'mediabase-dump-'))
   made.push(dir)
   return dir
 }

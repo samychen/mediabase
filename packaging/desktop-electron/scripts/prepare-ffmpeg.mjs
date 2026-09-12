@@ -1,9 +1,11 @@
 // packaging/desktop-electron/scripts/prepare-ffmpeg.mjs
 //
 // Copies a local ffmpeg binary into vendor-ffmpeg/ffmpeg so the packaged app can
-// run python tools (silence/loudness) and the engine's CLI fallback without a
-// shell PATH. Source: AVSTUDIO_FFMPEG env, else `which ffmpeg`, else the known
-// MediaComponent build. Run automatically by `pnpm run dist`.
+// run tools that need ffmpeg without a shell PATH. Source: MEDIABASE_FFMPEG env,
+// else `which ffmpeg`, else a MediaComponent build beside an engine/ tree.
+// Run automatically by `pnpm run dist` when that script exists.
+//
+// Soft-skip: when this checkout has no engine/ and bundling is not forced, exit 0.
 //
 // LICENSING: the app's own code is MIT, but the ffmpeg you bundle is NOT yours to
 // relicense. A build with `--enable-gpl` (libx264…) makes the whole binary GPL,
@@ -17,32 +19,38 @@ import { dirname, join } from 'node:path'
 import { fileURLToPath } from 'node:url'
 
 const HERE = dirname(fileURLToPath(import.meta.url))
+const ROOT = join(HERE, '..', '..', '..')
 const VENDOR = join(HERE, '..', 'vendor-ffmpeg', 'ffmpeg')
+const hasEngine = existsSync(join(ROOT, 'engine'))
 
 // MIT-clean path: ship NO native binary and let the app use the user's own ffmpeg
-// (the engine's ffmpeg-CLI fallback and the python tools both take AVSTUDIO_FFMPEG
-// / PATH). Set AVSTUDIO_BUNDLE_FFMPEG=0 for that; see docs/LICENSING.zh.md.
-if (process.env.AVSTUDIO_BUNDLE_FFMPEG === '0' || process.env.AVSTUDIO_BUNDLE_FFMPEG === 'false') {
+// (MEDIABASE_FFMPEG / PATH). Set MEDIABASE_BUNDLE_FFMPEG=0 for that.
+if (process.env.MEDIABASE_BUNDLE_FFMPEG === '0' || process.env.MEDIABASE_BUNDLE_FFMPEG === 'false') {
   rmSync(join(HERE, '..', 'vendor-ffmpeg'), { recursive: true, force: true })
-  console.log('[prepare-ffmpeg] AVSTUDIO_BUNDLE_FFMPEG=0 → 不捆绑 ffmpeg(分发包不含原生二进制,' +
-    '运行时会用用户自带的 ffmpeg;请确保目标机器已安装或设置 AVSTUDIO_FFMPEG)。')
+  console.log('[prepare-ffmpeg] MEDIABASE_BUNDLE_FFMPEG=0 → 不捆绑 ffmpeg(分发包不含原生二进制,' +
+    '运行时会用用户自带的 ffmpeg;请确保目标机器已安装或设置 MEDIABASE_FFMPEG)。')
+  process.exit(0)
+}
+
+if (!hasEngine && !process.env.MEDIABASE_FFMPEG) {
+  console.log('[prepare-ffmpeg] 本仓无 engine/ 且未设 MEDIABASE_FFMPEG —— 跳过捆绑(基座仓)')
   process.exit(0)
 }
 
 /**
  * Candidate locations, in order — no machine-specific paths:
- *   1. AVSTUDIO_FFMPEG (explicit),
+ *   1. MEDIABASE_FFMPEG (explicit),
  *   2. the ffmpeg next to the MediaComponent SDK the engine was CONFIGURED with
  *      (read from its CMake cache; also honoured via MEDIACOMPONENT_ROOT),
  *   3. `which ffmpeg`.
  */
 function candidates() {
   const out = []
-  if (process.env.AVSTUDIO_FFMPEG) out.push(process.env.AVSTUDIO_FFMPEG)
+  if (process.env.MEDIABASE_FFMPEG) out.push(process.env.MEDIABASE_FFMPEG)
   let mcRoot = process.env.MEDIACOMPONENT_ROOT
-  if (!mcRoot) {
+  if (!mcRoot && hasEngine) {
     try {
-      const cache = readFileSync(join(HERE, '..', '..', '..', 'engine', 'build', 'CMakeCache.txt'), 'utf8')
+      const cache = readFileSync(join(ROOT, 'engine', 'build', 'CMakeCache.txt'), 'utf8')
       const line = cache.split('\n').find((l) => l.startsWith('MEDIACOMPONENT_ROOT:'))
       if (line) mcRoot = line.slice(line.indexOf('=') + 1)
     } catch { /* no cache: engine built without it */ }
@@ -60,7 +68,7 @@ function candidates() {
 
 let src = candidates().find((c) => c && existsSync(c)) ?? ''
 if (!src || !existsSync(src)) {
-  console.error('[prepare-ffmpeg] 找不到 ffmpeg(设 AVSTUDIO_FFMPEG 或先安装)。python 工具在打包后会不可用。')
+  console.error('[prepare-ffmpeg] 找不到 ffmpeg(设 MEDIABASE_FFMPEG 或先安装)。')
   process.exit(1)
 }
 /** Read the source build's configuration flags to report license obligations. */
@@ -77,14 +85,12 @@ function ffmpegConfiguration(bin) {
 const configuration = ffmpegConfiguration(src)
 const gpl = configuration.includes('--enable-gpl')
 const nonfree = configuration.includes('--enable-nonfree')
-if (nonfree && process.env.AVSTUDIO_ALLOW_NONFREE !== '1') {
-  // Not a warning: `--enable-nonfree` (fdk-aac) makes the binary unredistributable
-  // per FFmpeg's own terms, so bundling it means the DMG cannot be given to anyone.
+if (nonfree && process.env.MEDIABASE_ALLOW_NONFREE !== '1') {
   console.error(
     '[prepare-ffmpeg] ❌ 拒绝捆绑:这份 ffmpeg 带 --enable-nonfree(fdk-aac),按 FFmpeg 条款不可再分发。\n' +
     '              修法:重建 FFmpeg 去掉 --enable-nonfree(docs/GPL-COMPLIANCE.zh.md),\n' +
-    '              或走"不发原生二进制"路线:AVSTUDIO_BUNDLE_FFMPEG=0 + 引擎 -DAVSTUDIO_USE_MEDIACOMPONENT=OFF,\n' +
-    '              仅本机自用可临时 AVSTUDIO_ALLOW_NONFREE=1。',
+    '              或走"不发原生二进制"路线:MEDIABASE_BUNDLE_FFMPEG=0,\n' +
+    '              仅本机自用可临时 MEDIABASE_ALLOW_NONFREE=1。',
   )
   process.exit(1)
 }

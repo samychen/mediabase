@@ -1,4 +1,4 @@
-// avstudio / scripts / gen-config-catalog.ts — every row's contract, in one file.
+// mediabase / scripts / gen-config-catalog.ts — every row's contract, in one file.
 //
 // A composition is data, and a capability's `Config` is the contract for its row. That is two
 // places to look for one answer ("what may this row say?"), and reading seven packages to
@@ -161,7 +161,7 @@ export function renderCatalogMarkdown(catalog: readonly CatalogEntry[]): string 
     '     Source: packages/bundle/app/cordis.patch.yml (the rows) + each capability\'s `Config`.',
     '     Regenerate: pnpm run gen:config-catalog; verify: pnpm test (or the --check flag). -->',
     '',
-    '# avstudio 配置目录(生成物)',
+    '# mediabase 配置目录(生成物)',
     '',
     '宿主由行组成,每行的"能给什么"由该能力的 `Config` 说了算。本文件从两处生成,因此不会与代码不一致:',
     '行表里的**本行陈述**(含 `!!js` 表达式)与能力导出的 **`Config` schema**(含默认值)。',

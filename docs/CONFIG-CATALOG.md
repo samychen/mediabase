@@ -2,7 +2,7 @@
      Source: packages/bundle/app/cordis.patch.yml (the rows) + each capability's `Config`.
      Regenerate: pnpm run gen:config-catalog; verify: pnpm test (or the --check flag). -->
 
-# avstudio 配置目录(生成物)
+# mediabase 配置目录(生成物)
 
 宿主由行组成,每行的"能给什么"由该能力的 `Config` 说了算。本文件从两处生成,因此不会与代码不一致:
 行表里的**本行陈述**(含 `!!js` 表达式)与能力导出的 **`Config` schema**(含默认值)。
@@ -59,7 +59,7 @@ file: !!js ctx.env.str('SETTINGS_FILE')
 
 | 字段 | 类型 | 必填 | 默认 | 说明 |
 |---|---|---|---|---|
-| `file` | string | no |  | settings JSON path; default ~/.avstudio/settings.json |
+| `file` | string | no |  | settings JSON path; default ~/.mediabase/settings.json |
 
 ## `tools` — `@mediabase/tools`
 

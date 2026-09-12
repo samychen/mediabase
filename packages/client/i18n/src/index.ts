@@ -49,7 +49,7 @@ export interface I18nConfig {
   fallback?: Locale
 }
 
-const LOCALE_KEY = 'avstudio:locale'
+const LOCALE_KEY = 'mediabase:locale'
 
 /** `?lang=` wins (and is remembered); then storage; then the browser's. */
 function detectLocale(fallback: Locale): Locale {

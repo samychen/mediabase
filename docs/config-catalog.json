@@ -47,7 +47,7 @@
         "type": "object",
         "properties": {
           "file": {
-            "description": "settings JSON path; default ~/.avstudio/settings.json",
+            "description": "settings JSON path; default ~/.mediabase/settings.json",
             "type": "string"
           }
         }

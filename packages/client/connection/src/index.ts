@@ -52,7 +52,7 @@ export interface StreamsService {
 }
 
 /**
- * Host URLs carry the shared token when the host enforces one (`AVSTUDIO_TOKEN`).
+ * Host URLs carry the shared token when the host enforces one (TOKEN env / host token).
  * The token is taken from `?token=` (then remembered in localStorage) so a link
  * like `http://127.0.0.1:3088/?token=…` authenticates both WS endpoints and every
  * `/api/*` fetch — including the ones panels do themselves.
@@ -70,7 +70,7 @@ export interface NetService {
 
 export const name = 'connection'
 
-const TOKEN_KEY = 'avstudio:token'
+const TOKEN_KEY = 'mediabase:token'
 
 /** `?token=` wins (and is remembered); otherwise the stored one is reused. */
 function resolveToken(): string | null {

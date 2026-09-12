@@ -25,7 +25,6 @@ for (const entry of CLIENT_ROSTER) {
 // expose for devtools / debugging
 declare global {
   interface Window {
-    avstudioCtx?: Context
     mediabaseCtx?: Context
   }
 }

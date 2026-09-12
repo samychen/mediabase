@@ -33,7 +33,7 @@ export function uiBundleDir() {
 export function readRoster() {
   const dir = uiBundleDir()
   const manifest = JSON.parse(readFileSync(join(dir, 'package.json'), 'utf8'))
-  const rosterFile = join(dir, manifest.mediabase?.uiBundle?.roster ?? manifest.avstudio?.uiBundle?.roster ?? 'client.yml')
+  const rosterFile = join(dir, manifest.mediabase?.uiBundle?.roster ?? 'client.yml')
   if (!existsSync(rosterFile)) throw new Error(`gen-client-roster: roster 文件不存在: ${rosterFile}`)
   const rows = yaml.load(readFileSync(rosterFile, 'utf8'))
   if (!Array.isArray(rows)) throw new Error(`gen-client-roster: ${rosterFile} 顶层必须是数组`)

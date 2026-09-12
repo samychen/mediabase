@@ -124,7 +124,8 @@ const sandbox: SandboxApi = {
   services: servicesProxy,
   effect: (fn) => cleanups.push(fn),
   config: undefined,
-  id: process.env['MEDIABASE_SANDBOX_ID'] ?? process.env['AVSTUDIO_SANDBOX_ID'] ?? 'sandbox',
+  // Until the host's init message arrives; then overwritten with instanceId.
+  id: 'sandbox',
 }
 
 /** The module's exported `api` object becomes host-callable methods. */

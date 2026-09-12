@@ -149,7 +149,7 @@ interface Fixture {
 async function compose(baseUrl: string, opts: { apiKey?: string; model?: string } = {}): Promise<Fixture> {
   const ctx = new Context()
   const toolCalls: Array<{ name: string; args: unknown }> = []
-  const file = join(mkdtempSync(join(tmpdir(), 'avstudio-agent-')), 'settings.json')
+  const file = join(mkdtempSync(join(tmpdir(), 'mediabase-agent-')), 'settings.json')
   made.push(join(file, '..'))
 
   ctx.plugin(log, { level: 'error', sink: () => {} })

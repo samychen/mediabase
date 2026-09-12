@@ -45,7 +45,7 @@ export const api = {
     await attempt('read-outside', () => readFileSync('/etc/hosts', 'utf8').length)
     await attempt('read-app', () => readFileSync(new URL(import.meta.url).pathname, 'utf8').length)
     await attempt('write-data-dir', () => writeFileSync(join(dataDir, 'probe.txt'), 'ok'))
-    await attempt('write-outside', () => writeFileSync('/tmp/avstudio-should-not-exist.txt', 'x'))
+    await attempt('write-outside', () => writeFileSync('/tmp/mediabase-should-not-exist.txt', 'x'))
     await attempt('spawn', () => execSync('echo should-not-run'))
     await attempt('worker', () => new Worker('1', { eval: true }))
     // Network needs an OS mechanism (Node's permission model has no network

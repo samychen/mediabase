@@ -78,7 +78,7 @@ export interface GatewayOptions {
    * Off by default on purpose: a cross-origin-isolated document refuses to load
    * cross-origin subresources that do not opt in with CORP/CORS, so a deployment
    * that embeds anything external would break. Turn it on when the client uses the
-   * ring (AVSTUDIO_CROSS_ORIGIN_ISOLATION=1) and keep the app self-hosted, or serve
+   * ring (CROSS_ORIGIN_ISOLATION=1 under the boot prefix) and keep the app self-hosted, or serve
    * the extra headers from the fronting proxy instead.
    */
   crossOriginIsolation?: boolean

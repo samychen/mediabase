@@ -1,4 +1,4 @@
-// avstudio / scripts / check-native-licenses.mjs
+// mediabase / scripts / check-native-licenses.mjs
 //
 // Gate for DISTRIBUTABLE builds. Our own code is MIT, but the native artifacts we
 // ship are not ours to relicense, and one of them is not even redistributable:
@@ -14,8 +14,9 @@
 // Modes:
 //   node scripts/check-native-licenses.mjs                 report only (exit 0)
 //   node scripts/check-native-licenses.mjs --gate          exit 1 on nonfree
-//   AVSTUDIO_ALLOW_NONFREE=1 node … --gate                 personal build: warns, exits 0
+//   MEDIABASE_ALLOW_NONFREE=1 node … --gate               personal build: warns, exits 0
 //
+// Soft-skip: when this checkout has no engine/ tree (base-only), exit 0 with a message.
 // Run: pnpm run check:native  ·  enforced by packaging/desktop-electron `dist`.
 
 import { execFileSync } from 'node:child_process'
@@ -25,7 +26,7 @@ import { fileURLToPath } from 'node:url'
 
 const ROOT = fileURLToPath(new URL('..', import.meta.url))
 const GATE = process.argv.includes('--gate')
-const ALLOW_NONFREE = process.env.AVSTUDIO_ALLOW_NONFREE === '1'
+const ALLOW_NONFREE = process.env.MEDIABASE_ALLOW_NONFREE === '1'
 
 /** Markers only present when the nonfree/GPL codecs were compiled in. */
 const NONFREE_MARKERS = ['Fraunhofer FDK AAC', 'libfdk_aac', 'libfdk-aac', 'fdk-aac']
@@ -58,17 +59,17 @@ function scanBinary(path) {
 /**
  * The ffmpeg packaging would copy in, if it is already staged.
  *
- * `AVSTUDIO_BUNDLE_FFMPEG=0` means the app ships NO ffmpeg (the user's own binary on PATH
+ * `MEDIABASE_BUNDLE_FFMPEG=0` means the app ships NO ffmpeg (the user's own binary on PATH
  * serves the engine's CLI fallback), so there is nothing to scan — without this the gate
  * would block the very route it recommends as the alternative to rebuilding FFmpeg.
  */
-const BUNDLE_FFMPEG = process.env.AVSTUDIO_BUNDLE_FFMPEG !== '0'
+const BUNDLE_FFMPEG = process.env.MEDIABASE_BUNDLE_FFMPEG !== '0'
 
 function stagedFfmpeg() {
   if (!BUNDLE_FFMPEG) return null
   const candidates = [
     join(ROOT, 'packaging/desktop-electron/vendor-ffmpeg/ffmpeg'),
-    process.env.AVSTUDIO_FFMPEG ?? '',
+    process.env.MEDIABASE_FFMPEG ?? '',
   ].filter(Boolean)
   for (const candidate of candidates) {
     if (existsSync(candidate)) return candidate
@@ -90,12 +91,17 @@ function scanFfmpegConfig(bin) {
   }
 }
 
+if (!existsSync(join(ROOT, 'engine'))) {
+  console.log('[native] 本仓无 engine/ —— 跳过原生产物许可证检查(基座仓)')
+  process.exit(0)
+}
+
 const findings = []
 const engine = scanBinary(join(ROOT, 'engine/bin/engine'))
 if (engine !== null) findings.push({ kind: 'engine 二进制', ...engine })
 const ffmpegPath = stagedFfmpeg()
 if (ffmpegPath !== null) findings.push({ kind: 'ffmpeg(将被打包)', ...scanFfmpegConfig(ffmpegPath) })
-else if (!BUNDLE_FFMPEG) console.log('[native] ffmpeg: 不随包分发(AVSTUDIO_BUNDLE_FFMPEG=0 → 用目标机的 ffmpeg CLI)')
+else if (!BUNDLE_FFMPEG) console.log('[native] ffmpeg: 不随包分发(MEDIABASE_BUNDLE_FFMPEG=0 → 用目标机的 ffmpeg CLI)')
 
 const blocking = []
 for (const f of findings) {
@@ -112,7 +118,7 @@ for (const f of findings) {
 }
 
 if (findings.length === 0) {
-  console.log('[native] 未找到可检查的原生产物(先 pnpm run build:engine / 打包前先 prepare-ffmpeg)')
+  console.log('[native] 未找到可检查的原生产物(先 build:engine / 打包前先 prepare-ffmpeg)')
 }
 
 if (blocking.length > 0) {
@@ -123,12 +129,12 @@ if (blocking.length > 0) {
     process.exit(0)
   }
   if (ALLOW_NONFREE) {
-    console.log('\n[native] AVSTUDIO_ALLOW_NONFREE=1 → 仅本机/自用构建,继续(请勿对外分发此产物)')
+    console.log('\n[native] MEDIABASE_ALLOW_NONFREE=1 → 仅本机/自用构建,继续(请勿对外分发此产物)')
     process.exit(0)
   }
   console.error('\n[native] 拒绝:待分发产物含 --enable-nonfree(fdk-aac),按 FFmpeg 条款不可再分发。')
   console.error('[native] 修法之一:重建 FFmpeg 时去掉 --enable-nonfree(见 docs/GPL-COMPLIANCE.zh.md);')
-  console.error('[native] 修法之二:走"不发原生二进制"路线(AVSTUDIO_BUNDLE_FFMPEG=0 + 引擎 -DAVSTUDIO_USE_MEDIACOMPONENT=OFF);')
-  console.error('[native] 仅本机自用可临时 AVSTUDIO_ALLOW_NONFREE=1。')
+  console.error('[native] 修法之二:走"不发原生二进制"路线(MEDIABASE_BUNDLE_FFMPEG=0);')
+  console.error('[native] 仅本机自用可临时 MEDIABASE_ALLOW_NONFREE=1。')
   process.exit(1)
 }

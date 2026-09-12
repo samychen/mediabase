@@ -29,7 +29,7 @@ afterEach(async () => {
 })
 
 function dist(): string {
-  const dir = mkdtempSync(join(tmpdir(), 'avstudio-ring-dist-'))
+  const dir = mkdtempSync(join(tmpdir(), 'mediabase-ring-dist-'))
   writeFileSync(join(dir, 'index.html'), '<!doctype html><div id="root">shell</div>')
   return dir
 }

@@ -19,7 +19,7 @@ afterEach(async () => {
 
 /** A dist directory with one index.html so SPA semantics can be observed. */
 function dist(): string {
-  const dir = mkdtempSync(join(tmpdir(), 'avstudio-gateway-'))
+  const dir = mkdtempSync(join(tmpdir(), 'mediabase-gateway-'))
   writeFileSync(join(dir, 'index.html'), '<!doctype html><div id="root">shell</div>')
   writeFileSync(join(dir, 'app.js'), 'console.log("hi")')
   return dir

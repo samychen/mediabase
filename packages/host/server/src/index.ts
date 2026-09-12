@@ -28,7 +28,7 @@ export interface ServerConfig {
   distIndex?: string
   /**
    * Optional shared secret. When set, `/api/*` and both WS endpoints require
-   * `?token=`; the static shell stays public. Opt-in (AVSTUDIO_TOKEN) because it
+   * `?token=`; the static shell stays public. Opt-in (TOKEN env) because it
    * is a local trust boundary, not a multi-user login.
    */
   token?: string
@@ -117,7 +117,7 @@ export function apply(ctx: Context, rawConfig: ServerConfig): void {
 
   void gateway.ready()
     .then(() => {
-      const auth = config.token !== undefined ? ' · 已启用 token 校验(AVSTUDIO_TOKEN)' : ''
+      const auth = config.token !== undefined ? ' · 已启用 token 校验' : ''
       log.info(`宿主就绪: http://${config.host ?? '127.0.0.1'}:${gateway.port()}  (ws /rpc, ws /stream, 帧 /api/preview.rgb)${auth}`)
     })
     .catch((e) => {

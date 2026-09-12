@@ -1,4 +1,4 @@
-// avstudio / scripts / build-base.mjs
+// mediabase / scripts / build-base.mjs
 //
 // Builds every @mediabase/* package into a PACKABLE artifact (local consumption, CI
 // artifacts, hand-offs — this repo does not publish; see AGENTS.md):

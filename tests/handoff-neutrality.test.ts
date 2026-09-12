@@ -6,11 +6,13 @@
 //   1. no script or packaging file contains a machine-specific absolute path
 //      (`/Users/...`, `/home/...`) — resolution must come from the repo root or env;
 //   2. the base-usable scripts (doctor / verify.base / package / build-base / notice /
-//      check-native-licenses) do not reference a product scope (`@avstudio/`) or a port
-//      without reading it from env — a fork runs them unchanged;
-//   3. anything that IS deployment-specific is confined to a marked block, so a fork has
+//      check-native-licenses) do not reference a product scope (`@avstudio/`) or the
+//      product env prefix (`AVSTUDIO_`) in non-comment lines — a fork runs them unchanged;
+//   3. packages/ source has no `AVSTUDIO_` in non-comment lines, and plugins/settings/
+//      connection/i18n do not hard-default to `.avstudio` paths or `avstudio:` storage keys;
+//   4. anything that IS deployment-specific is confined to a marked block, so a fork has
 //      one place to edit (verified by the marker being present);
-//   4. the app shell (Electron main.cjs) keeps its identity in the PRODUCT block.
+//   5. the app shell (Electron main.cjs) keeps its identity in the PRODUCT block.
 
 import { readFileSync, readdirSync, statSync } from 'node:fs'
 import { join } from 'node:path'
@@ -26,6 +28,8 @@ const BASE_SCRIPTS = [
   'scripts/notice.mjs',
   'scripts/check-native-licenses.mjs',
   'scripts/lib/host-rpc.mjs',
+  'scripts/gen-client-roster.mjs',
+  'scripts/verify-composition.mjs',
 ]
 
 const ABSOLUTE_PATH = /\/(Users|home)\/[A-Za-z0-9._-]+\//
@@ -45,6 +49,15 @@ function filesUnder(dir: string): string[] {
 
 const read = (relative: string): string => readFileSync(join(ROOT, relative), 'utf8')
 
+/** A line whose code part is a comment (so a doc mention is not a violation). */
+function trimmedIsComment(line: string): boolean {
+  const trimmed = line.trim()
+  return trimmed.startsWith('//') || trimmed.startsWith('*') || trimmed.startsWith('/*') || trimmed.startsWith('#')
+}
+
+/** Package source extensions that carry runtime behaviour. */
+const PKG_SOURCE = /\.(ts|tsx|mjs|js|cjs)$/
+
 describe('handoff neutrality', () => {
   it('has no machine-specific absolute paths in scripts/ or packaging/', () => {
     const offenders: string[] = []
@@ -63,10 +76,10 @@ describe('handoff neutrality', () => {
     const offenders: string[] = []
     for (const file of BASE_SCRIPTS) {
       const source = read(file)
-      // A product scope must not appear in logic (comments may mention forks).
       source.split('\n').forEach((line, i) => {
         if (trimmedIsComment(line)) return
         if (line.includes('@avstudio/')) offenders.push(`${file}:${i + 1}: ${line.trim().slice(0, 90)}`)
+        if (line.includes('AVSTUDIO_')) offenders.push(`${file}:${i + 1} AVSTUDIO_: ${line.trim().slice(0, 90)}`)
         // A default port is fine only when it comes from the environment.
         const readsEnv = line.includes('process.env') || line.includes('env.') || line.includes('env[')
         if (line.includes('3088') && !readsEnv) {
@@ -75,6 +88,42 @@ describe('handoff neutrality', () => {
       })
     }
     expect(offenders, `product coupling in base scripts:\n${offenders.join('\n')}`).toEqual([])
+  })
+
+  it('keeps packages/ free of product env prefixes and .avstudio path defaults', () => {
+    const offenders: string[] = []
+    for (const file of filesUnder('packages')) {
+      if (!PKG_SOURCE.test(file)) continue
+      // README / docs under packages are imperfect; focus on runtime sources.
+      if (file.endsWith('.md')) continue
+      read(file).split('\n').forEach((line, i) => {
+        if (trimmedIsComment(line)) return
+        if (line.includes('AVSTUDIO_')) offenders.push(`${file}:${i + 1}: ${line.trim().slice(0, 90)}`)
+      })
+    }
+    // Path / storage defaults that must stay product-free.
+    const hot = [
+      'packages/host/plugins/src/index.ts',
+      'packages/host/settings/src/index.ts',
+      'packages/client/connection/src/index.ts',
+      'packages/client/i18n/src/index.ts',
+    ]
+    for (const file of hot) {
+      const source = read(file)
+      if (source.includes('.avstudio')) {
+        source.split('\n').forEach((line, i) => {
+          if (trimmedIsComment(line)) return
+          if (line.includes('.avstudio')) offenders.push(`${file}:${i + 1} .avstudio: ${line.trim().slice(0, 90)}`)
+        })
+      }
+      if (file.includes('connection') && !source.includes("TOKEN_KEY = 'mediabase:token'")) {
+        offenders.push(`${file}: TOKEN_KEY must be mediabase:token`)
+      }
+      if (file.includes('i18n') && !source.includes("LOCALE_KEY = 'mediabase:locale'")) {
+        offenders.push(`${file}: LOCALE_KEY must be mediabase:locale`)
+      }
+    }
+    expect(offenders, `product identity in packages/:\n${offenders.join('\n')}`).toEqual([])
   })
 
   it('keeps product identity in clearly marked blocks (fork points)', () => {
@@ -109,9 +158,3 @@ describe('handoff neutrality', () => {
     expect(shell).toMatch(/for \(const \[key, packaged, dev\] of PRODUCT\.resources\)/)
   })
 })
-
-/** A line whose code part is a comment (so a doc mention is not a violation). */
-function trimmedIsComment(line: string): boolean {
-  const trimmed = line.trim()
-  return trimmed.startsWith('//') || trimmed.startsWith('*') || trimmed.startsWith('/*')
-}

@@ -30,7 +30,7 @@ const settle = (ms = 20): Promise<void> => new Promise((resolve) => { setTimeout
 const TOKEN = 'sekrit-token'
 
 function distDir(): string {
-  const dir = mkdtempSync(join(tmpdir(), 'avstudio-auth-dist-'))
+  const dir = mkdtempSync(join(tmpdir(), 'mediabase-auth-dist-'))
   writeFileSync(join(dir, 'index.html'), '<!doctype html><div id="root"></div>')
   return dir
 }

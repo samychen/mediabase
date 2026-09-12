@@ -29,7 +29,7 @@ afterEach(async () => {
 })
 
 function dist(): string {
-  const dir = mkdtempSync(join(tmpdir(), 'avstudio-gateway-limits-'))
+  const dir = mkdtempSync(join(tmpdir(), 'mediabase-gateway-limits-'))
   writeFileSync(join(dir, 'index.html'), '<!doctype html><div id="root">shell</div>')
   return dir
 }

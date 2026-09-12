@@ -172,7 +172,7 @@ async function attemptLaunch(
   options: { startupTimeoutMs?: number; handshakeTimeoutMs?: number },
 ): Promise<Browser | LaunchFailure> {
 
-  const userDataDir = mkdtempSync(join(tmpdir(), 'avstudio-browser-'))
+  const userDataDir = mkdtempSync(join(tmpdir(), 'mediabase-browser-'))
   let chrome: ChildProcess
   try {
     chrome = spawn(bin, [

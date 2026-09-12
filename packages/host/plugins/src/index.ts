@@ -113,7 +113,7 @@ export interface PluginsConfig {
   confinementRequired?: boolean
   /** Application root (default for read roots). */
   root?: string
-  /** Where per-plugin writable data dirs live (default `<baseDir>/.avstudio`). */
+  /** Where per-plugin writable data dirs live (default `appPaths.home` / `~/.mediabase`). */
   dataRoot?: string
   /** Where the sandbox entry script lives (bundled `.cjs` or the TS source). */
   sandbox?: SandboxOptions
@@ -270,8 +270,8 @@ const sandboxConfig: Schema<SandboxOptions, SandboxOptions> = z.object({
 
 /**
  * The default catalog: the two demo plugins this checkout ships. `confinementRequired` is
- * the deployment-wide fail-closed switch (`AVSTUDIO_SANDBOX_CONFINE_REQUIRED=1`), passed in
- * rather than read here so the same flag also covers an entry a composition states itself.
+ * the deployment-wide fail-closed switch (`SANDBOX_CONFINE_REQUIRED=1` under the boot prefix),
+ * passed in rather than read here so the same flag also covers an entry a composition states itself.
  */
 export function defaultCatalog(
   root: string,
@@ -434,9 +434,14 @@ export function apply(ctx: Context, rawConfig: PluginsConfig = {}): void {
    */
   function dataDirFor(id: string): string {
     const explicit = config.dataRoot
+    const appHome = (ctx.get('appPaths') as { home?: string } | undefined)?.home
     const candidates = explicit !== undefined
       ? [explicit]
-      : [join(homedir(), '.avstudio'), join(config.root ?? process.cwd(), '.avstudio'), join(tmpdir(), 'avstudio')]
+      : [
+        appHome ?? join(homedir(), '.mediabase'),
+        join(config.root ?? process.cwd(), '.mediabase'),
+        join(tmpdir(), 'mediabase'),
+      ]
     const failures: string[] = []
     for (const [index, candidate] of candidates.entries()) {
       const dir = join(candidate, 'plugin-data', id)

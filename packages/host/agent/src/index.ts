@@ -2,9 +2,9 @@
 // route-B). The model plans steps against whatever ctx.tools exposes — no
 // hard-coded tool list here; adding a capability = registering a tool.
 //
-// Endpoint configured at runtime via env (composed by apps/cli):
-//   AVSTUDIO_LLM_BASE (default https://api.deepseek.com/v1) · AVSTUDIO_LLM_KEY ·
-//   AVSTUDIO_LLM_MODEL (default deepseek-chat).
+// Endpoint configured at runtime via env (composed by apps/cli short names):
+//   LLM_BASE (default https://api.deepseek.com/v1) · LLM_KEY ·
+//   LLM_MODEL (default deepseek-chat).
 
 import type { Context } from '@deepseek-ai/cordis'
 import type {
@@ -168,12 +168,12 @@ export function apply(ctx: Context, rawConfig: AgentConfig): void {
     async run(o): Promise<AgentResult> {
       const llm = await resolveLLM()
       if (!llm.apiKey) {
-        throw RpcError.unavailable('agent: 未配置 LLM key(设置面板或 AVSTUDIO_LLM_KEY)', undefined, {
+        throw RpcError.unavailable('agent: 未配置 LLM key(设置面板或 LLM_KEY 环境变量)', undefined, {
           messageKey: 'agent.noKey',
         })
       }
       const messages: ChatMessage[] = [
-        { role: 'system', content: '你是 AVStudio 的媒体助手,用提供的中文工具完成任务,简明回答。' },
+        { role: 'system', content: '你是本应用的助手,用提供的工具完成任务,简明回答。' },
         { role: 'user', content: o.prompt },
       ]
       const steps: AgentStep[] = []

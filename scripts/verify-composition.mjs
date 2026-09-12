@@ -135,7 +135,7 @@ export function isClientRoster(file) {
  * row is `id` + `name` plus an optional plain `config` object (no `!!js` — the page never
  * evaluates loader expressions), and mount ORDER is the whole meaning of the file — which is
  * why the shell's position is checked against the manifest's own `mediabase.uiBundle.shell`
- * (with a legacy `avstudio.uiBundle.shell` fallback) rather than trusted to a comment.
+ * (`mediabase.uiBundle.shell`) rather than trusted to a comment.
  */
 export function checkClientRoster(file) {
   const before = errors.length
@@ -179,7 +179,7 @@ export function checkClientRoster(file) {
     ids.add(entry.id)
     checkEntry(entry, file, path, ctx)
   })
-  const shell = manifest?.mediabase?.uiBundle?.shell ?? manifest?.avstudio?.uiBundle?.shell
+  const shell = manifest?.mediabase?.uiBundle?.shell
   const last = entries.at(-1)
   if (typeof shell === 'string' && isRecord(last) && last.name !== shell) {
     fail(file, `最后一行必须是外壳 ${shell}(现在是 ${String(last.name)})——外壳挂载 React 并渲染已注册面板,必须在所有面板包之后`)
