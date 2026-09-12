@@ -170,6 +170,11 @@ describe('boot failure reporting', () => {
     )
     const text = describeBootFailure(new Error('failed to apply loader entry include (cordis:include): x', { cause: failure }))
     expect(text).toContain('failed to apply loader entry include')
+    // …and the reasons must survive THAT wrapper: the Loader's own error is a plain Error
+    // with a `cause`, so reporting only its line is the dead end this formatter prevents.
+    expect(text).toContain('(2 个原因)')
+    expect(text).toContain('invalid config: $.root missing required value')
+    expect(text).toContain("Cannot find package '@mediabase/log'")
 
     const aggregate = describeBootFailure(failure)
     expect(aggregate).toContain('(2 个原因)')
@@ -177,6 +182,11 @@ describe('boot failure reporting', () => {
     expect(aggregate).toContain("  Cannot find package '@mediabase/log'")
     // A single error stays one line — the formatter must not invent structure.
     expect(describeBootFailure(new Error('boom'))).toBe('boom')
+    // A cause already quoted by its wrapper is not reprinted, but a cause of its own is.
+    expect(describeBootFailure(new Error("failed to import x: Cannot find package 'y'", { cause: new Error("Cannot find package 'y'") })))
+      .toBe("failed to import x: Cannot find package 'y'")
+    expect(describeBootFailure(new Error('wrapper', { cause: new Error('inner', { cause: new Error('deep') }) })))
+      .toBe('wrapper\n  inner\n    deep')
   })
 })
 

@@ -496,7 +496,20 @@ export function describeBootFailure(e: unknown, depth = 0): string {
     const head = `${indent}${e.message}(${e.errors.length} 个原因)`
     return [head, ...e.errors.map((inner) => describeBootFailure(inner, depth + 1))].join('\n')
   }
-  return `${indent}${e instanceof Error ? e.message : String(e)}`
+  const line = `${indent}${e instanceof Error ? e.message : String(e)}`
+  // The Loader wraps its aggregate in a cause — `new Error('failed to apply loader entry …',
+  // { cause })` — so a walk that stops at that Error prints the wrapper and nothing else:
+  // exactly the dead end this function exists to prevent.
+  const cause = e instanceof Error ? (e as { cause?: unknown }).cause : undefined
+  if (cause === undefined || cause === e) return line
+  const causeText = cause instanceof Error ? cause.message : String(cause)
+  const nested = describeBootFailure(cause, depth + 1).split('\n')
+  // A wrapper that already quotes its cause verbatim would print the same sentence twice;
+  // keep what the cause CARRIES (an aggregate's reasons, or a cause of its own). Compare the
+  // two sentences — not just the rendering — or a leaf cause is dropped from every chain.
+  const quoted = `${'  '.repeat(depth + 1)}${causeText}`
+  const redundant = causeText !== '' && line.includes(causeText) && nested[0] === quoted
+  return [line, ...(redundant ? nested.slice(1) : nested)].join('\n')
 }
 
 /**
