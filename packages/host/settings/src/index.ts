@@ -1,7 +1,8 @@
 // @mediabase/settings — host plugin: persisted key->JSON settings (e.g. the LLM
-// key for the AI assistant) + an in-app UI entry point. File lives at
-// ~/.mediabase/settings.json by default (config.file overrides). Consumers read
-// ctx.settings per use, so a change applies without a restart.
+// key for the AI assistant) + an in-app UI entry point. File lives under the
+// boot identity's home by default (`appPaths.home/settings.json`, config.file
+// overrides). Consumers read ctx.settings per use, so a change applies without
+// a restart.
 
 import { readFile, writeFile, mkdir } from 'node:fs/promises'
 import { dirname, join } from 'node:path'
@@ -36,7 +37,7 @@ const KNOWN_KEYS = {
 } as const
 
 export interface SettingsConfig {
-  /** JSON file path; defaults to ~/.mediabase/settings.json. */
+  /** JSON file path; defaults to `<appPaths.home>/settings.json`. */
   file?: string
 }
 
@@ -47,12 +48,13 @@ export interface SettingsConfig {
  * cannot drift.
  */
 export const Config: Schema<SettingsConfig, SettingsConfig> = z.object({
-  file: z.string().description('settings JSON path; default ~/.mediabase/settings.json'),
+  file: z.string().description('settings JSON path; default <appPaths.home>/settings.json'),
 })
 
 export function apply(ctx: Context, rawConfig: SettingsConfig = {}): void {
   const config = parse(Config, rawConfig)
-  const file = config.file ?? join(homedir(), '.mediabase', 'settings.json')
+  const appHome = (ctx.get('appPaths') as { home?: string } | undefined)?.home
+  const file = config.file ?? join(appHome ?? join(homedir(), '.mediabase'), 'settings.json')
   let store: Record<string, unknown> = {}
   let loaded = false
 
@@ -147,7 +149,7 @@ export function apply(ctx: Context, rawConfig: SettingsConfig = {}): void {
   ctx.capabilities.register({
     id: 'settings',
     title: '持久化设置',
-    description: '键值设置落盘 ~/.mediabase/settings.json(明文),供 AI 助手等能力读取',
+    description: '键值设置落盘 <appPaths.home>/settings.json(明文),供 AI 助手等能力读取',
     services: ['settings'],
     api: ['settings.list', 'settings.set', 'settings.keys'],
   })
