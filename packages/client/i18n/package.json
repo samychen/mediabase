@@ -1,6 +1,6 @@
 {
   "name": "@mediabase/i18n",
-  "version": "0.1.0",
+  "version": "0.1.4",
   "private": true,
   "type": "module",
   "description": "Client plugin: UI translations (ctx.i18n) — locale detection, per-package dictionaries, coded-error texts",

@@ -201,4 +201,25 @@ describe('handoff neutrality', () => {
     expect(scripts['check:native']).toBeDefined()
   })
 
+  it('keeps every package version equal to the root version', () => {
+    const rootVersion = (JSON.parse(read('package.json')) as { version: string }).version
+    const manifests: string[] = []
+    for (const name of readdirSync(join(ROOT, 'apps'))) {
+      if (statSync(join(ROOT, 'apps', name)).isDirectory()) manifests.push(`apps/${name}/package.json`)
+    }
+    for (const face of readdirSync(join(ROOT, 'packages'))) {
+      const faceDir = join(ROOT, 'packages', face)
+      if (!statSync(faceDir).isDirectory()) continue
+      for (const name of readdirSync(faceDir)) {
+        if (statSync(join(faceDir, name)).isDirectory()) manifests.push(`packages/${face}/${name}/package.json`)
+      }
+    }
+    manifests.push('packaging/desktop-electron/package.json')
+
+    const drifted = manifests
+      .map((file) => ({ file, version: (JSON.parse(read(file)) as { version: string }).version }))
+      .filter((entry) => entry.version !== rootVersion)
+      .map((entry) => `${entry.file}: ${entry.version} (root ${rootVersion})`)
+    expect(drifted, `package versions drifted from the root:\n${drifted.join('\n')}`).toEqual([])
+  })
 })

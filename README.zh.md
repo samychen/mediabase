@@ -36,7 +36,7 @@ pnpm run verify:base   # 对已启动的 host 做中性冒烟
 ## 被消费方式
 
 - **本机开发**：与产品仓同级，产品 `pnpm-workspace.yaml` 写入 `../mediabase/packages/...`
-- **CI / 可复现**：pin git tag（当前 **`v0.1.0`**），checkout 到旁路目录后再 `pnpm install`
+- **CI / 可复现**：pin git tag（当前 **`v0.1.4`**），checkout 到旁路目录后再 `pnpm install`
 - **不** publish 到公共 npm（`private: true`）；可用 `pnpm run build:base` + `pnpm pack`
 
 ## 常用命令

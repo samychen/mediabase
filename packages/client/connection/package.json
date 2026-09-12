@@ -1,6 +1,6 @@
 {
   "name": "@mediabase/connection",
-  "version": "0.1.0",
+  "version": "0.1.4",
   "private": true,
   "type": "module",
   "description": "Client plugin: WS JSON-RPC control-plane connection to the host (ctx.rpc)",

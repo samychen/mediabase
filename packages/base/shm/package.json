@@ -1,6 +1,6 @@
 {
   "name": "@mediabase/shm",
-  "version": "0.1.0",
+  "version": "0.1.4",
   "private": true,
   "type": "module",
   "description": "Shared-memory frame ring over SharedArrayBuffer: lock-free single-producer/single-consumer transport with zero-copy reads and drop accounting — base package",

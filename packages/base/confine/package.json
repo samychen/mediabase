@@ -1,6 +1,6 @@
 {
   "name": "@mediabase/confine",
-  "version": "0.1.0",
+  "version": "0.1.4",
   "private": true,
   "type": "module",
   "description": "Declarative confinement for a child process: Node's permission model plus an OS layer when available, with honest availability reporting — base package",

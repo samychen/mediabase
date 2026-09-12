@@ -1,6 +1,6 @@
 {
   "name": "@mediabase/log",
-  "version": "0.1.0",
+  "version": "0.1.4",
   "private": true,
   "type": "module",
   "description": "Neutral base: leveled logger with scoped children, provided as ctx.log (stderr by default, injectable sink)",
