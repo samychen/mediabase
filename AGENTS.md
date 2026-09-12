@@ -235,6 +235,10 @@ their own (`AVSTUDIO_` / `~/.avstudio`, …) via `BootIdentity` — never by for
 
 ## Adopting this base
 
+`docs/WALKTHROUGH.zh.md` is the hands-on version of this: build a calculator beside
+the base whose computation has interchangeable JS / Python / C++ backends (12 files,
+no base change) — read it before the checklist if you have never mounted a row.
+
 `docs/HANDOFF.zh.md` is the checklist for a **product** that adopts this repo: what
 stays as base, what the product owns, identity / bundle / roster / `PRODUCT` block,
 and which properties `tests/handoff-neutrality.test.ts` guards (no machine paths,
