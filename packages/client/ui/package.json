@@ -1,6 +1,6 @@
 {
   "name": "@mediabase/ui",
-  "version": "0.1.4",
+  "version": "0.1.5",
   "private": true,
   "type": "module",
   "description": "Client plugin: UI panel registry (ctx.ui) + shared panel-state contract; UI packages register panels, the shell renders them",

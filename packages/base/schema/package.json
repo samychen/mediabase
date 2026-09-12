@@ -1,6 +1,6 @@
 {
   "name": "@mediabase/schema",
-  "version": "0.1.4",
+  "version": "0.1.5",
   "private": true,
   "type": "module",
   "description": "Neutral base: mediabase schema dialect — @deepseek-ai/schemastery plus a JSON-Schema bridge for LLM tool parameters",

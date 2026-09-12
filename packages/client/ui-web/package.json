@@ -1,6 +1,6 @@
 {
   "name": "@mediabase/ui-web",
-  "version": "0.1.4",
+  "version": "0.1.5",
   "private": true,
   "type": "module",
   "description": "Client plugin: capability-agnostic React shell, renders panels registered into ctx.ui",

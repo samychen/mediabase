@@ -1,6 +1,6 @@
 {
   "name": "@mediabase/server",
-  "version": "0.1.4",
+  "version": "0.1.5",
   "private": true,
   "type": "module",
   "description": "Host plugin: static client + WS JSON-RPC control plane + /api data plane on :3088",
