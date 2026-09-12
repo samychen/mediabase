@@ -1,0 +1,36 @@
+# Node
+node_modules/
+*.tsbuildinfo
+
+# Builds / generated
+apps/web/dist/
+engine/bin/
+
+# Logs / runtime
+*.log
+# runtime state a running host creates (confined plugins get a data dir here)
+.avstudio/
+.DS_Store
+
+# scratch dirs created by tests
+tests/.tmp-plugins/
+
+# CMake build dir
+engine/build*/
+
+# source distribution
+release/
+
+# host bundle + the closed runtime it ships (build/plugins.json, build/plugins/, …)
+build/
+
+# base package build output (@mediabase/*) and packed tarballs
+packages/**/dist/
+packages/**/LICENSE
+*.tgz
+
+# electron local cache (packaging)
+**/.electron-cache/
+
+# the ffmpeg copy prepare-ffmpeg.mjs stages for the packaged app
+packaging/desktop-electron/vendor-ffmpeg/

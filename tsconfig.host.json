@@ -1,0 +1,17 @@
+{
+  "extends": "./tsconfig.base.json",
+  "compilerOptions": {
+    "lib": [
+      "es2024"
+    ],
+    "types": [
+      "node"
+    ]
+  },
+  "include": [
+    "apps/cli/src/**/*.ts",
+    "packages/protocol/src/**/*.ts",
+    "packages/host/**/src/**/*.ts",
+    "packages/base/**/src/**/*.ts"
+  ]
+}

@@ -1,0 +1,24 @@
+{
+  "name": "@mediabase/cli",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "Host entrypoint: composes the mediabase capability set on one Cordis context",
+  "scripts": {
+    "start": "tsx src/index.ts"
+  },
+  "dependencies": {
+    "@mediabase/boot": "workspace:^",
+    "@mediabase/log": "workspace:^",
+    "@mediabase/agent": "workspace:^",
+    "@mediabase/api": "workspace:^",
+    "@mediabase/plugins": "workspace:^",
+    "@mediabase/protocol": "workspace:^",
+    "@mediabase/server": "workspace:^",
+    "@mediabase/settings": "workspace:^",
+    "@mediabase/tools": "workspace:^",
+    "@mediabase/bundle-app": "workspace:^",
+    "@deepseek-ai/cordis": "^4.0.2"
+  },
+  "license": "MIT"
+}

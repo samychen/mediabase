@@ -1,0 +1,23 @@
+{
+  "name": "@mediabase/bundle-ui",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "mediabase UI bundle: browser roster as data",
+  "files": [
+    "client.yml"
+  ],
+  "dependencies": {
+    "@mediabase/connection": "workspace:^",
+    "@mediabase/i18n": "workspace:^",
+    "@mediabase/ui": "workspace:^",
+    "@mediabase/ui-web": "workspace:^"
+  },
+  "mediabase": {
+    "uiBundle": {
+      "roster": "client.yml",
+      "shell": "@mediabase/ui-web"
+    }
+  },
+  "license": "MIT"
+}

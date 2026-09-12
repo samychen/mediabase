@@ -1,0 +1,23 @@
+// avstudio shared TypeScript base — trimmed from deepseek-harness/tsconfig.base.json
+// (keeps the same strictness spine: strict, noUncheckedIndexedAccess,
+// exactOptionalPropertyTypes, noUnusedLocals/Parameters, allowImportingTsExtensions).
+{
+  "compilerOptions": {
+    "target": "es2024",
+    "module": "esnext",
+    "moduleResolution": "bundler",
+    "strict": true,
+    "noUncheckedIndexedAccess": true,
+    "exactOptionalPropertyTypes": true,
+    "noImplicitOverride": true,
+    "noFallthroughCasesInSwitch": true,
+    "noUnusedLocals": true,
+    "noUnusedParameters": true,
+    "noEmit": true,
+    "isolatedModules": true,
+    "esModuleInterop": true,
+    "allowImportingTsExtensions": true,
+    "skipLibCheck": true,
+    "sourceMap": true
+  }
+}

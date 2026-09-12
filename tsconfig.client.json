@@ -1,0 +1,23 @@
+{
+  "extends": "./tsconfig.base.json",
+  "compilerOptions": {
+    "lib": [
+      "es2024",
+      "dom",
+      "dom.iterable"
+    ],
+    "types": [
+      "react",
+      "react-dom"
+    ],
+    "jsx": "react-jsx"
+  },
+  "include": [
+    "apps/web/src/**/*.ts",
+    "apps/web/src/**/*.tsx",
+    "packages/protocol/src/**/*.ts",
+    "packages/client/**/src/**/*.ts",
+    "packages/client/**/src/**/*.tsx",
+    "packages/base/rpc/src/**/*.ts"
+  ]
+}

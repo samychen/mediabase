@@ -1,0 +1,13 @@
+# @mediabase/bundle-ui — browser roster (mount order). Shell last.
+
+- id: connection
+  name: '@mediabase/connection'
+
+- id: i18n
+  name: '@mediabase/i18n'
+
+- id: ui
+  name: '@mediabase/ui'
+
+- id: shell
+  name: '@mediabase/ui-web'

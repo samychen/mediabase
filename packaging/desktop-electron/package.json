@@ -1,0 +1,78 @@
+{
+  "name": "@mediabase/desktop-electron",
+  "version": "0.1.0",
+  "description": "Mode B packaged as a native window (Electron shell): forks the bundled Node host (build/host.cjs), shows its web UI",
+  "private": true,
+  "main": "main.cjs",
+  "scripts": {
+    "start": "electron .",
+    "dist": "electron-builder --mac dmg",
+    "dist:all": "electron-builder -mwl",
+    "dist:dir": "electron-builder --mac dir"
+  },
+  "devDependencies": {
+    "electron": "^33.0.0",
+    "electron-builder": "^25.1.8"
+  },
+  "build": {
+    "appId": "com.mediabase.desktop",
+    "productName": "Mediabase",
+    "directories": {
+      "output": "../../release/electron"
+    },
+    "asar": false,
+    "files": [],
+    "electronDist": "node_modules/electron/dist",
+    "extraResources": [
+      {
+        "from": "../../build/host.cjs",
+        "to": "host/host.cjs"
+      },
+      {
+        "from": "../../build/plugins.json",
+        "to": "host/plugins.json"
+      },
+      {
+        "from": "../../build/plugins",
+        "to": "host/plugins"
+      },
+      {
+        "from": "../../build/node_modules",
+        "to": "host/node_modules"
+      },
+      {
+        "from": "../../packages/bundle/app",
+        "to": "host/bundles/@mediabase/bundle-app",
+        "filter": [
+          "package.json",
+          "cordis.patch.yml"
+        ]
+      },
+      {
+        "from": "../../apps/web/dist",
+        "to": "web"
+      },
+      {
+        "from": "../../build/examples/hello.cjs",
+        "to": "examples/hello.cjs"
+      },
+      {
+        "from": "../../build/sandbox.cjs",
+        "to": "sandbox/sandbox.cjs"
+      },
+      {
+        "from": "../../build/examples/sandboxed-demo.cjs",
+        "to": "examples/sandboxed-demo.cjs"
+      },
+      {
+        "from": "../../NOTICE.md",
+        "to": "licenses/NOTICE.md"
+      }
+    ],
+    "mac": {
+      "identity": null,
+      "category": "public.app-category.developer-tools"
+    }
+  },
+  "license": "MIT"
+}

@@ -1,0 +1,38 @@
+{
+  "name": "@mediabase/connection",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "Client plugin: WS JSON-RPC control-plane connection to the host (ctx.rpc)",
+  "main": "src/index.ts",
+  "types": "src/index.ts",
+  "exports": {
+    ".": "./src/index.ts"
+  },
+  "dependencies": {
+    "@mediabase/protocol": "workspace:^",
+    "@deepseek-ai/cordis": "^4.0.2",
+    "@mediabase/shm": "workspace:^"
+  },
+  "files": [
+    "dist",
+    "README.md",
+    "LICENSE"
+  ],
+  "license": "MIT",
+  "publishConfig": {
+    "access": "public",
+    "main": "dist/index.mjs",
+    "module": "dist/index.mjs",
+    "types": "dist/index.d.ts",
+    "exports": {
+      ".": {
+        "types": "./dist/index.d.ts",
+        "import": "./dist/index.mjs"
+      }
+    }
+  },
+  "scripts": {
+    "build": "node ../../../scripts/build-base.mjs"
+  }
+}

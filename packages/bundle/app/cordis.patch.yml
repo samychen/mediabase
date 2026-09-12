@@ -1,0 +1,99 @@
+# @mediabase/bundle-app — the mediabase HOST composition layer.
+#
+# A bundle is a package whose `cordis.patch.yml` is ONE layer of a profile's
+# composition. The loader applies layers in order, and a patch either inserts new
+# rows or REPLACES an existing row's whole `config` by `id`:
+#
+#   every bundle layer (in `mediabase.profile.bundles` order)
+#     → the profile's own cordis.patch.yml      (the file a user edits)
+#       → $MEDIABASE_HOME/cordis.patch.yml       (machine-local, outranks the profile)
+#         → --patch overlays                    (argv order)
+#
+# Because a patch replaces the WHOLE config, a layer that overrides a row restates every
+# field that row needs — usually `root` plus the env-derived values it wants. Overriding
+# `server`'s port therefore reads:
+#
+#   - id: server
+#     config:
+#       root: !!js ctx.appPaths.root
+#       port: 4000
+#
+# Row order below is mount ORDER: infrastructure first (the logger and the registries
+# every capability registers into), capabilities next, the HTTP/WS front door last (it
+# reads the registries at apply time).
+#
+# `!!js` expressions evaluate against the loader context when the row activates (they are
+# synchronous). Before the tree mounts, the composition provides:
+#
+#   ctx.appPaths   { root, home }              — where the app and its state live
+#   ctx.env        readers over the deployment  — by SHORT name: `ctx.env.str('TOKEN')` is
+#                  environment, prefixed by the    `${prefix}TOKEN`, so a row never spells a
+#                  boot identity                   product name (`ctx.env.raw('PORT')` for a
+#                                                  variable the environment owns)
+#
+# So a deployment value comes from THE FILE, where a reader can see it, and each
+# capability validates it with its own `Config` schema (a bad type stops the boot with a
+# path). An unset variable reads as `undefined`, leaving the field absent so the
+# capability's own default applies; a path that depends on the application root is
+# resolved by the capability, not repeated here.
+
+- insert:
+    # ---- infrastructure: the logger and the registries every capability registers into
+    - id: log
+      name: '@mediabase/log'
+      config:
+        # A typo in the level must not stop a boot: `choice` is the reader that says so.
+        level: !!js ctx.env.choice('LOG_LEVEL', ['debug', 'info', 'warn', 'error'])
+        # The scope prefix is the APP's name, read from the composition rather than baked
+        # into the base: `avstudio.api` for AVStudio, `mediabase.api` for the base itself.
+        scope: !!js ctx.appPaths.bin
+
+    - id: api
+      name: '@mediabase/api'
+
+    - id: settings
+      name: '@mediabase/settings'
+      config:
+        # Default ~/.mediabase/settings.json when unset.
+        file: !!js ctx.env.str('SETTINGS_FILE')
+
+    - id: tools
+      name: '@mediabase/tools'
+
+    # ---- capabilities: each one owns its own surface and its own defaults
+
+
+
+    - id: agent
+      name: '@mediabase/agent'
+      config:
+        baseUrl: !!js ctx.env.str('LLM_BASE')
+        apiKey: !!js ctx.env.str('LLM_KEY')
+        model: !!js ctx.env.str('LLM_MODEL')
+
+    - id: plugins
+      name: '@mediabase/plugins'
+      config:
+        root: !!js ctx.appPaths.root
+        dataRoot: !!js ctx.env.str('PLUGIN_DATA_ROOT')
+        confinementRequired: !!js ctx.env.flag('SANDBOX_CONFINE_REQUIRED')
+        envPrefix: !!js ctx.env.prefix
+        # No catalog here on purpose: the capability's shipped demo catalog is its own
+        # default (and honours HELLO / SANDBOX_HELLO / the sandbox entry
+        # this installation can actually run). A deployment that wants different runtime
+        # plugins states its own `catalog` in a later layer.
+
+    # ---- front door last: it reads the registries at apply time
+    - id: server
+      name: '@mediabase/server'
+      config:
+        root: !!js ctx.appPaths.root
+        # `raw*`: PORT belongs to the deploying environment, not to this app's vocabulary.
+        port: !!js ctx.env.rawNum('PORT')
+        distIndex: !!js ctx.env.str('DIST_INDEX')
+        token: !!js ctx.env.str('TOKEN')
+        crossOriginIsolation: !!js ctx.env.flag('CROSS_ORIGIN_ISOLATION')
+        acl:
+          readonly: !!js ctx.env.flag('READONLY')
+          allow: !!js ctx.env.list('ACL_ALLOW')
+          deny: !!js ctx.env.list('ACL_DENY')

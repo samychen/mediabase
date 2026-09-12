@@ -1,0 +1,40 @@
+{
+  "name": "@mediabase/api",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "Host plugin: control-plane API registry (ctx.api) + capability manifests (ctx.capabilities) — capabilities self-register, server exposes them generically",
+  "main": "src/index.ts",
+  "types": "src/index.ts",
+  "exports": {
+    ".": "./src/index.ts"
+  },
+  "dependencies": {
+    "@mediabase/log": "workspace:^",
+    "@mediabase/protocol": "workspace:^",
+    "@mediabase/rpc": "workspace:^",
+    "@mediabase/schema": "workspace:^",
+    "@deepseek-ai/cordis": "^4.0.2"
+  },
+  "files": [
+    "dist",
+    "README.md",
+    "LICENSE"
+  ],
+  "license": "MIT",
+  "publishConfig": {
+    "access": "public",
+    "main": "dist/index.mjs",
+    "module": "dist/index.mjs",
+    "types": "dist/index.d.ts",
+    "exports": {
+      ".": {
+        "types": "./dist/index.d.ts",
+        "import": "./dist/index.mjs"
+      }
+    }
+  },
+  "scripts": {
+    "build": "node ../../../scripts/build-base.mjs"
+  }
+}

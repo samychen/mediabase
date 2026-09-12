@@ -1,0 +1,36 @@
+{
+  "$schema": "./node_modules/oxlint/configuration_schema.json",
+  "plugins": [],
+  "categories": {
+    "correctness": "error",
+    "suspicious": "warn"
+  },
+  "options": {
+    "typeAware": false
+  },
+  "env": {
+    "builtin": true
+  },
+  "ignorePatterns": [
+    "**/node_modules/**",
+    "**/dist/**",
+    "**/*.js",
+    "**/*.mjs",
+    "engine/bin/**",
+    ".agents/**",
+    ".claude/**",
+    "packaging/**",
+    "build/**",
+    "release/**"
+  ],
+  "rules": {
+    "no-unused-vars": [
+      "warn",
+      {
+        "varsIgnorePattern": "^_",
+        "argsIgnorePattern": "^_"
+      }
+    ],
+    "no-non-null-assertion": "off"
+  }
+}

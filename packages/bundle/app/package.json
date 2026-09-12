@@ -1,0 +1,19 @@
+{
+  "name": "@mediabase/bundle-app",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "mediabase host composition bundle: cordis.patch.yml layer mounting base capabilities",
+  "files": [
+    "cordis.patch.yml"
+  ],
+  "dependencies": {
+    "@mediabase/agent": "workspace:^",
+    "@mediabase/api": "workspace:^",
+    "@mediabase/log": "workspace:^",
+    "@mediabase/plugins": "workspace:^",
+    "@mediabase/server": "workspace:^",
+    "@mediabase/settings": "workspace:^",
+    "@mediabase/tools": "workspace:^"
+  }
+}

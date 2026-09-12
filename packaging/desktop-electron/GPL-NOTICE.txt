@@ -1,0 +1,38 @@
+AVStudio — 分发物许可声明 / Distribution license notice
+=========================================================
+
+本应用的分发包(含 AVStudio 自有代码、C++ 引擎二进制以及捆绑的 ffmpeg)整体按
+GNU General Public License v3.0 or later 分发,因为引擎静态链接了 GPL 组件(FFmpeg + x264)。
+
+This distribution as a whole is licensed under the GNU General Public License,
+version 3 or later, because the bundled engine statically links GPL components
+(FFmpeg with x264). The full license text is in LICENSE-GPL-3.0.txt.
+
+自有代码(本仓库 26 个包、apps/、engine/、scripts/)仍以 MIT 授权,见 LICENSE-MIT.txt;
+MIT 与 GPLv3 兼容,因此它可以被包含在本 GPL 分发物中。
+Our own code remains MIT-licensed (see LICENSE-MIT.txt); MIT is GPLv3-compatible,
+which is why it may be included in this GPL distribution.
+
+对应源码 / Corresponding source
+-------------------------------
+GPLv3 要求向接收者提供对应源码(或书面要约)。本 DMG 的 Resources/sources/ 目录应包含:
+
+  - AVStudio 源码(本仓库,含 engine/ 与构建脚本)
+  - 构建引擎所用的 MediaComponent 检出(或其源码归档)
+  - 构建引擎所用 FFmpeg 的源码与该次构建的 configure 参数
+  - 上述组件的构建/安装脚本,使接收者能重建同一二进制
+
+若以书面要约方式提供源码,请在此文件与 README 中写明获取方式与有效期。
+
+第三方组件 / Third-party components
+-----------------------------------
+完整清单见随包的 NOTICE.md(由 `pnpm run notice` 生成)。要点:
+  - npm 运行时依赖:全部 MIT
+  - glog/gflags(BSD-3)、jsoncpp(MIT)、cJSON(MIT)、SDL2(Zlib)、lz4(BSD-2,lib/ 目录)
+  - FFmpeg(GPL 构建)、x264(GPL)、fdk-aac(见下)
+
+⚠️ 注意 / Caveat
+----------------
+本分发物**不得**包含 `--enable-nonfree` 的 FFmpeg 构建(fdk-aac):按 FFmpeg 自身的说明,
+此类构建不可再分发。`pnpm run check:native --gate` 会在打包前拒绝这种产物;
+若本包内意外含有,请立即重建(见 docs/GPL-COMPLIANCE.zh.md)。

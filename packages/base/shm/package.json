@@ -1,0 +1,33 @@
+{
+  "name": "@mediabase/shm",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "Shared-memory frame ring over SharedArrayBuffer: lock-free single-producer/single-consumer transport with zero-copy reads and drop accounting — base package",
+  "main": "src/index.ts",
+  "types": "src/index.ts",
+  "exports": {
+    ".": "./src/index.ts"
+  },
+  "files": [
+    "dist",
+    "README.md",
+    "LICENSE"
+  ],
+  "license": "MIT",
+  "publishConfig": {
+    "access": "public",
+    "main": "dist/index.mjs",
+    "module": "dist/index.mjs",
+    "types": "dist/index.d.ts",
+    "exports": {
+      ".": {
+        "types": "./dist/index.d.ts",
+        "import": "./dist/index.mjs"
+      }
+    }
+  },
+  "scripts": {
+    "build": "node ../../../scripts/build-base.mjs"
+  }
+}

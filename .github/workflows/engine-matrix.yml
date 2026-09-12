@@ -1,0 +1,53 @@
+name: engine-matrix
+
+on:
+  workflow_dispatch:
+  push:
+    paths:
+      - 'engine/**'
+      - 'examples/native/**'
+      - '.github/workflows/engine-matrix.yml'
+
+jobs:
+  build-engine:
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: macos-14
+            artifact: engine-macos-arm64
+          - os: ubuntu-latest
+            artifact: engine-linux-x64
+          - os: windows-latest
+            artifact: engine-windows-x64
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install ffmpeg dev/tool (linux)
+        if: runner.os == 'Linux'
+        run: sudo apt-get update && sudo apt-get install -y --no-install-recommends cmake ffmpeg
+
+      - name: CMake configure (MediaComponent OFF -> ffmpeg-CLI decode fallback)
+        run: cmake -S engine -B engine/build -DCMAKE_BUILD_TYPE=Release -DAVSTUDIO_USE_MEDIACOMPONENT=OFF
+
+      - name: Build engine + native plugin
+        run: cmake --build engine/build
+
+      - name: Upload per-platform engine artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: ${{ matrix.artifact }}
+          path: |
+            engine/bin/engine*
+            engine/bin/plugins/checker.*
+
+  # A MediaComponent-fed build runs on machines that have the checkout (or a
+  # mirror). Enable by uncommenting and providing MEDIACOMPONENT_ROOT/secret.
+  # build-engine-mc:
+  #   runs-on: ubuntu-latest
+  #   steps:
+  #     - uses: actions/checkout@v4
+  #       with: { repository: <your-org>/MediaComponent, path: mc }
+  #     - run: cmake -S engine -B engine/build -DAVSTUDIO_USE_MEDIACOMPONENT=ON -DMEDIACOMPONENT_ROOT=$PWD/mc
+  #     - run: cmake --build engine/build
