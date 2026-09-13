@@ -91,4 +91,19 @@ describe('ctx.ui panel registry', () => {
     registry.register({ id: 'late', title: 'L', area: 'sidebar', component })
     expect(changes).toBe(2) // listeners were dropped with the fiber
   })
+
+  it('hides panels and overrides order via setLayout', async () => {
+    const { ui: registry } = await compose()
+    registry.register({ id: 'a', title: 'A', area: 'sidebar', order: 10, component })
+    registry.register({ id: 'b', title: 'B', area: 'sidebar', order: 20, component })
+    registry.register({ id: 'c', title: 'C', area: 'sidebar', order: 30, component })
+
+    let changes = 0
+    registry.subscribe(() => { changes++ })
+    registry.setLayout({ hiddenIds: ['b'], orderById: { c: 1, a: 2, b: 3 } })
+    expect(changes).toBe(1)
+    expect(registry.list('sidebar').map((p) => p.id)).toEqual(['c', 'a'])
+    expect(registry.listAll('sidebar').map((p) => p.id)).toEqual(['c', 'a', 'b'])
+    expect(registry.getLayout()).toEqual({ hiddenIds: ['b'], orderById: { c: 1, a: 2, b: 3 } })
+  })
 })

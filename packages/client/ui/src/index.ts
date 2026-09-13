@@ -51,9 +51,18 @@ export interface ViewState {
 export interface UiService {
   /** Register a panel; the returned disposer unregisters it. Ids must be unique. */
   register(panel: UiPanel): () => void
-  /** Panels of one area, ordered. The array is a fresh copy — cache it outside React. */
+  /** Panels of one area for the shell: respects layout prefs (hidden + order). */
   list(area: PanelArea): UiPanel[]
-  /** Bumps on every register/unregister — the cache key for reactive consumers. */
+  /**
+   * All registered panels in an area (including hidden), ordered by effective
+   * layout — for a layout editor that must still show unchecked panels.
+   */
+  listAll(area: PanelArea): UiPanel[]
+  /** Current layout prefs (fresh copy). */
+  getLayout(): UiLayoutPrefs
+  /** Merge layout prefs; bumps revision and notifies subscribers. */
+  setLayout(prefs: Partial<UiLayoutPrefs>): void
+  /** Bumps on every register/unregister/layout change — cache key for reactive consumers. */
   revision(): number
   /**
    * Observe registry changes. Lets the shell re-render panels registered AFTER
@@ -61,6 +70,13 @@ export interface UiService {
    * only those present at composition time.
    */
   subscribe(listener: () => void): () => void
+}
+
+/** Client layout prefs: which panels are hidden and optional order overrides. */
+export interface UiLayoutPrefs {
+  hiddenIds: string[]
+  /** Lower sorts first; missing ids fall back to the panel's registered `order`. */
+  orderById: Record<string, number>
 }
 
 // Form generation from a method's JSON Schema (see form.tsx): a capability gets a
@@ -81,11 +97,28 @@ export function apply(ctx: Context): void {
   const listeners = new Set<() => void>()
   let seq = 0
   let revision = 0
+  let layout: UiLayoutPrefs = { hiddenIds: [], orderById: {} }
 
   function changed(): void {
     revision++
     // Copy first: a listener may unregister itself (React cleanup) mid-notify.
     for (const listener of [...listeners]) listener()
+  }
+
+  function effectiveOrder(p: UiPanel & { seq: number }): number {
+    const override = layout.orderById[p.id]
+    return override !== undefined ? override : (p.order ?? 100)
+  }
+
+  function ordered(area: PanelArea): Array<UiPanel & { seq: number }> {
+    return [...panels.values()]
+      .filter((p) => p.area === area)
+      .sort((a, b) => effectiveOrder(a) - effectiveOrder(b) || a.seq - b.seq)
+  }
+
+  function publicPanel(p: UiPanel & { seq: number }): UiPanel {
+    const { seq: _seq, ...rest } = p
+    return rest
   }
 
   const ui: UiService = {
@@ -99,10 +132,26 @@ export function apply(ctx: Context): void {
       }
     },
     list(area: PanelArea): UiPanel[] {
-      return [...panels.values()]
-        .filter((p) => p.area === area)
-        .sort((a, b) => (a.order ?? 100) - (b.order ?? 100) || a.seq - b.seq)
-        .map(({ seq: _seq, ...p }) => p) // strip internal seq
+      const hidden = new Set(layout.hiddenIds)
+      return ordered(area).filter((p) => !hidden.has(p.id)).map(publicPanel)
+    },
+    listAll(area: PanelArea): UiPanel[] {
+      return ordered(area).map(publicPanel)
+    },
+    getLayout(): UiLayoutPrefs {
+      return {
+        hiddenIds: [...layout.hiddenIds],
+        orderById: { ...layout.orderById },
+      }
+    },
+    setLayout(prefs: Partial<UiLayoutPrefs>): void {
+      if (prefs.hiddenIds !== undefined) {
+        layout = { ...layout, hiddenIds: [...new Set(prefs.hiddenIds)] }
+      }
+      if (prefs.orderById !== undefined) {
+        layout = { ...layout, orderById: { ...prefs.orderById } }
+      }
+      changed()
     },
     revision(): number {
       return revision
@@ -121,6 +170,7 @@ export function apply(ctx: Context): void {
     // mounted (runtime reload of this plugin) must re-render to the empty state
     // instead of keeping the panels of a dead registry.
     panels.clear()
+    layout = { hiddenIds: [], orderById: {} }
     changed()
     listeners.clear()
   }, `${name}: panels`)
