@@ -1,6 +1,6 @@
-// @mediabase/agent — host plugin: LLM agent loop over the HOST TOOL REGISTRY (C1,
-// route-B). The model plans steps against whatever ctx.tools exposes — no
-// hard-coded tool list here; adding a capability = registering a tool.
+// @mediabase/agent — host plugin: LLM agent loop over the HOST TOOL REGISTRY.
+// The model plans steps against whatever ctx.tools exposes — no hard-coded tool
+// list here; adding a capability = registering a tool.
 //
 // Endpoint configured at runtime via env (composed by apps/cli short names):
 //   LLM_BASE (default https://api.deepseek.com/v1) · LLM_KEY ·
