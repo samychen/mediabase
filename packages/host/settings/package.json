@@ -17,6 +17,7 @@
     "@deepseek-ai/cordis": "^4.0.2"
   },
   "files": [
+    "src",
     "dist",
     "README.md",
     "LICENSE"

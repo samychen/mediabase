@@ -18,6 +18,7 @@
     "@mediabase/schema": "^0.1.6"
   },
   "files": [
+    "src",
     "dist",
     "README.md",
     "LICENSE"

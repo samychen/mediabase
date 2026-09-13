@@ -5,6 +5,7 @@
   "type": "module",
   "description": "mediabase UI bundle: browser roster as data",
   "files": [
+    "src",
     "client.yml"
   ],
   "dependencies": {

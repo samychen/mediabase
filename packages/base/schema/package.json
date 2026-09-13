@@ -13,6 +13,7 @@
     "@deepseek-ai/schemastery": "^3.18.2"
   },
   "files": [
+    "src",
     "dist",
     "README.md",
     "LICENSE"

@@ -5,6 +5,7 @@
   "type": "module",
   "description": "mediabase host composition bundle: cordis.patch.yml layer mounting base capabilities",
   "files": [
+    "src",
     "cordis.patch.yml"
   ],
   "dependencies": {

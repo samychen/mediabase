@@ -10,6 +10,7 @@
     ".": "./src/index.ts"
   },
   "files": [
+    "src",
     "dist",
     "README.md",
     "LICENSE"

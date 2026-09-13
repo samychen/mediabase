@@ -17,6 +17,7 @@
     "js-yaml": "^4.1.0"
   },
   "files": [
+    "src",
     "dist",
     "README.md",
     "LICENSE"
