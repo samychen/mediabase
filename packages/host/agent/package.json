@@ -10,13 +10,13 @@
     ".": "./src/index.ts"
   },
   "dependencies": {
-    "@mediabase/api": "workspace:^",
-    "@mediabase/log": "workspace:^",
-    "@mediabase/protocol": "workspace:^",
-    "@mediabase/rpc": "workspace:^",
-    "@mediabase/schema": "workspace:^",
-    "@mediabase/settings": "workspace:^",
-    "@mediabase/tools": "workspace:^",
+    "@mediabase/api": "^0.1.6",
+    "@mediabase/log": "^0.1.6",
+    "@mediabase/protocol": "^0.1.6",
+    "@mediabase/rpc": "^0.1.6",
+    "@mediabase/schema": "^0.1.6",
+    "@mediabase/settings": "^0.1.6",
+    "@mediabase/tools": "^0.1.6",
     "@deepseek-ai/cordis": "^4.0.2"
   },
   "files": [

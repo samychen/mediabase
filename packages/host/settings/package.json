@@ -10,10 +10,10 @@
     ".": "./src/index.ts"
   },
   "dependencies": {
-    "@mediabase/api": "workspace:^",
-    "@mediabase/protocol": "workspace:^",
-    "@mediabase/rpc": "workspace:^",
-    "@mediabase/schema": "workspace:^",
+    "@mediabase/api": "^0.1.6",
+    "@mediabase/protocol": "^0.1.6",
+    "@mediabase/rpc": "^0.1.6",
+    "@mediabase/schema": "^0.1.6",
     "@deepseek-ai/cordis": "^4.0.2"
   },
   "files": [

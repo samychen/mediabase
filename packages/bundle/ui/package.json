@@ -8,10 +8,10 @@
     "client.yml"
   ],
   "dependencies": {
-    "@mediabase/connection": "workspace:^",
-    "@mediabase/i18n": "workspace:^",
-    "@mediabase/ui": "workspace:^",
-    "@mediabase/ui-web": "workspace:^"
+    "@mediabase/connection": "^0.1.6",
+    "@mediabase/i18n": "^0.1.6",
+    "@mediabase/ui": "^0.1.6",
+    "@mediabase/ui-web": "^0.1.6"
   },
   "mediabase": {
     "uiBundle": {

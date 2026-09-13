@@ -10,7 +10,7 @@
     ".": "./src/index.ts"
   },
   "dependencies": {
-    "@mediabase/rpc": "workspace:^",
+    "@mediabase/rpc": "^0.1.6",
     "ws": "^8.18.0"
   },
   "files": [

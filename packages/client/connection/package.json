@@ -10,9 +10,9 @@
     ".": "./src/index.ts"
   },
   "dependencies": {
-    "@mediabase/protocol": "workspace:^",
+    "@mediabase/protocol": "^0.1.6",
     "@deepseek-ai/cordis": "^4.0.2",
-    "@mediabase/shm": "workspace:^"
+    "@mediabase/shm": "^0.1.6"
   },
   "files": [
     "dist",

@@ -8,12 +8,12 @@
     "cordis.patch.yml"
   ],
   "dependencies": {
-    "@mediabase/agent": "workspace:^",
-    "@mediabase/api": "workspace:^",
-    "@mediabase/log": "workspace:^",
-    "@mediabase/plugins": "workspace:^",
-    "@mediabase/server": "workspace:^",
-    "@mediabase/settings": "workspace:^",
-    "@mediabase/tools": "workspace:^"
+    "@mediabase/agent": "^0.1.6",
+    "@mediabase/api": "^0.1.6",
+    "@mediabase/log": "^0.1.6",
+    "@mediabase/plugins": "^0.1.6",
+    "@mediabase/server": "^0.1.6",
+    "@mediabase/settings": "^0.1.6",
+    "@mediabase/tools": "^0.1.6"
   }
 }

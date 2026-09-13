@@ -11,7 +11,7 @@
   },
   "dependencies": {
     "@deepseek-ai/cordis": "^4.0.2",
-    "@mediabase/schema": "workspace:^"
+    "@mediabase/schema": "^0.1.6"
   },
   "files": [
     "dist",
