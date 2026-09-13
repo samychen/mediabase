@@ -280,15 +280,54 @@ INFO  calc         已组合 能力树(其中 5 个登记 manifest) {"api":20,"t
                    "…/calculator/.calc/profiles/web/cordis.patch.yml"]}
 ```
 
-调用(复用基座的 `connect`,它就是一个最小 JSON-RPC over WS 客户端):
+### 启动之后怎么用
+
+先明确一件事:**这个示例没有做客户端面板**,所以浏览器里没有页面 —— 实测:
+
+```sh
+curl -s -o /dev/null -w '%{http_code}\n' http://127.0.0.1:3213/api/health   # 200
+curl -s -o /dev/null -w '%{http_code}\n' http://127.0.0.1:3213/             # 404
+```
+
+HTTP 只提供健康检查与数据面;**方法调用走控制面 WS `/rpc`**(JSON-RPC 2.0)。加页面见第 12 节
+(加一个 client 包 + roster 一行);在此之前有三种用法:
+
+**① 自带的小命令(最省事)**
+
+```sh
+pnpm run call --info            # 当前后端:js   可用后端:js / python / cpp
+pnpm run call '2*(3+4)'         # 2*(3+4) = 14   [js]
+pnpm run call '100/8'           # 100/8 = 12.5   [js]
+pnpm run call '1/0'             # ✗ -32602 calc: 除以零          (退出码 1)
+pnpm run call '1+('             # ✗ -32602 calc: 表达式不完整     (退出码 1)
+```
+
+宿主在别的端口上就用 `CALC_URL`:
+
+```sh
+CALC_URL=http://127.0.0.1:3214 pnpm run call '2*(3+4)'
+```
+
+**② 用基座的小工具自己写一段**(`scripts/call.mjs` 就是 30 行这个)
 
 ```js
 const { connect } = await import('../mediabase/scripts/lib/host-rpc.mjs')
 const rpc = connect('http://127.0.0.1:3213'); await rpc.open()
-await rpc.call('calc.backends')                  // { active: 'js', available: ['js','python','cpp'] }
-await rpc.call('calc.eval', { expr: '2*(3+(4-1))' })  // { value: 12, backend: 'js' }
-await rpc.call('calc.eval', { expr: '5/0' })     // 抛错:code -32602, message "calc: 除以零"
+await rpc.call('calc.backends')                        // { active: 'js', available: […] }
+await rpc.call('calc.eval', { expr: '2*(3+(4-1))' })   // { value: 12, backend: 'js' }
+await rpc.call('calc.eval', { expr: '5/0' })           // 抛错:code -32602, message "calc: 除以零"
 ```
+
+**③ 直接用 WS 协议**(任何语言的客户端都行)
+
+```
+ws://127.0.0.1:3213/rpc
+→ {"jsonrpc":"2.0","id":1,"method":"calc.eval","params":{"expr":"1+2*3"}}
+← {"jsonrpc":"2.0","id":1,"result":{"value":7,"backend":"js"}}
+```
+
+能调哪些方法、参数长什么样,由能力自己注册(`calc.eval` / `calc.backends`)—— `--info` 的输出
+与错误里的 `code`,就是这份契约在运行时的样子。
 
 ## 9. 换后端的两条路(这条最值得看)
 
