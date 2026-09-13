@@ -35,6 +35,8 @@ export interface EngineExitInfo {
 }
 
 export interface EngineClientOptions {
+  /** argv passed to spawn (default []). Use for interpreters, e.g. `python3 script.py`. */
+  args?: string[]
   /**
    * Path handed to the engine by byte-producing commands. Deployment knowledge:
    * resolve it in the composition layer and pass it in — the neutral default
@@ -111,7 +113,7 @@ export class EngineClient {
   private start(): void {
     // stdio: ['pipe','pipe','pipe'] guarantees non-null stdin/stdout/stderr;
     // the `!` below only satisfies the loose ChildProcess types.
-    const proc = spawn(this.binPath, [], { stdio: ['pipe', 'pipe', 'pipe'] })
+    const proc = spawn(this.binPath, this.options.args ?? [], { stdio: ['pipe', 'pipe', 'pipe'] })
     this.proc = proc
     this.alive = true
     this.startedAt = Date.now()
