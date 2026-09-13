@@ -56,7 +56,7 @@
 |---|---|---|
 | `PORT`（raw）/ `DIST_INDEX` / `TOKEN` / `READONLY` / `ACL_ALLOW` / `ACL_DENY` / `CROSS_ORIGIN_ISOLATION` | `@mediabase/server`（+ `@mediabase/gateway`） | 监听端口、静态目录、鉴权、方法级 ACL、COOP/COEP（共享内存环前置条件） |
 | `HELLO` / `SANDBOX_HELLO` / `SANDBOX_ENTRY` / `PLUGIN_DATA_ROOT` / `SANDBOX_CONFINE_REQUIRED` | `@mediabase/plugins` | 目录条目、沙箱入口、受限插件数据目录根、限制不生效时是否拒绝加载 |
-| `LLM_KEY` / `LLM_BASE` / `LLM_MODEL` | `@mediabase/agent` | 模型端点（可被 `ctx.settings` 覆盖） |
+| `LLM_KEY` / `LLM_BASE` / `LLM_MODEL` | `@mediabase/agent`（基座自带的通用 AI 能力：只认 `ctx.tools`，不含任何领域词） | 模型端点；`ctx.settings` 的 `llm.*` 可运行时覆盖，Config 默认值只是最后兜底 |
 | `SETTINGS_FILE` | `@mediabase/settings` | 设置文件路径 |
 | `LOG_LEVEL` | **log 行**通过 `ctx.env.choice(...)` 读 | 日志级别；能力本身不读环境 |
 | `CAPABILITY_DIR` / `STRICT_CAPABILITIES` / `PLUGIN_MANIFEST` / `HOME` / `ENV_PREFIX` | `@mediabase/boot` 与 `apps/cli` | drop-in 目录、启动门禁（谎报清单即失败）、封闭运行时清单位置、profile home、整体换词表 |

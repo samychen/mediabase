@@ -91,6 +91,15 @@ their own (`AVSTUDIO_` / `~/.avstudio`, …) via `BootIdentity` — never by for
   that `capabilities.verify()` checks at boot). The server/shell therefore name
   no capability — if you find yourself editing them to add one, the registration
   is in the wrong place.
+- **The AI capability is infrastructure, not a domain verb.** `@mediabase/agent`
+  (`agent.run`) stays in this base on purpose: it plans over whatever `ctx.tools`
+  exposes — it names no capability and ships no tool list — so it is the same kind of
+  generic infrastructure as the logger or settings, and it doubles as the worked example
+  of "adding a capability = registering a tool". Its endpoint is never hardcoded: the
+  row states `LLM_BASE`/`LLM_KEY`/`LLM_MODEL`, `ctx.settings` (`llm.*`) overrides them at
+  runtime, and the `Config` defaults (`https://api.deepseek.com/v1`, `deepseek-chat`) are
+  only the last resort for a deployment that states nothing. A missing key never blocks a
+  boot — it fails the `agent.run` call with a coded error.
 - **Validate at the boundary with `@mediabase/schema`.** API params/results and tool
   arguments are schemas, not `unknown` + casts; failures are coded
   (`RpcCode.INVALID_PARAMS` with a path). Throw `RpcError` for application
