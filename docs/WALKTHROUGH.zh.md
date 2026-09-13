@@ -405,10 +405,62 @@ CALC OK — JS / Python / C++ 三个后端的结果逐个一致。
 | `EPERM: operation not permitted, mkdir '~/.calc/…'` | 状态目录不可写(沙箱/CI):用 `CALC_HOME` 指到可写目录 |
 | 想看"到底挂了哪一行" | 基座会把失败链打全(行名 + 原因);启动失败先看最后缩进最深那几行 |
 
-## 12. 接下来按需加(都不必改基座)
+## 12. 加一个页面(计算框 + AI 聊天框)
 
-- **Web 面板**:加一个 client 包 + 在 `packages/bundle/ui/client.yml` 里排一行 + `pnpm run gen:ui-roster`;参考基座 `@mediabase/ui` 与 `@mediabase/ui-web`(外壳必须最后挂)。
+参考实现里已经有这一页了(它就是被加出来的),所以这里只讲**加页面的完整动作**与踩到的坑。
+
+```sh
+# 1) 一个客户端包:注册一个面板(计算与聊天都在同一个面板里)
+#    packages/client/ui/{package.json, src/index.tsx, src/messages.ts}
+# 2) 一层 UI bundle:名册是数据
+#    packages/bundle/ui/{package.json, client.yml}   ← 外壳 @mediabase/ui-web 必须最后一行
+# 3) 一个 Vite app
+#    apps/web/{package.json, index.html, vite.config.ts, src/main.tsx}
+# 4) 自己的名册生成器(基座那份写死了它的包名与清单键,见下面第 4 坑)
+#    scripts/gen-client-roster.mjs
+pnpm run gen:ui-roster      # client.yml → apps/web/src/roster.generated.ts
+pnpm run build:web          # → apps/web/dist
+pnpm run host               # 页面就在 http://127.0.0.1:3213/
+pnpm run verify:page        # 真浏览器:渲染 + 算一个表达式 + 聊天框走一次
+```
+
+实测(`verify:page`,无头 Chrome):
+
+```
+✓ 宿主在 / 上提供页面  HTTP 200, 1438B
+✓ 计算面板已渲染
+✓ 算出了一个表达式  2*(3+4) = 14
+✓ 页面显示了当前后端
+✓ AI 聊天框收到了回复  AI: [-32002] 未配置 LLM key(设置面板或 CALC_LLM_KEY)
+✓ 页面没有未捕获异常
+```
+
+**AI 聊天框不用自己写后端**:它就是基座自带的 `agent.run`(函数调用循环,工具来自
+`ctx.tools`),界面只是把它摆上去。配好 key 就有真答案:
+
+```sh
+CALC_LLM_KEY=sk-… pnpm run host     # key 也可以写进设置(ctx.settings 的 llm.key)
+```
+
+### 加页面时真正会绊倒你的四件事(全部实测)
+
+1. **工作区 globs 要加 `client/*`**。宿主可以只依赖 base + host + bundle/app,但页面用到的
+   `@mediabase/{connection,i18n,ui,ui-web}` 都是 client 包。加完之后按 §1 做:装完回基座跑
+   一次它自己的安装,把被改指的链接指回去。基座 **v0.1.6 起启动不再依赖这些链接**
+   (裸包名在挂载前就按锚点解析成绝对路径了),但基座自己的 UI 测试仍然依赖。
+2. **`distIndex` 要么不写,要么写绝对路径**。服务器的默认值就是 `<root>/apps/web/dist/index.html`,
+   所以布局照这个约定放就什么都不用配;写成相对路径会被静态服务判为越界,`GET /` 直接
+   **403**(实测踩到 —— 文档里 schema 写的是 "absolute path",我没当回事)。
+3. **改了基座里会影响页面文案的东西,必须重新 `build:web`**。页面是静态包,i18n 字典与面板
+   组件都在里面:我改完基座的文案却没重构建,浏览器里看到的还是旧字符串(所以这条也顺带
+   证明了「页面文案来自打包时的基座版本」)。
+4. **名册生成器要自己一份**。基座的 `scripts/gen-client-roster.mjs` 写死了
+   `@mediabase/bundle-ui` 与 `manifest.mediabase.uiBundle`;你的包叫 `@calc/bundle-ui`、
+   清单键是 `calc.uiBundle`,复制一份改两处即可(约 40 行)。
+
+## 13. 接下来按需加(其余都不必改基座)
+
 - **单文件宿主 / 装机**:`pnpm run build:host` 会把每一行打成 `build/plugins/*.cjs`(`../mediabase/scripts/build-host-bundle.mjs` 可复用),Electron 模板见 `packaging/desktop-electron`。
-- **测试**:`evaluate` 值得配 vitest;端到端的部分用 `scripts/verify.mjs` 就够了。
+- **测试**:`evaluate` 值得配 vitest;端到端的部分用 `scripts/verify.mjs` 与 `scripts/verify-page.mts` 就够了。
 - **进 CI**:本地用兄弟目录,CI 里按 tag 拉基座(`MEDIABASE_REF`),见 `docs/HANDOFF.zh.md`。
 - **许可**:自有代码 MIT;一旦随包分发原生二进制(比如把 C++ 后端打进安装包),义务随之变化,见 `docs/LICENSING.zh.md`。
