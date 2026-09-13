@@ -249,8 +249,10 @@ their own (`AVSTUDIO_` / `~/.avstudio`, …) via `BootIdentity` — never by for
 ## Adopting this base
 
 `docs/WALKTHROUGH.zh.md` is the hands-on version of this: build a calculator beside
-the base whose computation has interchangeable JS / Python / C++ backends (12 files,
-no base change) — read it before the checklist if you have never mounted a row.
+the base whose computation has interchangeable JS / Python / C++ backends, and (section 12)
+a page over them with an AI chat box — 29 files, no base change required; it did, however,
+expose the two defects v0.1.6 fixes. Read it before the checklist if you have never mounted
+a row.
 
 `docs/HANDOFF.zh.md` is the checklist for a **product** that adopts this repo: what
 stays as base, what the product owns, identity / bundle / roster / `PRODUCT` block,

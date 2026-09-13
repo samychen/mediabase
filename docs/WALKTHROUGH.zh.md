@@ -4,8 +4,9 @@
 > 实现,并说明每一步落在基座的哪个机制上。文中的命令与输出都是实际跑出来的
 > (绝对路径已用 `<repo>` 代指,免得把某一台机器的目录写进文档)。
 >
-> 参考实现同时存在于 `../calculator`(与 `mediabase` 平级)。全部代码只有 12 个文件,
-> 没有一个字改动基座。
+> 参考实现同时存在于 `../calculator`(与 `mediabase` 平级):宿主部分 12 个文件,加上第 12 节
+> 的页面共 29 个。**建这个示例本身不需要改基座**;但它把基座两个问题逼了出来(裸包名由 Loader
+> 解析、错误文案写死基座词表),都已在 **v0.1.6** 修掉 —— 那两条记在第 12 节末尾。
 
 ## 0. 先分清:哪些要你写,哪些基座已经给了
 
@@ -31,6 +32,14 @@ calculator/
   backends/python/calc_server.py  ← 独立进程后端
   backends/cpp/calc.cpp + build.sh
   scripts/verify.mjs              ← 三个后端结果必须一致
+
+  # 页面(第 12 节;不做页面的话这些都不需要)
+  packages/client/ui/src/index.tsx      ← 一个面板:计算框 + AI 聊天框
+  packages/client/ui/src/messages.ts    ← 文案(zh-CN + en),组件里不留字符串
+  packages/bundle/ui/client.yml         ← 浏览器名册,外壳最后
+  apps/web/                             ← Vite app(名册 → 页面)
+  scripts/gen-client-roster.mjs         ← 名册生成器(自己一份)
+  scripts/verify-page.mts               ← 真浏览器验证
 ```
 
 ## 1. 建工作区:把基座当成"旁边的包"
