@@ -38,6 +38,13 @@
 
 共享启动逻辑只从 **`@mediabase/boot`** 引用 — **禁止**复制 `profile-boot`。
 
+**工作区只列你真正用到的包**（`../mediabase/packages/{base,host,bundle/app}`；要页面时再加
+`client/*`，别写 `bundle/*`）：`pnpm install` 会按**你的**工作区给这些包解析依赖，并把
+**基座自己 `node_modules` 里的链接**改指到你的 store。动过之后回基座跑一次它自己的安装
+（`cd ../mediabase && CI=true pnpm install --ignore-scripts`；若链接已被删掉，先清掉各包的
+`node_modules` 再装）。基座 v0.1.6 起**启动**不再依赖这些链接（行的裸包名在挂载前按锚点解析成
+绝对路径），但基座自己的测试仍然依赖。
+
 ### 3. 能力包（每个：一个包 + 一行）
 
 - `Config`（`@mediabase/schema`）· 在声明该行的清单里写依赖
@@ -53,6 +60,18 @@
 - `pnpm run build:base` / `pnpm pack`（不 publish 公共 npm）
 - `pnpm run notice` 生成归属（勿手改 `NOTICE.md`）
 - 含原生二进制的分发义务在**产品仓**文档与门禁里处理
+
+### 6. 页面（要的话；这一段坑最多）
+
+- 一个客户端包（`ctx.ui.register` 一个面板）+ 名册一行（`client.yml`，**外壳最后**）+ 一个 Vite app
+- **名册生成器要自己一份**：基座的 `scripts/gen-client-roster.mjs` 写死了 `@mediabase/bundle-ui`
+  与 `manifest.mediabase.uiBundle`
+- **`distIndex` 要么不写**（默认 `<root>/apps/web/dist/index.html`），**要么写绝对路径** ——
+  相对路径会被静态服务判为越界，`GET /` 直接 403
+- 改了基座里影响页面文案的东西（i18n 字典、面板组件）要重新 `build:web`：页面是静态包
+- AI 聊天框不必自己写后端：基座自带 `agent.run`（工具来自 `ctx.tools`）；没配 key 时前端显示
+  带码错误，且文案里的变量名按你的身份前缀生成（`AVSTUDIO_LLM_KEY` / `CALC_LLM_KEY`）
+- 完整动作与实测输出见 **`docs/WALKTHROUGH.zh.md` 第 12 节**
 
 ---
 

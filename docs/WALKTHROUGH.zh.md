@@ -83,6 +83,9 @@ packages:
   所以:**工作区 glob 尽量窄**;一旦动过某个消费方的安装,回头在基座里跑一次
   `pnpm install`(或至少跑一次 `pnpm test`)是值得的习惯。
 
+  (基座 **v0.1.6** 起,这件事只剩下"别让基座自己的测试变红"这一层影响:**启动**不再依赖
+  那些链接 —— 行的裸包名在挂载前就按**你的 app 自己的清单**解析成绝对路径了。)
+
 然后把依赖写成 `workspace:^`(`calculator/packages/host/calc/package.json` 里就是):
 
 ```json

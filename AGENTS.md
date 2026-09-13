@@ -130,8 +130,12 @@ their own (`AVSTUDIO_` / `~/.avstudio`, …) via `BootIdentity` — never by for
   composition mistake is invisible until one deployment boots — a row naming a
   package the app does not depend on, a `!!js` expression in a field the Loader
   never interpolates, a patch whose id no layer declares. `pnpm run verify:compose`
-  checks all three statically; `resolveRowSpecifiers` in `@mediabase/boot` repeats
-  the resolution check before mounting, naming the row. A bundle's rows resolve
+  checks all three statically; `@mediabase/boot` repeats the resolution check before
+  mounting, naming the row — and a checkout boot first resolves every bare row name from
+  the APP's own manifest (`absolutizeRowSpecifiers`). That step is load-bearing: the
+  Loader imports a bare name from ITS OWN location, so without it whether a row mounts
+  depends on what that directory happens to contain (a consumer once booted only while its
+  install kept its own packages hoisted into this repo's store). A bundle's rows resolve
   from THAT bundle's manifest; a profile layer or `--patch` overlay resolves from
   `apps/cli/package.json`.
 - **Composition is a bundle + PATCH LAYERS — the only path.** A profile
