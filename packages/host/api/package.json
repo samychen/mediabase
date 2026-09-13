@@ -1,6 +1,6 @@
 {
   "name": "@mediabase/api",
-  "version": "0.1.5",
+  "version": "0.1.6",
   "private": true,
   "type": "module",
   "description": "Host plugin: control-plane API registry (ctx.api) + capability manifests (ctx.capabilities) — capabilities self-register, server exposes them generically",

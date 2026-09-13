@@ -1,6 +1,6 @@
 {
   "name": "@mediabase/desktop-electron",
-  "version": "0.1.5",
+  "version": "0.1.6",
   "description": "Mode B packaged as a native window (Electron shell): forks the bundled Node host (build/host.cjs), shows its web UI",
   "private": true,
   "main": "main.cjs",

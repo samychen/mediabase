@@ -1,6 +1,6 @@
 {
   "name": "@mediabase/rpc",
-  "version": "0.1.5",
+  "version": "0.1.6",
   "private": true,
   "type": "module",
   "description": "Capability-agnostic JSON-RPC 2.0 (makeServer/makeClient + notifications) — neutral base package for any cordis-style host/client app",

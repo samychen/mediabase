@@ -1,6 +1,6 @@
 {
   "name": "@mediabase/agent",
-  "version": "0.1.5",
+  "version": "0.1.6",
   "private": true,
   "type": "module",
   "description": "Host plugin: LLM agent loop (OpenAI-compatible function calling) over whatever ctx.tools exposes (ctx.agent)",

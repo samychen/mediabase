@@ -1,6 +1,6 @@
 {
   "name": "@mediabase/plugins",
-  "version": "0.1.5",
+  "version": "0.1.6",
   "private": true,
   "type": "module",
   "description": "Host plugin: runtime plugin manager (load/unload/reload cordis plugins via fiber dispose)",

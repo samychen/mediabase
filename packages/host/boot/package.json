@@ -1,6 +1,6 @@
 {
   "name": "@mediabase/boot",
-  "version": "0.1.5",
+  "version": "0.1.6",
   "private": true,
   "type": "module",
   "description": "Shared host boot: profile/patch composition, drop-ins, dump-config, capability verify — identity-parameterized",
