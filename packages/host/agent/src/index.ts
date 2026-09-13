@@ -41,6 +41,8 @@ export interface AgentConfig {
   baseUrl: string
   apiKey: string
   model: string
+  /** 本部署的环境前缀,只用于把「该设哪个变量」说对(行里交 `ctx.env.prefix`)。 */
+  envPrefix?: string
 }
 
 /** The endpoint config a composition row owns; defaults are the public DeepSeek ones. */
@@ -48,6 +50,7 @@ export const Config: Schema<AgentConfig, AgentConfig> = z.object({
   baseUrl: z.string().default('https://api.deepseek.com/v1').description('OpenAI-compatible base URL'),
   apiKey: z.string().default('').description('LLM key; empty means "not configured"'),
   model: z.string().default('deepseek-chat').description('model name'),
+  envPrefix: z.string().default('MEDIABASE_').description('env prefix in force; names the variable a user must set'),
 })
 
 const STEP_CAP = 12
@@ -168,8 +171,10 @@ export function apply(ctx: Context, rawConfig: AgentConfig): void {
     async run(o): Promise<AgentResult> {
       const llm = await resolveLLM()
       if (!llm.apiKey) {
-        throw RpcError.unavailable('agent: 未配置 LLM key(设置面板或 LLM_KEY 环境变量)', undefined, {
+        const variable = `${config.envPrefix ?? 'MEDIABASE_'}LLM_KEY`
+        throw RpcError.unavailable(`agent: 未配置 LLM key(设置面板或 ${variable} 环境变量)`, undefined, {
           messageKey: 'agent.noKey',
+          messageParams: { prefix: config.envPrefix ?? 'MEDIABASE_' },
         })
       }
       const messages: ChatMessage[] = [

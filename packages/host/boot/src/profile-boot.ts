@@ -657,6 +657,48 @@ export function applyPluginManifest(
   return patches.map((patch) => rewriteEntry(patch) as PatchOptions)
 }
 
+/**
+ * Bare row names → the file the ANCHOR resolves, before the Loader ever sees them.
+ *
+ * The Loader imports a bare name from ITS OWN location (a package inside `node_modules`),
+ * so whether `@yourapp/media` resolves depends on what that directory happens to contain —
+ * which is how a consumer's boot worked only because its install had hoisted links into the
+ * base's store, and stopped working the moment those links were cleaned up. An absolute
+ * path resolved from the app's own manifest has no such dependency: the composition states
+ * what it means, and the deployment's `node_modules` decides it.
+ *
+ * A name the anchor cannot resolve is left ALONE on purpose — `resolveRowSpecifiers` reports
+ * it with the row's name right after, which is a better message than one raised here.
+ */
+export function absolutizeRowSpecifiers(
+  patches: readonly PatchOptions[],
+  anchorManifest: string,
+): PatchOptions[] {
+  const require = createRequire(anchorManifest)
+  const rewrite = (value: unknown): unknown => {
+    if (Array.isArray(value)) return value.map(rewrite)
+    if (value === null || typeof value !== 'object') return value
+    const out: Record<string, unknown> = {}
+    for (const [key, item] of Object.entries(value as Record<string, unknown>)) {
+      const bare = key === 'name' && typeof item === 'string'
+        && !item.startsWith('cordis:') && !item.startsWith('.')
+        && !item.startsWith('/') && !item.startsWith('file:')
+      if (bare) {
+        try {
+          out[key] = require.resolve(item as string)
+          continue
+        } catch {
+          out[key] = item
+          continue
+        }
+      }
+      out[key] = rewrite(item)
+    }
+    return out
+  }
+  return patches.map((patch) => rewrite(patch) as PatchOptions)
+}
+
 /** One layer, with the label a reader knows it by (a file path, or the drop-in marker). */
 export interface CompositionLayer {
   label: string
@@ -674,8 +716,9 @@ export interface CompositionPlan {
   /** Flattened patches, in mount order (what the include receives). */
   patches: PatchOptions[]
   /**
-   * `patches` with a closed runtime's bundled modules substituted for bare names — what the
-   * Loader is actually given. Identical to `patches` for a checkout.
+   * What the Loader is actually given: `patches` with every bare row name resolved to the
+   * file the ANCHOR names (a checkout), or with a closed runtime's bundled modules
+   * substituted (a packaged host). Either way the Loader never resolves a bare name itself.
    */
   mountPatches: PatchOptions[]
   pluginManifest?: PluginManifest
@@ -752,7 +795,12 @@ export async function planComposition(
   // A closed runtime (a single-file host) ships its own bundled modules: mount those
   // instead of resolving names that are not installed beside the bundle.
   const manifest = loadPluginManifest(anchor, env, process.argv[1], identity.envPrefix, bin)
-  const mountPatches = manifest === undefined ? patches : applyPluginManifest(patches, manifest.plugins)
+  // A checkout boot: resolve bare names from the anchor, so the Loader's own location
+  // cannot decide whether a row mounts. A closed runtime instead substitutes its
+  // bundled files (and a name its manifest omits stays bare, which the pre-flight reports).
+  const mountPatches = manifest === undefined
+    ? absolutizeRowSpecifiers(patches, anchor)
+    : applyPluginManifest(patches, manifest.plugins)
   // Fail with the row's name before the Loader reports a nameless aggregate.
   resolveRowSpecifiers(mountPatches, anchor, manifest, bin)
 

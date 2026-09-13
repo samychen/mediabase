@@ -64,7 +64,8 @@
       "stated": {
         "baseUrl": "!!js ctx.env.str('LLM_BASE')",
         "apiKey": "!!js ctx.env.str('LLM_KEY')",
-        "model": "!!js ctx.env.str('LLM_MODEL')"
+        "model": "!!js ctx.env.str('LLM_MODEL')",
+        "envPrefix": "!!js ctx.env.prefix"
       },
       "schema": {
         "type": "object",
@@ -82,6 +83,11 @@
           "model": {
             "description": "model name",
             "default": "deepseek-chat",
+            "type": "string"
+          },
+          "envPrefix": {
+            "description": "env prefix in force; names the variable a user must set",
+            "default": "MEDIABASE_",
             "type": "string"
           }
         }

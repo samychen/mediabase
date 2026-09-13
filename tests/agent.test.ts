@@ -438,11 +438,15 @@ describe('@mediabase/agent: config vocabulary and registration', () => {
       baseUrl: 'https://api.deepseek.com/v1',
       apiKey: '',
       model: 'deepseek-chat',
+      // The prefix is not part of the request; it is how the "which variable do I set?"
+      // message names the deployment's own variable (`CALC_LLM_KEY`, `AVSTUDIO_LLM_KEY`).
+      envPrefix: 'MEDIABASE_',
     })
     expect(agent.Config({ baseUrl: 'http://x/v1', apiKey: 'k', model: 'm' })).toEqual({
       baseUrl: 'http://x/v1',
       apiKey: 'k',
       model: 'm',
+      envPrefix: 'MEDIABASE_',
     })
   })
 

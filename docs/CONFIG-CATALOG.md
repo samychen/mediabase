@@ -16,7 +16,7 @@
 | `api` | `@mediabase/api` | (无,全部走默认) |
 | `settings` | `@mediabase/settings` | `file` |
 | `tools` | `@mediabase/tools` | (无,全部走默认) |
-| `agent` | `@mediabase/agent` | `baseUrl`, `apiKey`, `model` |
+| `agent` | `@mediabase/agent` | `baseUrl`, `apiKey`, `model`, `envPrefix` |
 | `plugins` | `@mediabase/plugins` | `root`, `dataRoot`, `confinementRequired`, `envPrefix` |
 | `server` | `@mediabase/server` | `root`, `port`, `distIndex`, `token`, `crossOriginIsolation`, `acl` |
 
@@ -79,6 +79,7 @@ file: !!js ctx.env.str('SETTINGS_FILE')
 baseUrl: !!js ctx.env.str('LLM_BASE')
 apiKey: !!js ctx.env.str('LLM_KEY')
 model: !!js ctx.env.str('LLM_MODEL')
+envPrefix: !!js ctx.env.prefix
 ```
 
 `Config` 接受的字段:
@@ -88,6 +89,7 @@ model: !!js ctx.env.str('LLM_MODEL')
 | `baseUrl` | string | no | "https://api.deepseek.com/v1" | OpenAI-compatible base URL |
 | `apiKey` | string | no | "" | LLM key; empty means "not configured" |
 | `model` | string | no | "deepseek-chat" | model name |
+| `envPrefix` | string | no | "MEDIABASE_" | env prefix in force; names the variable a user must set |
 
 ## `plugins` — `@mediabase/plugins`
 

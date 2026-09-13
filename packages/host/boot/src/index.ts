@@ -33,6 +33,7 @@ export {
   describeBootFailure,
   resolveRowSpecifiers,
   loadPluginManifest,
+  absolutizeRowSpecifiers,
   applyPluginManifest,
   planComposition,
   runProfile,

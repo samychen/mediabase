@@ -42,7 +42,18 @@ interface CdpEnvelope {
  * failure.
  */
 function removeProfile(dir: string): void {
-  rmSync(dir, { recursive: true, force: true, maxRetries: 10, retryDelay: 100 })
+  try {
+    // 30 tries ≈ 3s: under FULL-suite load (every file in parallel, and a consumer's own
+    // browsers running too) Chrome's cache flush outlives the shorter budget that is
+    // enough when this file runs alone.
+    rmSync(dir, { recursive: true, force: true, maxRetries: 30, retryDelay: 100 })
+  } catch (e) {
+    // Still failing means the OS holds the profile open. A teardown race must not redden a
+    // suite whose tests passed, and a per-run temp directory costs nothing — disclose it.
+    process.emitWarning(
+      `browser profile not removed (${dir}): ${e instanceof Error ? e.message : String(e)}`,
+    )
+  }
 }
 
 export interface Browser {

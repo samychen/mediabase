@@ -70,6 +70,8 @@
         baseUrl: !!js ctx.env.str('LLM_BASE')
         apiKey: !!js ctx.env.str('LLM_KEY')
         model: !!js ctx.env.str('LLM_MODEL')
+        # 前缀不是给请求用的,是给「该设哪个变量」这句话用的:对消费者就是 CALC_LLM_KEY。
+        envPrefix: !!js ctx.env.prefix
 
     - id: plugins
       name: '@mediabase/plugins'

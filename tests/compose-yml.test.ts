@@ -241,6 +241,8 @@ describe('the shipped rows state the deployment environment', () => {
       baseUrl: "ctx.env.str('LLM_BASE')",
       apiKey: "ctx.env.str('LLM_KEY')",
       model: "ctx.env.str('LLM_MODEL')",
+      // 不是给请求用的,是给「该设哪个变量」那句话用的 —— 登记它,否则这就是个没人记录的旋钮。
+      envPrefix: 'ctx.env.prefix',
     },
     plugins: {
       dataRoot: "ctx.env.str('PLUGIN_DATA_ROOT')",
