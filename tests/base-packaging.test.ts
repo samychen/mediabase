@@ -46,8 +46,12 @@ function pack(pkgDir: string): { tgz: string; manifest: Record<string, unknown>;
 }
 
 beforeAll(() => {
-  // Only the two packages this suite packs (a full base build is ~15 tsc runs).
-  execFileSync(process.execPath, ['scripts/build-base.mjs', '@mediabase/rpc', '@mediabase/schema'], { cwd: ROOT, stdio: 'inherit' })
+  // Only the packages this suite packs (a full base build is ~15 tsc runs).
+  execFileSync(
+    process.execPath,
+    ['scripts/build-base.mjs', '@mediabase/rpc', '@mediabase/schema', '@mediabase/plugins'],
+    { cwd: ROOT, stdio: 'inherit' },
+  )
 }, 180_000)
 
 afterAll(() => {
@@ -66,10 +70,28 @@ describe('packable base packages (publishing is blocked by private:true)', () =>
     expect(entries).toContain('package/LICENSE')
     expect(execFileSync('tar', ['-xzOf', pack('packages/base/rpc').tgz, 'package/LICENSE'], { encoding: 'utf8' }))
       .toContain('MIT License')
-    // consumers get compiled output, never this repo's sources
-    expect(entries.some((e) => e.startsWith('package/src/'))).toBe(false)
+    // The entry a package manager reads is compiled output (asserted above), and src
+    // ships IN ADDITION on purpose: a git-URL consumer (e.g. avstudio) runs the
+    // TypeScript sources, and `files` serves both consumers at once — see a5188a6
+    // "ship src/ in package files so git dependencies expose their TS entrypoints".
+    // So the property is not "no src in the tarball"; it is "src ships, and the
+    // manifest entry points at dist".
+    expect(entries).toContain('package/src/index.ts')
     // and the pack is explicitly non-publishable: `pnpm publish` refuses private packages
     expect(manifest['private']).toBe(true)
+  })
+
+  it('ships the child entry a sandboxed plugin needs (@mediabase/plugins)', () => {
+    // The plugin manager spawns `sandbox/entry.ts` for `isolation: 'process'`, and a
+    // git-URL consumer receives exactly what `files` lists. Missing it is not
+    // cosmetic: every sandboxed load is refused ("no sandbox entry configured") and a
+    // consumer's host-bundle step cannot even resolve the file to bundle it
+    // (measured: `pnpm run build:host` exits non-zero in avstudio). `src` alone was
+    // not enough — this is the property that says so.
+    const { entries } = pack('packages/host/plugins')
+    expect(entries).toContain('package/sandbox/entry.ts')
+    // ...and the file that entry shares its protocol with must be reachable too.
+    expect(entries).toContain('package/src/sandbox-protocol.ts')
   })
 
   it('declares the runtime dependencies a consumer must install (@mediabase/schema)', () => {
