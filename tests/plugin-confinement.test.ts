@@ -14,7 +14,7 @@
 //   4. a policy marked `required` FAILS CLOSED when a denial is unavailable, so a
 //      plugin can never run with less confinement than it declared.
 
-import { mkdirSync, mkdtempSync, realpathSync, rmSync, symlinkSync, writeFileSync } from 'node:fs'
+import { existsSync, mkdirSync, mkdtempSync, realpathSync, rmSync, symlinkSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { afterEach, describe, expect, it } from 'vitest'
@@ -288,6 +288,31 @@ async function compose(entry: PluginEntry): Promise<Fixture> {
     probePlugin: async (id) => service.probe(id) as Promise<{ state: string; confined?: boolean; confinement?: string | null }>,
   }
 }
+
+describe('the sandbox entry a deployment gets', () => {
+  it('resolves from the package itself, so an app root without the base layout still isolates', () => {
+    // The property a CONSUMER depends on: this package ships its child entry, and the
+    // resolution must find it without the application root looking like the base's
+    // checkout. It used to resolve `join(root, 'packages/host/plugins/sandbox/entry.ts')`,
+    // which no product repo has — isolation was silently unavailable there while the
+    // base's own suite stayed green (found in avstudio: every sandboxed load refused
+    // with "no sandbox entry configured").
+    const fromNowhere = sandboxEntryFor(join(tmpdir(), 'mediabase-no-such-root'), {})
+    expect(fromNowhere, 'the packaged entry must not depend on the app root').toBeDefined()
+    expect(existsSync(fromNowhere!.entry), `${fromNowhere!.entry} must exist`).toBe(true)
+    expect(fromNowhere!.entry.endsWith(join('sandbox', 'entry.ts'))).toBe(true)
+
+    // A deployment's own bundle still wins: it needs no loader, so the policy layer
+    // keeps every denial instead of giving up the process one.
+    const root = mkdtempSync(join(tmpdir(), 'mediabase-root-with-bundle-'))
+    made.push(root)
+    mkdirSync(join(root, 'build'), { recursive: true })
+    writeFileSync(join(root, 'build', 'sandbox.cjs'), '// bundle\n')
+    const fromBundle = sandboxEntryFor(root, {})
+    expect(fromBundle?.entry).toBe(join(root, 'build', 'sandbox.cjs'))
+    expect(fromBundle?.requiresWorker).toBeUndefined()
+  })
+})
 
 describe('a confined sandboxed plugin', () => {
   it('is denied out-of-root files, spawn and workers, while its data dir works', async () => {

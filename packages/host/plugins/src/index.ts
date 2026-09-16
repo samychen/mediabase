@@ -8,7 +8,7 @@
 // Entries are resolved lazily (dynamic import) only on load(), so a missing
 // module never breaks host boot.
 
-import { pathToFileURL } from 'node:url'
+import { fileURLToPath, pathToFileURL } from 'node:url'
 import type { Context } from '@deepseek-ai/cordis'
 import { dirname, join } from 'node:path'
 import { existsSync, mkdirSync } from 'node:fs'
@@ -165,6 +165,23 @@ function restrictContext(fiberCtx: Context, id: string, allowed: readonly string
  * tsx. `${envPrefix}SANDBOX_ENTRY` overrides both.
  */
 /**
+ * This package's own child entry — `<pkg>/sandbox/entry.ts`, which `files` ships and
+ * which sits beside this module in BOTH shapes a consumer can install us in: a
+ * checkout loads `src/index.ts`, a packed install loads `dist/index.mjs`, so `../`
+ * from either lands on the same file.
+ *
+ * Resolved from HERE rather than from the application root on purpose: a consumer
+ * (any product that pins this package) does not keep the base's directory layout
+ * under its own root, and an app-root path made the entry unfindable for every one
+ * of them — process isolation was then simply unavailable, while the base's own
+ * checkout worked, which is why only a consumer could see it.
+ */
+function packagedEntry(): string | undefined {
+  const candidate = join(dirname(fileURLToPath(import.meta.url)), '..', 'sandbox', 'entry.ts')
+  return existsSync(candidate) ? candidate : undefined
+}
+
+/**
  * Which child entry to spawn, and whether it needs a worker-based transpiler.
  *
  * The order matters for CONFINEMENT, not just for convenience: a confined child
@@ -185,10 +202,12 @@ export function sandboxEntryFor(
     // (bundled), which is what packaging passes.
     return { entry: explicit }
   }
+  // The deployment's own bundle wins: it needs no loader at all, so the policy layer
+  // keeps every denial (including the process one).
   const bundled = join(root, 'build/sandbox.cjs')
   if (existsSync(bundled)) return { entry: bundled }
-  const source = join(root, 'packages/host/plugins/sandbox/entry.ts')
-  if (!existsSync(source)) return undefined
+  const source = packagedEntry()
+  if (source === undefined) return undefined
   // `process.features.typescript` is 'strip' when this runtime runs .ts by itself.
   const nativeTs = (process.features as { typescript?: string | boolean }).typescript
   if (nativeTs !== undefined && nativeTs !== false) {
