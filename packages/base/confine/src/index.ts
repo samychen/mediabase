@@ -157,13 +157,21 @@ export function resolveRoots(request: ConfineRequest): ResolvedRoots {
 }
 
 /** `--allow-fs-read`/`--allow-fs-write` flags for Node's permission model. */
-export function nodePermissionArgs(roots: ResolvedRoots): string[] {
+export function nodePermissionArgs(roots: ResolvedRoots, allowWorker = false): string[] {
   const args = ['--permission']
   for (const p of roots.read) args.push(`--allow-fs-read=${p}`)
   for (const p of roots.write) args.push(`--allow-fs-write=${p}`)
-  // Deliberately no --allow-child-process / --allow-worker / --allow-addons:
-  // Node itself warns that those "could invalidate the permission model", and a
-  // confined child that can spawn an unconfined grandchild is not confined.
+  // Deliberately no --allow-child-process / --allow-addons: Node itself warns that
+  // those "could invalidate the permission model", and a confined child that can
+  // spawn an unconfined grandchild is not confined.
+  //
+  // `--allow-worker` is the ONE exception, and only when the plan has already given
+  // that denial up: an entry that cannot start without a transpiling loader (tsx
+  // registers ESM hooks through a worker) would otherwise die at once while the
+  // report claimed a policy the child never ran under. The give-up is named in
+  // `enforced.processes` and in `unavailable` either way, so this is the reported
+  // decision REACHING the child, not a quiet weakening.
+  if (allowWorker) args.push('--allow-worker')
   return args
 }
 
@@ -316,8 +324,12 @@ export function planConfinement(request: ConfineRequest, options: PlanOptions = 
   }
 
   const nodeBin = options.execPath ?? process.execPath
+  // One condition decides both the report and the spawn: `allowWorker` above says the
+  // process denial was given up, and the child must be spawned with that same
+  // decision (see nodePermissionArgs).
+  const workerAllowed = request.allowWorker === true && request.confineProcesses !== false
   const spawn = (entry: string, nodeArgs: string[] = []): { bin: string; args: string[] } => {
-    const nodeArgv = nodeLayerApplied ? [...nodePermissionArgs(roots), ...nodeArgs, entry] : [...nodeArgs, entry]
+    const nodeArgv = nodeLayerApplied ? [...nodePermissionArgs(roots, workerAllowed), ...nodeArgs, entry] : [...nodeArgs, entry]
     if (request.denyNetwork === true && osMechanism === 'seatbelt') {
       return { bin: 'sandbox-exec', args: ['-p', seatbeltProfile(roots, request), nodeBin, ...nodeArgv] }
     }

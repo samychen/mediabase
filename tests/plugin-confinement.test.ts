@@ -87,6 +87,29 @@ describe('@mediabase/confine: the plan is the policy, as text', () => {
     expect(args.join(' ')).not.toContain('--allow-addons')
   })
 
+  it('passes the ONE give-up it decided on through to the child (worker, for a loader)', () => {
+    // The report and the spawn must describe the same policy. An entry that cannot
+    // start without a transpiling loader (tsx installs ESM hooks through a worker)
+    // gets `allowWorker`, which the plan already names in `enforced.processes` and in
+    // `unavailable` — but the flag itself never reached the child, so it died at once
+    // under a policy the report said was relaxed. One condition, two consumers.
+    const withWorker = nodePermissionArgs({ read: ['/a'], write: [] }, true)
+    expect(withWorker).toContain('--allow-worker')
+    // ...and it stays a single, named exception: the other escape hatches remain out.
+    expect(withWorker.join(' ')).not.toContain('--allow-child-process')
+    expect(withWorker.join(' ')).not.toContain('--allow-addons')
+
+    const plan = planConfinement({ read: ['/a'], write: [], allowWorker: true }, { probe: probe(['node-permission']) })
+    expect(plan.enforced.processes).toBe('inherit')
+    expect(plan.unavailable.some((u) => /worker/.test(u.reason))).toBe(true)
+    expect(plan.spawn('/entry.ts', ['--import', 'tsx']).args).toContain('--allow-worker')
+
+    // Without the give-up the child is spawned with the denial intact.
+    const strict = planConfinement({ read: ['/a'], write: [] }, { probe: probe(['node-permission']) })
+    expect(strict.enforced.processes).toBe('deny')
+    expect(strict.spawn('/entry.ts').args).not.toContain('--allow-worker')
+  })
+
   it('writes a reviewable Seatbelt profile (network + write denials, declared writes back)', () => {
     const profile = seatbeltProfile({ read: ['/app'], write: ['/data/pl"ug'] }, { denyNetwork: true })
     expect(profile).toContain('(deny network*)')
