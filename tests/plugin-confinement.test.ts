@@ -32,7 +32,7 @@ import * as log from '../packages/base/log/src/index.ts'
 import { IDENTITY } from '../apps/cli/src/identity.ts'
 import * as api from '../packages/host/api/src/index.ts'
 import * as plugins from '../packages/host/plugins/src/index.ts'
-import { entryLoaderFor, sandboxEntryFor } from '../packages/host/plugins/src/index.ts'
+import { sandboxEntryFor, strippableEntry } from '../packages/host/plugins/src/index.ts'
 import { RpcCode } from '../packages/base/rpc/src/index.ts'
 import { ROOT } from './support/host.ts'
 import type { LogRecord } from '../packages/base/log/src/index.ts'
@@ -336,26 +336,21 @@ describe('the sandbox entry a deployment gets', () => {
     expect(fromBundle?.requiresWorker).toBeUndefined()
   })
 
-  it('never asks Node to strip types for an installed entry', () => {
-    // Node refuses that (ERR_UNSUPPORTED_NODE_MODULES_TYPE_STRIPPING) and an installed
-    // package ALWAYS sits under node_modules, so choosing the stripping path there made
-    // every consumer's sandboxed child exit in 25ms — with a message that blamed the
-    // confinement policy rather than the loader.
+  it('runs a TypeScript entry only where Node can strip it', () => {
+    // An INSTALLED package always sits under node_modules, and Node refuses to strip
+    // types there (ERR_UNSUPPORTED_NODE_MODULES_TYPE_STRIPPING) — so a consumer's entry
+    // cannot take this path, and the loader fallback is no way out either (tsx needs a
+    // worker and probes outside the declared read roots, dying at once under the
+    // policy). An entry that cannot run is REFUSED up front: a clear "no entry" beats a
+    // child that fails at spawn under a policy the report cannot explain.
     const installed = join(sep, 'app', 'node_modules', '@mediabase', 'plugins', 'sandbox', 'entry.ts')
-    expect(entryLoaderFor(installed, 'strip')).toMatchObject({
-      entry: installed,
-      nodeArgs: ['--import', 'tsx'],
-      requiresWorker: true,
-    })
-    // A checkout is not under node_modules: stripping is preferred (no loader ⇒ no
-    // worker ⇒ the policy keeps the process denial).
+    expect(strippableEntry(installed, 'strip')).toBe(false)
+    // A checkout outside node_modules is fine: no loader ⇒ no worker ⇒ the policy keeps
+    // every denial, including the process one.
     const checkout = join(sep, 'work', 'base', 'packages', 'host', 'plugins', 'sandbox', 'entry.ts')
-    expect(entryLoaderFor(checkout, 'strip')).toMatchObject({
-      entry: checkout,
-      nodeArgs: ['--disable-warning=ExperimentalWarning'],
-    })
-    // Without the feature, tsx is the only way in — still reported as a give-up.
-    expect(entryLoaderFor(checkout, undefined).requiresWorker).toBe(true)
+    expect(strippableEntry(checkout, 'strip')).toBe(true)
+    // No stripping feature at all ⇒ nothing to run it with.
+    expect(strippableEntry(checkout, undefined)).toBe(false)
   })
 })
 
