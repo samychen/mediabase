@@ -2,7 +2,8 @@
 
 本仓是**中立基座**，不是示例产品。消费仓（avstudio、小工具、你的新产品）叠身份、领域能力与（可选）原生引擎。
 
-配套阅读：`README.md`（快速开始）、`docs/FRAMEWORK.zh.md`（架构取舍；产品相关段落见文首说明）。
+配套阅读：`README.md`（快速开始）、`docs/FRAMEWORK.zh.md`（架构取舍；产品相关段落见文首说明）、
+`docs/LEARNING-PATH.zh.md`（第一次接触本仓时的分阶段学习路径）。
 
 ---
 

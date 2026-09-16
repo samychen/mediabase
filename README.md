@@ -37,6 +37,7 @@ pnpm run verify:base   # 对已启动的 host 做中性冒烟
 - **CI / 可复现**：pin git tag（当前 **`v0.1.6`**），checkout 到旁路目录后再 `pnpm install`
 - **不** publish 到公共 npm（`private: true`）；可用 `pnpm run build:base` + `pnpm pack`
 - **照着做一遍**：`docs/WALKTHROUGH.zh.md` —— 在基座旁边新建一个计算器，计算部分有 JS / Python / C++ 三种可换后端（参考实现 12 个文件，零改动基座）
+- **第一次接触本仓**：`docs/LEARNING-PATH.zh.md` —— 分阶段学习路径：每阶段给出读什么、做什么、怎么算过关
 
 ## 常用命令
 
