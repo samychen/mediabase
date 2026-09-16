@@ -10,7 +10,7 @@
 
 import { fileURLToPath, pathToFileURL } from 'node:url'
 import type { Context } from '@deepseek-ai/cordis'
-import { dirname, join } from 'node:path'
+import { dirname, join, sep } from 'node:path'
 import { existsSync, mkdirSync } from 'node:fs'
 import { homedir, tmpdir } from 'node:os'
 import { planConfinement, type Confinement, type ConfineRequest } from '@mediabase/confine'
@@ -208,12 +208,29 @@ export function sandboxEntryFor(
   if (existsSync(bundled)) return { entry: bundled }
   const source = packagedEntry()
   if (source === undefined) return undefined
-  // `process.features.typescript` is 'strip' when this runtime runs .ts by itself.
-  const nativeTs = (process.features as { typescript?: string | boolean }).typescript
-  if (nativeTs !== undefined && nativeTs !== false) {
-    return { entry: source, nodeArgs: ['--disable-warning=ExperimentalWarning'] }
+  return entryLoaderFor(source, (process.features as { typescript?: string | boolean }).typescript)
+}
+
+/**
+ * How to run a TypeScript child entry: Node's own type stripping (no loader, no
+ * worker, so the policy keeps every denial) or `tsx` as the last resort, which needs
+ * worker threads and is therefore reported as a give-up rather than hidden.
+ *
+ * The `node_modules` check is not cosmetic. Node refuses to strip types for files
+ * under it (`ERR_UNSUPPORTED_NODE_MODULES_TYPE_STRIPPING`) — and an INSTALLED package
+ * always lives there, so a consumer's entry could never take the stripping path.
+ * Choosing it anyway is what made a consumer's sandboxed child exit in 25ms with a
+ * message that pointed at the confinement policy instead of at the loader.
+ */
+export function entryLoaderFor(
+  entry: string,
+  nativeTs: string | boolean | undefined,
+): SandboxOptions {
+  const underNodeModules = entry.split(sep).includes('node_modules')
+  if (!underNodeModules && nativeTs !== undefined && nativeTs !== false) {
+    return { entry, nodeArgs: ['--disable-warning=ExperimentalWarning'] }
   }
-  return { entry: source, nodeArgs: ['--import', 'tsx'], requiresWorker: true }
+  return { entry, nodeArgs: ['--import', 'tsx'], requiresWorker: true }
 }
 
 /**

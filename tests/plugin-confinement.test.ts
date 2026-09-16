@@ -16,7 +16,7 @@
 
 import { existsSync, mkdirSync, mkdtempSync, realpathSync, rmSync, symlinkSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
-import { join } from 'node:path'
+import { join, sep } from 'node:path'
 import { afterEach, describe, expect, it } from 'vitest'
 import { Context } from '@deepseek-ai/cordis'
 import {
@@ -32,7 +32,7 @@ import * as log from '../packages/base/log/src/index.ts'
 import { IDENTITY } from '../apps/cli/src/identity.ts'
 import * as api from '../packages/host/api/src/index.ts'
 import * as plugins from '../packages/host/plugins/src/index.ts'
-import { sandboxEntryFor } from '../packages/host/plugins/src/index.ts'
+import { entryLoaderFor, sandboxEntryFor } from '../packages/host/plugins/src/index.ts'
 import { RpcCode } from '../packages/base/rpc/src/index.ts'
 import { ROOT } from './support/host.ts'
 import type { LogRecord } from '../packages/base/log/src/index.ts'
@@ -249,7 +249,7 @@ export function apply(ctx) { ctx.log.info('confined probe started') }
 function probeModule(): string {
   mkdirSync(join(ROOT, 'tests/.tmp-plugins'), { recursive: true })
   const file = join(ROOT, 'tests/.tmp-plugins', `probe-${Date.now()}-${Math.random().toString(36).slice(2)}.mjs`)
-  writeFileSync(file, `import { readFileSync, writeFileSync } from 'node:fs'\nimport { execSync } from 'node:child_process'\nimport { join } from 'node:path'\nimport { connect } from 'node:net'\nimport { Worker } from 'node:worker_threads'\n${PROBE_PLUGIN}`)
+  writeFileSync(file, `import { readFileSync, writeFileSync } from 'node:fs'\nimport { execSync } from 'node:child_process'\nimport { join, sep } from 'node:path'\nimport { connect } from 'node:net'\nimport { Worker } from 'node:worker_threads'\n${PROBE_PLUGIN}`)
   made.push(file)
   return file
 }
@@ -311,6 +311,28 @@ describe('the sandbox entry a deployment gets', () => {
     const fromBundle = sandboxEntryFor(root, {})
     expect(fromBundle?.entry).toBe(join(root, 'build', 'sandbox.cjs'))
     expect(fromBundle?.requiresWorker).toBeUndefined()
+  })
+
+  it('never asks Node to strip types for an installed entry', () => {
+    // Node refuses that (ERR_UNSUPPORTED_NODE_MODULES_TYPE_STRIPPING) and an installed
+    // package ALWAYS sits under node_modules, so choosing the stripping path there made
+    // every consumer's sandboxed child exit in 25ms — with a message that blamed the
+    // confinement policy rather than the loader.
+    const installed = join(sep, 'app', 'node_modules', '@mediabase', 'plugins', 'sandbox', 'entry.ts')
+    expect(entryLoaderFor(installed, 'strip')).toMatchObject({
+      entry: installed,
+      nodeArgs: ['--import', 'tsx'],
+      requiresWorker: true,
+    })
+    // A checkout is not under node_modules: stripping is preferred (no loader ⇒ no
+    // worker ⇒ the policy keeps the process denial).
+    const checkout = join(sep, 'work', 'base', 'packages', 'host', 'plugins', 'sandbox', 'entry.ts')
+    expect(entryLoaderFor(checkout, 'strip')).toMatchObject({
+      entry: checkout,
+      nodeArgs: ['--disable-warning=ExperimentalWarning'],
+    })
+    // Without the feature, tsx is the only way in — still reported as a give-up.
+    expect(entryLoaderFor(checkout, undefined).requiresWorker).toBe(true)
   })
 })
 
