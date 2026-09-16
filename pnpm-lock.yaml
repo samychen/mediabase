@@ -141,13 +141,13 @@ importers:
   packages/base/engine-client:
     dependencies:
       '@mediabase/rpc':
-        specifier: workspace:^
+        specifier: ^0.1.6
         version: link:../rpc
 
   packages/base/gateway:
     dependencies:
       '@mediabase/rpc':
-        specifier: workspace:^
+        specifier: ^0.1.6
         version: link:../rpc
       ws:
         specifier: ^8.18.0
@@ -159,16 +159,16 @@ importers:
         specifier: ^4.0.2
         version: 4.0.2(@deepseek-ai/cordis-plugin-include@1.0.7)(@deepseek-ai/cordis-plugin-loader@1.0.3)
       '@mediabase/schema':
-        specifier: workspace:^
+        specifier: ^0.1.6
         version: link:../schema
 
   packages/base/protocol:
     dependencies:
       '@mediabase/rpc':
-        specifier: workspace:^
+        specifier: ^0.1.6
         version: link:../rpc
       '@mediabase/schema':
-        specifier: workspace:^
+        specifier: ^0.1.6
         version: link:../schema
 
   packages/base/rpc: {}
@@ -184,40 +184,40 @@ importers:
   packages/bundle/app:
     dependencies:
       '@mediabase/agent':
-        specifier: workspace:^
+        specifier: ^0.1.6
         version: link:../../host/agent
       '@mediabase/api':
-        specifier: workspace:^
+        specifier: ^0.1.6
         version: link:../../host/api
       '@mediabase/log':
-        specifier: workspace:^
+        specifier: ^0.1.6
         version: link:../../base/log
       '@mediabase/plugins':
-        specifier: workspace:^
+        specifier: ^0.1.6
         version: link:../../host/plugins
       '@mediabase/server':
-        specifier: workspace:^
+        specifier: ^0.1.6
         version: link:../../host/server
       '@mediabase/settings':
-        specifier: workspace:^
+        specifier: ^0.1.6
         version: link:../../host/settings
       '@mediabase/tools':
-        specifier: workspace:^
+        specifier: ^0.1.6
         version: link:../../host/tools
 
   packages/bundle/ui:
     dependencies:
       '@mediabase/connection':
-        specifier: workspace:^
+        specifier: ^0.1.6
         version: link:../../client/connection
       '@mediabase/i18n':
-        specifier: workspace:^
+        specifier: ^0.1.6
         version: link:../../client/i18n
       '@mediabase/ui':
-        specifier: workspace:^
+        specifier: ^0.1.6
         version: link:../../client/ui
       '@mediabase/ui-web':
-        specifier: workspace:^
+        specifier: ^0.1.6
         version: link:../../client/ui-web
 
   packages/client/connection:
@@ -226,10 +226,10 @@ importers:
         specifier: ^4.0.2
         version: 4.0.2(@deepseek-ai/cordis-plugin-include@1.0.7)(@deepseek-ai/cordis-plugin-loader@1.0.3)
       '@mediabase/protocol':
-        specifier: workspace:^
+        specifier: ^0.1.6
         version: link:../../base/protocol
       '@mediabase/shm':
-        specifier: workspace:^
+        specifier: ^0.1.6
         version: link:../../base/shm
 
   packages/client/i18n:
@@ -238,7 +238,7 @@ importers:
         specifier: ^4.0.2
         version: 4.0.2(@deepseek-ai/cordis-plugin-include@1.0.7)(@deepseek-ai/cordis-plugin-loader@1.0.3)
       '@mediabase/protocol':
-        specifier: workspace:^
+        specifier: ^0.1.6
         version: link:../../base/protocol
       react:
         specifier: ^18.3.1
@@ -259,13 +259,13 @@ importers:
         specifier: ^4.0.2
         version: 4.0.2(@deepseek-ai/cordis-plugin-include@1.0.7)(@deepseek-ai/cordis-plugin-loader@1.0.3)
       '@mediabase/i18n':
-        specifier: workspace:^
+        specifier: ^0.1.6
         version: link:../i18n
       '@mediabase/schema':
-        specifier: workspace:^
+        specifier: ^0.1.6
         version: link:../../base/schema
       '@mediabase/ui':
-        specifier: workspace:^
+        specifier: ^0.1.6
         version: link:../ui
       react:
         specifier: ^18.3.1
@@ -280,25 +280,25 @@ importers:
         specifier: ^4.0.2
         version: 4.0.2(@deepseek-ai/cordis-plugin-include@1.0.7)(@deepseek-ai/cordis-plugin-loader@1.0.3)
       '@mediabase/api':
-        specifier: workspace:^
+        specifier: ^0.1.6
         version: link:../api
       '@mediabase/log':
-        specifier: workspace:^
+        specifier: ^0.1.6
         version: link:../../base/log
       '@mediabase/protocol':
-        specifier: workspace:^
+        specifier: ^0.1.6
         version: link:../../base/protocol
       '@mediabase/rpc':
-        specifier: workspace:^
+        specifier: ^0.1.6
         version: link:../../base/rpc
       '@mediabase/schema':
-        specifier: workspace:^
+        specifier: ^0.1.6
         version: link:../../base/schema
       '@mediabase/settings':
-        specifier: workspace:^
+        specifier: ^0.1.6
         version: link:../settings
       '@mediabase/tools':
-        specifier: workspace:^
+        specifier: ^0.1.6
         version: link:../tools
 
   packages/host/api:
@@ -307,16 +307,16 @@ importers:
         specifier: ^4.0.2
         version: 4.0.2(@deepseek-ai/cordis-plugin-include@1.0.7)(@deepseek-ai/cordis-plugin-loader@1.0.3)
       '@mediabase/log':
-        specifier: workspace:^
+        specifier: ^0.1.6
         version: link:../../base/log
       '@mediabase/protocol':
-        specifier: workspace:^
+        specifier: ^0.1.6
         version: link:../../base/protocol
       '@mediabase/rpc':
-        specifier: workspace:^
+        specifier: ^0.1.6
         version: link:../../base/rpc
       '@mediabase/schema':
-        specifier: workspace:^
+        specifier: ^0.1.6
         version: link:../../base/schema
 
   packages/host/boot:
@@ -331,7 +331,7 @@ importers:
         specifier: 1.0.3
         version: 1.0.3(@deepseek-ai/cordis@4.0.2)
       '@mediabase/protocol':
-        specifier: workspace:^
+        specifier: ^0.1.6
         version: link:../../base/protocol
       js-yaml:
         specifier: ^4.1.0
@@ -343,19 +343,19 @@ importers:
         specifier: ^4.0.2
         version: 4.0.2(@deepseek-ai/cordis-plugin-include@1.0.7)(@deepseek-ai/cordis-plugin-loader@1.0.3)
       '@mediabase/api':
-        specifier: workspace:^
+        specifier: ^0.1.6
         version: link:../api
       '@mediabase/confine':
-        specifier: workspace:^
+        specifier: ^0.1.6
         version: link:../../base/confine
       '@mediabase/protocol':
-        specifier: workspace:^
+        specifier: ^0.1.6
         version: link:../../base/protocol
       '@mediabase/rpc':
-        specifier: workspace:^
+        specifier: ^0.1.6
         version: link:../../base/rpc
       '@mediabase/schema':
-        specifier: workspace:^
+        specifier: ^0.1.6
         version: link:../../base/schema
 
   packages/host/server:
@@ -364,19 +364,19 @@ importers:
         specifier: ^4.0.2
         version: 4.0.2(@deepseek-ai/cordis-plugin-include@1.0.7)(@deepseek-ai/cordis-plugin-loader@1.0.3)
       '@mediabase/api':
-        specifier: workspace:^
+        specifier: ^0.1.6
         version: link:../api
       '@mediabase/gateway':
-        specifier: workspace:^
+        specifier: ^0.1.6
         version: link:../../base/gateway
       '@mediabase/log':
-        specifier: workspace:^
+        specifier: ^0.1.6
         version: link:../../base/log
       '@mediabase/protocol':
-        specifier: workspace:^
+        specifier: ^0.1.6
         version: link:../../base/protocol
       '@mediabase/schema':
-        specifier: workspace:^
+        specifier: ^0.1.6
         version: link:../../base/schema
 
   packages/host/settings:
@@ -385,16 +385,16 @@ importers:
         specifier: ^4.0.2
         version: 4.0.2(@deepseek-ai/cordis-plugin-include@1.0.7)(@deepseek-ai/cordis-plugin-loader@1.0.3)
       '@mediabase/api':
-        specifier: workspace:^
+        specifier: ^0.1.6
         version: link:../api
       '@mediabase/protocol':
-        specifier: workspace:^
+        specifier: ^0.1.6
         version: link:../../base/protocol
       '@mediabase/rpc':
-        specifier: workspace:^
+        specifier: ^0.1.6
         version: link:../../base/rpc
       '@mediabase/schema':
-        specifier: workspace:^
+        specifier: ^0.1.6
         version: link:../../base/schema
 
   packages/host/tools:
@@ -403,16 +403,16 @@ importers:
         specifier: ^4.0.2
         version: 4.0.2(@deepseek-ai/cordis-plugin-include@1.0.7)(@deepseek-ai/cordis-plugin-loader@1.0.3)
       '@mediabase/api':
-        specifier: workspace:^
+        specifier: ^0.1.6
         version: link:../api
       '@mediabase/protocol':
-        specifier: workspace:^
+        specifier: ^0.1.6
         version: link:../../base/protocol
       '@mediabase/rpc':
-        specifier: workspace:^
+        specifier: ^0.1.6
         version: link:../../base/rpc
       '@mediabase/schema':
-        specifier: workspace:^
+        specifier: ^0.1.6
         version: link:../../base/schema
 
 packages:
