@@ -182,8 +182,10 @@ function profilePatchTemplate(identity: BootIdentity): string {
 #         name: './my-capability.mjs'
 #
 # \`!!js\` expressions are allowed under \`config\`. In scope: ctx.appPaths ({root, home})
-# and ctx.env — deployment readers over the ${identity.envPrefix}* vocabulary, by SHORT name
-# (str/num/flag/list/choice/raw, e.g. ctx.env.num('PORT') is ${identity.envPrefix}PORT).
+# and ctx.env — deployment readers over the ${identity.envPrefix}* vocabulary, by SHORT name:
+# \`ctx.env.str('TOKEN')\` reads ${identity.envPrefix}TOKEN. The \`raw\`/\`rawNum\` pair is the
+# exception for a variable the ENVIRONMENT owns (one per deployment, so it takes no prefix):
+# the server row reads the port through \`ctx.env.rawNum('PORT')\` — plain PORT.
 #
 # A patch REPLACES the targeted row's whole config, so restate every field the row needs
 # (its root, and any env-derived value the deployment wants) instead of only the changed
