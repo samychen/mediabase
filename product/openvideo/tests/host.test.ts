@@ -105,6 +105,26 @@ describe('the composed openvideo host', () => {
     expect(readFileSync(onDisk).equals(payload)).toBe(true)
   }, 60_000)
 
+  it('serves asset bytes over the Range-aware sidecar (206 + CORS)', async () => {
+    const ep = await host!.rpc.call<{ base: string; port: number }>('openvideo.assets.endpoint')
+    expect(ep.port).toBeGreaterThan(0)
+    const assets = await host!.rpc.call<{ assets: AssetWire[] }>('openvideo.assets.list')
+    const a = assets.assets[0]!
+    const full = await fetch(`${ep.base}/asset/${a.id}`)
+    expect(full.headers.get('accept-ranges')).toBe('bytes')
+    expect(full.headers.get('access-control-allow-origin')).toBe('*')
+    const body = Buffer.from(await full.arrayBuffer())
+    expect(body.length).toBe(a.size)
+    const part = await fetch(`${ep.base}/asset/${a.id}`, { headers: { range: 'bytes=0-99' } })
+    expect(part.status).toBe(206)
+    expect(part.headers.get('content-range')).toBe(`bytes 0-99/${a.size}`)
+    const slice = Buffer.from(await part.arrayBuffer())
+    expect(slice.length).toBe(100)
+    expect(slice.equals(body.subarray(0, 100))).toBe(true)
+    const bad = await fetch(`${ep.base}/asset/${a.id}`, { headers: { range: `bytes=${a.size + 10}-${a.size + 20}` } })
+    expect(bad.status).toBe(416)
+  })
+
   it('imports by path, backfills a probed duration, and takes a transcript', async () => {
     const src = join(host!.home, 'on-disk.txt')
     writeFileSync(src, 'imported')

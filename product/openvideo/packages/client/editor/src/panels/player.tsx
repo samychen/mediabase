@@ -47,6 +47,10 @@ export function PlayerPanel({ ctx }: { ctx: Context }): ReactElement | null {
   const [fit, setFit] = useState({ w: 0, h: 0, scale: 1 })
   const [cuesBySrc, setCuesBySrc] = useState<Map<string, Cue[]>>(new Map())
   const [exportState, setExportState] = useState<ExportState>(IDLE_EXPORT)
+  /** A decoded-nothing situation must be VISIBLE: black stage + silent catch
+    * is how a codec problem used to look like "the editor is broken". */
+  const [mediaIssue, setMediaIssue] = useState<{ key: string; params?: Record<string, string | number> } | null>(null)
+  const [diag, setDiag] = useState<string | null>(null)
   const [savedExport, setSavedExport] = useState(false)
   const exportBlob = useRef<Blob | null>(null)
 
@@ -85,6 +89,13 @@ export function PlayerPanel({ ctx }: { ctx: Context }): ReactElement | null {
   const active = draft === null ? undefined : activeSegment(segments, playhead)
   const overlays = draft === null ? [] : activeOverlays(draft, playhead)
   const sounds = draft === null ? [] : activeAudio(draft, playhead)
+
+  const nameForSrc = (src: string): string => {
+    if (!src.startsWith('asset:')) return src
+    const id = src.slice(6)
+    const assets = store?.get().assets ?? []
+    return assets.find((a) => a.id === id)?.name ?? id.slice(0, 12)
+  }
 
   const resolveSrc = (src: string): string | null => {
     if (store === null) return null
@@ -174,9 +185,14 @@ export function PlayerPanel({ ctx }: { ctx: Context }): ReactElement | null {
     if (jumped && !v.seeking) v.currentTime = wanted
     v.volume = Math.min(1, el.volume ?? 1)
     v.muted = el.sourceAudio === false
-    if (playing && v.paused) v.play().catch(() => {})
+    if (playing && v.paused) {
+      v.play().catch((err: unknown) => {
+        const e = err as { name?: string; message?: string }
+        store?.flash('ov.player.playBlocked', { error: e?.name ?? e?.message ?? 'play()' })
+      })
+    }
     if (!playing && !v.paused) v.pause()
-  }, [playhead, playing, activeVideoSrc, active])
+  }, [playhead, playing, activeVideoSrc, active, store])
 
   // Overlay videos: played muted (their words would fight the audio bed, and
   // the document carries no per-overlay audio fields).
@@ -187,7 +203,12 @@ export function PlayerPanel({ ctx }: { ctx: Context }): ReactElement | null {
     const wanted = (el.trimStart ?? 0) + (playhead - el.startTime)
     if (Math.abs(v.currentTime - wanted) > 0.5 && !v.seeking) v.currentTime = wanted
     v.muted = true
-    if (playing && v.paused) v.play().catch(() => {})
+    if (playing && v.paused) {
+      v.play().catch((err: unknown) => {
+        const e = err as { name?: string; message?: string }
+        store?.flash('ov.player.playBlocked', { error: e?.name ?? e?.message ?? 'play()' })
+      })
+    }
     if (!playing && !v.paused) v.pause()
   }
   for (const [id, v] of overlayVideos.current) {
@@ -201,7 +222,12 @@ export function PlayerPanel({ ctx }: { ctx: Context }): ReactElement | null {
     const wanted = (el.trimStart ?? 0) + (playhead - el.startTime)
     if (Math.abs(a.currentTime - wanted) > 0.5 && !a.seeking) a.currentTime = wanted
     a.volume = Math.min(1, el.volume ?? 1)
-    if (playing && a.paused) a.play().catch(() => {})
+    if (playing && a.paused) {
+      a.play().catch((err: unknown) => {
+        const e = err as { name?: string; message?: string }
+        store?.flash('ov.player.playBlocked', { error: e?.name ?? e?.message ?? 'play()' })
+      })
+    }
     if (!playing && !a.paused) a.pause()
   }
   for (const [id, a] of audioEls.current) {
@@ -230,9 +256,15 @@ export function PlayerPanel({ ctx }: { ctx: Context }): ReactElement | null {
       const url = URL.createObjectURL(out.blob)
       setExportState({ phase: 'done', fraction: 1, url, size: out.blob.size, ext: out.ext })
     } catch (e) {
-      const text = e instanceof ExportError
-        ? t(e.message === 'export.unsupported' ? 'ov.player.exportUnsupported' : 'ov.player.exportFailed', { error: e.message })
-        : store.errorText(e)
+      const msg = e instanceof Error ? e.message : String(e)
+      const PREFIX = 'export.undecodable:'
+      const text = msg.startsWith(PREFIX)
+        ? t('ov.player.exportUndecodable', {
+          assets: msg.slice(PREFIX.length).split(',').filter(Boolean).map(nameForSrc).join(', '),
+        })
+        : e instanceof ExportError
+          ? t(msg === 'export.unsupported' ? 'ov.player.exportUnsupported' : 'ov.player.exportFailed', { error: msg })
+          : store.errorText(e)
       setExportState({ phase: 'error', fraction: 0, error: text })
     }
   }
@@ -261,6 +293,28 @@ export function PlayerPanel({ ctx }: { ctx: Context }): ReactElement | null {
                 playsInline
                 preload="auto"
                 src={resolveSrc(active.el.src) ?? undefined}
+                onError={(e) => {
+                  const v = e.currentTarget
+                  // MEDIA_ERR_ABORTED (1): the element was torn down (segment
+                  // switch, panel unmount) — a lifecycle event, not a verdict
+                  // about the codec. Reporting it painted false alarms.
+                  const code = v.error?.code ?? 0
+                  if (code === 1) return
+                  setMediaIssue({
+                    key: 'ov.player.mediaErrSrc',
+                    params: { name: nameForSrc(active.el.src), code },
+                  })
+                }}
+                onLoadedMetadata={(e) => {
+                  // Paint the first frame even while paused (some browsers keep
+                  // a fresh element black until something seeks it), and clear
+                  // any stale decode complaint once metadata actually arrives.
+                  setMediaIssue(null)
+                  const v = e.currentTarget
+                  if (v.paused && v.duration > 0) {
+                    v.currentTime = Math.min((active.el.trimStart ?? 0) + 0.01, Math.max(0, v.duration - 0.02))
+                  }
+                }}
               />
             )}
             {active !== undefined && active.el.type === 'image' && active.dur > 0 && (
@@ -331,6 +385,9 @@ export function PlayerPanel({ ctx }: { ctx: Context }): ReactElement | null {
             {draft.main.elements.length === 0 && (
               <div className="ov-stage-hint">{t('ov.player.empty')}</div>
             )}
+            {mediaIssue !== null && (
+              <div className="ov-stage-hint ov-error">{t(mediaIssue.key, mediaIssue.params)}</div>
+            )}
           </div>
         )}
       </div>
@@ -343,6 +400,37 @@ export function PlayerPanel({ ctx }: { ctx: Context }): ReactElement | null {
           <span className="ov-time">
             {t('ov.player.time', { cur: fmtTime(playhead), total: fmtTime(total) })}
           </span>
+          <button
+            className="secondary ov-mini"
+            title="readyState/networkState/error/currentTime/videoWidth + store verdicts"
+            onClick={() => {
+              const v = videoRef.current
+              setDiag(JSON.stringify({
+                activeSrc: active?.el.src ?? null,
+                activeDur: active?.dur ?? null,
+                assetUrl: active !== undefined ? resolveSrc(active.el.src) : null,
+                video: v === null
+                  ? null
+                  : {
+                    readyState: v.readyState,
+                    networkState: v.networkState,
+                    error: v.error === null ? null : { code: v.error.code, message: v.error.message },
+                    paused: v.paused,
+                    currentTime: v.currentTime,
+                    videoWidth: v.videoWidth,
+                    videoHeight: v.videoHeight,
+                    currentSrc: v.currentSrc,
+                  },
+                playhead: state.playhead,
+                playing: state.playing,
+                durations: state.durations,
+                decodeState: state.decodeState,
+                mediaIssue,
+              }, null, 2))
+            }}
+          >
+            {t('ov.player.diag')}
+          </button>
           <input
             className="ov-seek"
             type="range"
@@ -354,6 +442,8 @@ export function PlayerPanel({ ctx }: { ctx: Context }): ReactElement | null {
           />
         </div>
       )}
+
+      {diag !== null && <pre className="ov-json">{diag}</pre>}
 
       {draft !== null && (
         <div className="ov-export">

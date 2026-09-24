@@ -234,6 +234,50 @@ export async function exportProject(opts: ExportOptions): Promise<ExportResult> 
     await Promise.all(waits)
   }
   await waitReady()
+
+  /**
+   * Fail LOUDLY before recording: a source this browser cannot decode used to
+   * produce a silently black export (drawMedia skips frames while the element
+   * is starved, and a black video compresses to almost nothing). Every main /
+   * overlay / audio source must reach decodable state first.
+   */
+  const preflight = async (): Promise<string[]> => {
+    const bad: string[] = []
+    const settle = (el: HTMLVideoElement | HTMLAudioElement | HTMLImageElement): Promise<void> =>
+      new Promise((resolve) => {
+        const ok = el instanceof HTMLImageElement
+          ? el.complete && el.naturalWidth > 0
+          : el.readyState >= 2
+        if (ok) return resolve()
+        const timer = setTimeout(resolve, 6000)
+        const done = (): void => { clearTimeout(timer); resolve() }
+        el.addEventListener('loadeddata', done, { once: true })
+        el.addEventListener('load', done, { once: true })
+        el.addEventListener('error', done, { once: true })
+      })
+    await Promise.all([
+      ...[...videos.entries()].map(async ([srcKey, v]) => {
+        await settle(v)
+        if (v.readyState < 2 || v.videoWidth === 0) bad.push(srcKey)
+      }),
+      ...[...images.entries()].map(async ([srcKey, img]) => {
+        await settle(img)
+        if (!(img.complete && img.naturalWidth > 0)) bad.push(srcKey)
+      }),
+      ...[...audios.entries()].map(async ([srcKey, a]) => {
+        await settle(a)
+        if (a.readyState < 2) bad.push(srcKey)
+      }),
+    ])
+    return bad
+  }
+  const undecodable = await preflight()
+  if (undecodable.length > 0) {
+    for (const v of videos.values()) { v.pause(); v.removeAttribute('src') }
+    for (const a of audios.values()) { a.pause(); a.removeAttribute('src') }
+    if (audio !== null) void audio.close()
+    throw new ExportError(`export.undecodable:${undecodable.join(',')}`)
+  }
   if (audio !== null && audio.state === 'suspended') await audio.resume()
 
   // ---- captions, computed once (the same layout the preview shows) ----------

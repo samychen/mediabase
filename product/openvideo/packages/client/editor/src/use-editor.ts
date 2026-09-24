@@ -21,6 +21,8 @@ const NOTHING: EditorState = {
   playing: false,
   durations: {},
   ask: { busy: false, answer: null, error: null },
+  decodeState: {},
+  assetsBase: null,
   status: null,
   undoDepth: 0,
   redoDepth: 0,

@@ -124,6 +124,13 @@ try {
   checks.expect('数据面路由回读字节', served.ok && servedBody.equals(payload), `${served.status} ${servedBody.length}B`)
   checks.expect('数据面路由带 content-type', served.headers.get('content-type') === 'text/plain', served.headers.get('content-type'))
 
+  // ---- the Range-aware sidecar (media elements need seekable bytes)
+  const ep = await rpc.call('openvideo.assets.endpoint')
+  checks.expect('assets.endpoint 报告边车', typeof ep?.base === 'string' && ep.port > 0, `${ep?.base}`)
+  const ranged = await fetch(`${ep.base}/asset/${assetId}`, { headers: { range: 'bytes=0-9' } })
+  const rangedBody = Buffer.from(await ranged.arrayBuffer())
+  checks.expect('边车 Range 返回 206 与 10 字节', ranged.status === 206 && rangedBody.length === 10, `status=${ranged.status}`)
+
   // ---- import by path (a temp file of our own — works against an external host too)
   const scratch = mkdtempSync(join(tmpdir(), 'openvideo-verify-src-'))
   scratchDirs.push(scratch)

@@ -34,6 +34,7 @@ import type {} from '@mediabase/log'
 import type {} from '@mediabase/api'
 import type {} from '@mediabase/tools'
 import { MediaStore, guessContentType, type AssetRow, type ProjectRow } from './store.ts'
+import { startAssetsServer, type AssetsServer } from './assets-http.ts'
 import { UploadManager, UploadError } from './uploads.ts'
 
 export const name = 'openvideo'
@@ -50,12 +51,15 @@ export interface OpenvideoConfig {
   projectDir?: string
   /** Ceiling for one browser upload (default 512 MB). */
   maxUploadBytes?: number
+  /** Preferred port of the Range-aware assets sidecar (default 3095). */
+  assetsPort?: number
 }
 
 export const Config: Schema<OpenvideoConfig, OpenvideoConfig> = z.object({
   mediaDir: z.string().description('media library directory; default <appPaths.home>/media'),
   projectDir: z.string().description('project directory; default <appPaths.home>/projects'),
   maxUploadBytes: z.natural().default(512 * 1024 * 1024).description('upload ceiling in bytes'),
+  assetsPort: z.natural().default(3095).description('Range-aware assets sidecar port'),
 })
 
 // ---- wire schemas (results are validated too: a capability that breaks its
@@ -105,6 +109,7 @@ const TranscriptS = z.object({
 
 /** Every method name this capability contributes (the manifest states exactly these). */
 export const API_METHODS = [
+  'openvideo.assets.endpoint',
   'openvideo.assets.list',
   'openvideo.assets.import',
   'openvideo.assets.upload.begin',
@@ -148,6 +153,21 @@ export function apply(ctx: Context, rawConfig: OpenvideoConfig): void {
   const store = new MediaStore({ mediaDir, projectDir })
   store.ensure()
   mkdirSync(tmpDir, { recursive: true })
+
+  // The Range-aware byte plane (see assets-http.ts): media elements need a
+  // seekable response; the base gateway route answers whole bodies.
+  let assetsServer: AssetsServer | null = null
+  assetsServer = startAssetsServer({
+    store,
+    port: config.assetsPort ?? 3095,
+    onError: (e) => log.warn('素材边车首选端口被占,改用随机端口', {
+      error: e instanceof Error ? e.message : String(e),
+    }),
+  })
+  ctx.effect(() => () => {
+    assetsServer?.close()
+    assetsServer = null
+  }, `${name}: assets sidecar`)
 
   const uploads = new UploadManager({
     tmpDir,
@@ -276,6 +296,17 @@ export function apply(ctx: Context, rawConfig: OpenvideoConfig): void {
   const uploadsMax = (): number => config.maxUploadBytes ?? 512 * 1024 * 1024
 
   // ---- control plane --------------------------------------------------------
+
+  ctx.api.register({
+    name: 'openvideo.assets.endpoint',
+    description: '素材边车(base URL):支持 Range 的本地 HTTP,媒体元素应从这里拉字节',
+    params: z.object({}),
+    result: z.object({ base: z.string().required(), port: z.natural().required() }),
+    handler: () => {
+      const port = assetsServer?.port() ?? 0
+      return { base: `http://127.0.0.1:${port}`, port }
+    },
+  })
 
   ctx.api.register({
     name: 'openvideo.assets.list',
@@ -634,6 +665,7 @@ export function apply(ctx: Context, rawConfig: OpenvideoConfig): void {
   ctx.api.health(() => ({
     openvideo: {
       assets: store.listAssets().length,
+      assetsPort: assetsServer?.port() ?? 0,
       projects: store.listProjects().length,
       uploads: uploads.active(),
       mediaDir,
@@ -641,5 +673,5 @@ export function apply(ctx: Context, rawConfig: OpenvideoConfig): void {
     },
   }))
 
-  log.info(`媒体库 ${mediaDir} · 项目 ${projectDir}`)
+  log.info(`媒体库 ${mediaDir} · 项目 ${projectDir} · 素材边车 :${assetsServer?.port() ?? '?'}`)
 }

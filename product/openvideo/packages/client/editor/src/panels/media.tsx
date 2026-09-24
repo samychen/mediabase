@@ -31,8 +31,10 @@ export function MediaPanel({ ctx }: { ctx: Context }): ReactElement | null {
   const [vttTarget, setVttTarget] = useState<string | null>(null)
   const [path, setPath] = useState('')
   const [uploading, setUploading] = useState<{ name: string; fraction: number } | null>(null)
+
   if (editor === null) return null
   const { store, state } = editor
+  const decodeState = state.decodeState
 
   const onFiles = async (files: FileList | null): Promise<void> => {
     if (files === null) return
@@ -104,6 +106,9 @@ export function MediaPanel({ ctx }: { ctx: Context }): ReactElement | null {
                 {' · '}
                 {fmtBytes(asset.size)}
                 {asset.hasTranscript ? ` · ${t('ov.media.hasTranscript')}` : ''}
+                {decodeState[asset.id] === 'fail' && (
+                  <span className="ov-badge-warn" title={t('ov.media.undecodableHint')}>⚠ {t('ov.media.undecodable')}</span>
+                )}
               </span>
             </span>
             <span className="ov-item-actions">

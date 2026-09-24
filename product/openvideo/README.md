@@ -121,7 +121,7 @@ Where the conventions land (against the root `AGENTS.md`):
 
 | Upstream (Clawnify managed) | This product |
 |---|---|
-| MP4 export on the managed edit service | browser-side canvas + MediaRecorder, real time (draft-grade; container depends on the browser — Chromium usually webm, newer builds mp4) |
+| MP4 export on the managed edit service | browser-side canvas + MediaRecorder, real time (draft-grade; container depends on the browser — Chromium usually webm, newer builds mp4). **Decoding is browser-dependent too**: unsupported codecs (HEVC/H.265…) are probed up front and refused loudly (library badge, stage overlay, export refusal) — never a silent black screen |
 | Google Drive import | import by host path + browser upload (the local trust boundary) |
 | managed transcription / footage analysis | `.vtt` transcript sidecars (attach what you have); `clean_up_clip` and autocut are not ported |
 | D1 + R2 storage | the filesystem: `~/.openvideo/media` + `projects` (the project document IS the JSON) |

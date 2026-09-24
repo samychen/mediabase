@@ -176,12 +176,12 @@ product/openvideo/
 
 | 上游（Clawnify 托管） | 本产品 | 理由 |
 |---|---|---|
-| 托管 edit service 导出 MP4 | 浏览器 canvas+MediaRecorder | 基座不带引擎；不引入原生依赖 |
+| 托管 edit service 导出 MP4 | 浏览器 canvas+MediaRecorder | 基座不带引擎；不引入原生依赖。解码能力=浏览器编解码器：不受支持的编码（HEVC 等）经事前探测后在媒体库角标/舞台提示/导出拒绝三处明确报错，不静默黑屏 |
 | Google Drive 导入 | 宿主路径导入 + 浏览器上传 | 本地信任边界；Drive 需平台凭据 |
 | 托管转写/素材分析（AI 看片） | `.vtt` 字幕稿边车（人工/外部工具产出后附加） | 无本地 ASR；字幕数学全移植，逻辑有测试 |
 | D1 + R2 | 文件系统 | 见决策 9 |
 | 自有 instruct LLM 循环 | 基座 `agent.run` + 同一组受检工具 | 见决策 5 |
-| 数据面 Range（大文件 seek） | 整块响应 | 基座网关语义；本地小素材可用 |
+| 数据面 Range（大文件 seek） | 产品自带素材边车 HTTP（:3095，Range/206/CORS，磁盘流式） | 基座网关路由无请求上下文、整块响应；媒体元素需要可 seek 的响应（250MB 实测教训） |
 | 胶片缩略图/波形/hls.js | 不移植 | 预览聚焦剪辑语义 |
 | React 19 / Tailwind 4 / lucide 图标 | React 18 / 纯 CSS(.ov-* 作用域) / 文本符号 | 与基座同版本同风格，零新增依赖 |
 

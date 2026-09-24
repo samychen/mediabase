@@ -28,7 +28,10 @@ function stubContext(): Stub {
         return structuredClone(replies.get(method))
       },
     },
-    net: { apiUrl: (path: string) => `/api/${path}` },
+    // Faithful to @mediabase/connection: apiUrl ONLY appends the token — it
+    // does not prepend `/api/`. A stub that "helpfully" added the prefix hid
+    // the bare-route-name bug for four rounds.
+    net: { apiUrl: (path: string) => path },
     i18n: { errorText: (e: unknown) => `[stub] ${(e as Error).message}` },
   } as unknown as Context
   return {
@@ -81,6 +84,20 @@ describe('editor store: basics', () => {
     const state = store.get()
     expect(state.assets).toHaveLength(1)
     expect(state.projects).toHaveLength(1)
+  })
+
+  it('asset URLs are full /api/ paths (a bare route name would hit the SPA fallback)', () => {
+    expect(store.assetUrl('aaaaaaaaaaaaaaaa')).toBe('/api/openvideo.asset.aaaaaaaaaaaaaaaa')
+  })
+
+  it('refresh seeds durations from what the host already knows', async () => {
+    // the default stub asset has duration 8 — probing is skipped for it, so
+    // the client map must come from the row itself or segments stay zero-length
+    stub.reply('openvideo.assets.endpoint', { base: 'http://127.0.0.1:3095', port: 3095 })
+    await store.refresh()
+    expect(store.get().durations['asset:aaaaaaaaaaaaaaaa']).toBe(8)
+    // with a sidecar the asset URL points at it (Range-aware)
+    expect(store.assetUrl('aaaaaaaaaaaaaaaa')).toBe('http://127.0.0.1:3095/asset/aaaaaaaaaaaaaaaa')
   })
 
   it('opens a project into the draft and adopts host-saved documents as one undo step', async () => {

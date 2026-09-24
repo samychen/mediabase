@@ -44,6 +44,13 @@ export function TimelinePanel({ ctx }: { ctx: Context }): ReactElement | null {
     if (!src.startsWith('asset:')) return src
     return assets.find((a) => a.id === src.slice(6))?.name ?? src.slice(6, 12)
   }
+  /** A clip whose bytes this browser cannot decode (or which left the library)
+    * renders black — say so on the chip instead of letting users debug pixels. */
+  const warnOf = (src: string): boolean => {
+    if (!src.startsWith('asset:')) return false
+    const id = src.slice(6)
+    return state.decodeState[id] === 'fail' || assets.find((a) => a.id === id) === undefined
+  }
 
   if (draft === null) return <div className="ov-timeline"><div className="status">{t('ov.inspector.noProject')}</div></div>
 
@@ -136,7 +143,9 @@ export function TimelinePanel({ ctx }: { ctx: Context }): ReactElement | null {
                     store.select({ kind: 'main', index: seg.i })
                   }}
                 >
-                  <span className="ov-chip-name" title={nameOf(el.src)}>{nameOf(el.src)}</span>
+                  <span className="ov-chip-name" title={nameOf(el.src)}>
+                    {warnOf(el.src) ? '⚠ ' : ''}{nameOf(el.src)}
+                  </span>
                   <span className="ov-chip-sub">
                     {seg.dur > 0 ? `${seg.dur.toFixed(1)}s` : t('ov.timeline.clipUnknown')}
                   </span>

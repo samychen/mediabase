@@ -96,7 +96,7 @@ product/openvideo/
 
 | 上游（Clawnify 托管） | 本产品 |
 |---|---|
-| MP4 导出在托管 edit service | 浏览器端 canvas + MediaRecorder 实时录制（草稿级；受浏览器编码器限制，Chromium 通常给 webm，新版可给 mp4） |
+| MP4 导出在托管 edit service | 浏览器端 canvas + MediaRecorder 实时录制（草稿级；受浏览器编码器限制，Chromium 通常给 webm，新版可给 mp4）。**解码同样依赖浏览器**：HEVC/H.265 等不受支持的编码会被事前探测并在 UI 明确报错（媒体库角标 / 舞台提示 / 导出拒绝），绝不静默黑屏 |
 | Google Drive 导入 | 宿主路径导入 + 浏览器上传（本地信任边界） |
 | 托管转写 / 素材分析（AI 看片） | `.vtt` 字幕稿边车（人工/外部工具产出后附加）；`clean_up_clip`、`autocut` 不移植 |
 | D1 + R2 存储 | 文件系统：`~/.openvideo/media` + `projects`（项目文档就是那份 JSON） |

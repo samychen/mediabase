@@ -114,6 +114,44 @@ export function InspectorPanel({ ctx }: { ctx: Context }): ReactElement | null {
       {mainEl !== undefined && (
         <section>
           <div className="sub">{t('ov.inspector.clip')} #{selMain ?? 0} · {mainEl.type}</div>
+          <label>
+            {t('ov.inspector.mediaSource')}
+            <span className="ov-row">
+              <span className="ov-item-name">
+                {mainEl.src.startsWith('asset:')
+                  ? (state.assets.find((a) => a.id === mainEl.src.slice(6))?.name ?? t('ov.inspector.assetMissing'))
+                  : mainEl.src}
+              </span>
+              {mainEl.src.startsWith('asset:')
+                && state.decodeState[mainEl.src.slice(6)] === 'fail' && (
+                <span className="ov-badge-warn" title={t('ov.media.undecodableHint')}>⚠ {t('ov.media.undecodable')}</span>
+              )}
+              {mainEl.src.startsWith('asset:')
+                && state.assets.find((a) => a.id === mainEl.src.slice(6)) === undefined && (
+                <span className="ov-badge-warn">⚠ {t('ov.inspector.assetMissing')}</span>
+              )}
+            </span>
+            <select
+              value=""
+              onChange={(e) => {
+                const id = e.target.value
+                if (id === '') return
+                store.setDraft((d) => {
+                  const el = d.main.elements[selMain!]
+                  if (el !== undefined) el.src = `asset:${id}`
+                })
+              }}
+            >
+              <option value="">{t('ov.inspector.replaceMedia')}</option>
+              {state.assets
+                .filter((a) => a.contentType.startsWith('video/') || a.contentType.startsWith('image/'))
+                .map((a) => (
+                  <option key={a.id} value={a.id}>
+                    {state.decodeState[a.id] === 'fail' ? '⚠ ' : ''}{a.name}
+                  </option>
+                ))}
+            </select>
+          </label>
           <NumField
             label={t('ov.inspector.trimStart')}
             value={mainEl.trimStart ?? 0}

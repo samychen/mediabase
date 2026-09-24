@@ -26,6 +26,7 @@
 .ov-item-danger { background: none; border: none; color: #8b949e; margin: 0; padding: 2px 6px; }
 .ov-item-danger:hover { color: #f85149; background: none; }
 .ov-badge { font-size: 10px; background: #1f6f3c; color: #fff; border-radius: 999px; padding: 1px 7px; }
+.ov-badge-warn { color: #d29922; border: 1px solid #d29922; border-radius: 999px; padding: 0 6px; font-size: 10px; margin-left: 4px; }
 .ov-mini { background: #21262d; border: 1px solid #30363d; color: #c9d1d9; border-radius: 4px;
   padding: 1px 5px; font-size: 11px; margin: 0; }
 .ov-mini:hover { background: #30363d; }

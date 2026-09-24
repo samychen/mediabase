@@ -84,6 +84,13 @@ export interface EditorState {
   /** Probed source durations in seconds, keyed by the full src ("asset:<id>"). */
   durations: Record<string, number>
   ask: { busy: boolean; answer: string | null; error: string | null }
+  /** Per-asset decode verdict from a real probe ('fail' = container parsed,
+    * stream undecodable in THIS browser). Shared by media list, timeline and
+    * inspector so one lie cannot hide behind three panels. */
+  decodeState: Record<string, 'ok' | 'fail'>
+  /** Base URL of the host's Range-aware assets sidecar (null = old host or
+    * unreachable; assetUrl then falls back to the gateway route). */
+  assetsBase: string | null
   /** One-line status of the last gesture (an i18n key + params). */
   status: { key: string; params?: Record<string, string | number> } | null
   undoDepth: number
@@ -146,6 +153,8 @@ const initialState: EditorState = {
   playing: false,
   durations: {},
   ask: { busy: false, answer: null, error: null },
+  decodeState: {},
+  assetsBase: null,
   status: null,
   undoDepth: 0,
   redoDepth: 0,
@@ -232,14 +241,30 @@ export function createEditorStore(ctx: Context): EditorStore {
 
     async refresh() {
       try {
+        const endpoint = await call<{ base: string }>('openvideo.assets.endpoint').catch(() => null)
+        if (endpoint !== null && endpoint.base !== state.assetsBase) set({ assetsBase: endpoint.base })
         const [assets, projects] = await Promise.all([
           call<{ assets: AssetRow[] }>('openvideo.assets.list'),
           call<{ projects: ProjectSummary[] }>('openvideo.projects.list'),
         ])
-        set({ assets: assets.assets, projects: projects.projects })
-        // Probe the durations the library does not know yet (the player needs
-        // them to place segments; the host backfills so an agent sees them too).
+        // Durations the HOST already knows (measured at upload, or backfilled
+        // by an earlier probe) must seed the client map too — probing only the
+        // unknown ones left `durations` empty for every uploaded asset, clips
+        // computed to zero length, and the player rendered no element at all.
+        const known: Record<string, number> = {}
         for (const asset of assets.assets) {
+          if (asset.duration !== null) known[`asset:${asset.id}`] = asset.duration
+        }
+        set({
+          assets: assets.assets,
+          projects: projects.projects,
+          durations: { ...state.durations, ...known },
+        })
+        // Probe what the library does not know yet (the player needs it to
+        // place segments; the host backfills so an agent sees it too), and ask
+        // this browser whether it can DECODE each video at all.
+        for (const asset of assets.assets) {
+          if (asset.contentType.startsWith('video/')) probeAsset(asset)
           if (asset.duration !== null || !asset.contentType.startsWith('video/')) continue
           void probeAssetDuration(asset)
         }
@@ -567,7 +592,13 @@ export function createEditorStore(ctx: Context): EditorStore {
     },
 
     assetUrl(id) {
-      return ctx.net.apiUrl(`openvideo.asset.${id}`)
+      // Media elements need a SEEKABLE response: the sidecar speaks Range/206,
+      // the gateway route answers whole bodies (fine for small pulls only).
+      if (state.assetsBase !== null) return `${state.assetsBase}/asset/${id}`
+      // apiUrl ONLY appends the token — the full `/api/…` path is the caller's
+      // job (a bare route name resolves relative to the page and hits the SPA
+      // fallback: HTML where the media element expects bytes).
+      return ctx.net.apiUrl(`/api/openvideo.asset.${id}`)
     },
 
     errorText: (e) => fail(e),
@@ -600,23 +631,73 @@ export function createEditorStore(ctx: Context): EditorStore {
     })
   }
 
-  /** Backfill one asset's duration and tell the host (self-healing library). */
+  /**
+   * Decode probe: preload MUST be auto (with 'metadata' the element stops at
+   * HAVE_METADATA and loadeddata never fires — every asset would time out
+   * into a false 'fail'), a metadata-only load is forced to fetch a frame by
+   * seeking, and MEDIA_ERR_ABORTED (our own teardown) is not a verdict.
+   */
+  function probeAsset(asset: AssetRow): void {
+    if (typeof document === 'undefined') return
+    if (state.decodeState[asset.id] !== undefined) return
+    const v = document.createElement('video')
+    v.preload = 'auto'
+    const ctrl = new AbortController()
+    let timer: ReturnType<typeof setTimeout> | null = null
+    let done = false
+    const finish = (result: 'ok' | 'fail'): void => {
+      if (done) return
+      done = true
+      if (timer !== null) clearTimeout(timer)
+      ctrl.abort()
+      v.removeAttribute('src')
+      set({ decodeState: { ...state.decodeState, [asset.id]: result } })
+    }
+    timer = setTimeout(() => finish('fail'), 6000)
+    v.addEventListener('loadeddata', () => finish('ok'), { signal: ctrl.signal })
+    v.addEventListener('canplay', () => finish('ok'), { signal: ctrl.signal })
+    v.addEventListener('loadedmetadata', () => {
+      if (v.readyState < 2 && v.duration > 0) {
+        v.currentTime = Math.min(0.1, Math.max(0, v.duration - 0.05))
+      }
+    }, { signal: ctrl.signal })
+    v.addEventListener('error', () => {
+      if ((v.error?.code ?? 0) === 1) return
+      finish('fail')
+    }, { signal: ctrl.signal })
+    // Same seam as playback (sidecar when available, full /api/ path else) —
+    // a bare route name resolves against the page and returns HTML.
+    v.src = store.assetUrl(asset.id)
+  }
+
+  /**
+   * Backfill one asset's duration and tell the host (self-healing library).
+   * Cancel the fetch the moment metadata lands: with a 250 MB source a
+   * never-cancelled probe would drag the whole file in just to read a number
+   * that sits in the first kilobytes.
+   */
   function probeAssetDuration(asset: AssetRow): Promise<void> {
     return new Promise((resolve) => {
       const el = document.createElement('video')
-      const done = (): void => {
+      let done = false
+      const finish = (duration: number | null): void => {
+        if (done) return
+        done = true
+        el.onloadedmetadata = null
+        el.onerror = null
         el.removeAttribute('src')
+        if (duration !== null) {
+          set({ durations: { ...state.durations, [`asset:${asset.id}`]: duration } })
+          void store.probeDuration(asset.id, duration)
+        }
         resolve()
       }
-      el.preload = 'metadata'
+      el.preload = 'auto'
       el.onloadedmetadata = () => {
-        if (Number.isFinite(el.duration) && el.duration > 0) {
-          set({ durations: { ...state.durations, [`asset:${asset.id}`]: el.duration } })
-          void store.probeDuration(asset.id, el.duration)
-        }
-        done()
+        finish(Number.isFinite(el.duration) && el.duration > 0 ? el.duration : null)
       }
-      el.onerror = done
+      el.onerror = () => finish(null)
+      setTimeout(() => finish(null), 8000)
       el.src = store.assetUrl(asset.id)
     })
   }
