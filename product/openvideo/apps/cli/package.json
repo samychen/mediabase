@@ -1,0 +1,26 @@
+{
+  "name": "@openvideo/cli",
+  "version": "0.1.6",
+  "private": true,
+  "type": "module",
+  "description": "OpenVideo host entrypoint: the product identity over the mediabase composition",
+  "scripts": {
+    "start": "tsx src/index.ts"
+  },
+  "dependencies": {
+    "@deepseek-ai/cordis": "^4.0.2",
+    "@mediabase/agent": "^0.1.6",
+    "@mediabase/api": "^0.1.6",
+    "@mediabase/boot": "^0.1.6",
+    "@mediabase/bundle-app": "^0.1.6",
+    "@mediabase/log": "^0.1.6",
+    "@mediabase/plugins": "^0.1.6",
+    "@mediabase/protocol": "^0.1.6",
+    "@mediabase/server": "^0.1.6",
+    "@mediabase/settings": "^0.1.6",
+    "@mediabase/tools": "^0.1.6",
+    "@openvideo/bundle-app": "^0.1.6",
+    "@openvideo/host-media": "^0.1.6"
+  },
+  "license": "MIT"
+}

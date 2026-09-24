@@ -1,0 +1,90 @@
+/* @openvideo/ui-editor — component styles, scoped to .ov-* so they layer on
+   the page tokens (apps/web/index.html) without leaking into other panels.
+   Derived in structure from clawnify/OpenVideo src/client/styles.css (MIT),
+   rebuilt without Tailwind: the base ships plain CSS and so does this. */
+
+/* header status */
+.ov-status { font-size: 12px; color: #8b949e; margin-left: 8px; font-weight: 400; }
+.ov-status[data-state='error'] { color: #f85149; }
+.ov-status[data-state='dirty'] { color: #d29922; }
+.ov-status-project { font-weight: 600; color: #c9d1d9; margin-right: 6px; }
+.ov-error { color: #f85149; }
+
+/* shared bits */
+.ov-row { display: flex; gap: 6px; align-items: center; margin: 6px 0; }
+.ov-row > input[type='text'] { flex: 1; }
+.ov-list { list-style: none; margin: 8px 0 0; padding: 0; }
+.ov-item { display: flex; align-items: center; gap: 6px; padding: 4px 2px; border-bottom: 1px solid #21262d; }
+.ov-item-open { background: #1c2128; border-radius: 6px; }
+.ov-item-main { flex: 1; display: flex; flex-direction: column; background: none; border: none; color: inherit;
+  text-align: left; cursor: pointer; padding: 2px; margin: 0; min-width: 0; }
+.ov-item-main:hover { background: none; }
+.ov-item-name { font-size: 13px; color: #c9d1d9; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.ov-item-sub { font-size: 11px; color: #8b949e; }
+.ov-item-icon { font-size: 16px; }
+.ov-item-actions { display: flex; gap: 2px; }
+.ov-item-danger { background: none; border: none; color: #8b949e; margin: 0; padding: 2px 6px; }
+.ov-item-danger:hover { color: #f85149; background: none; }
+.ov-badge { font-size: 10px; background: #1f6f3c; color: #fff; border-radius: 999px; padding: 1px 7px; }
+.ov-mini { background: #21262d; border: 1px solid #30363d; color: #c9d1d9; border-radius: 4px;
+  padding: 1px 5px; font-size: 11px; margin: 0; }
+.ov-mini:hover { background: #30363d; }
+.ov-mini:disabled { opacity: 0.4; cursor: not-allowed; }
+.ov-mini-danger:hover { color: #f85149; border-color: #f85149; }
+
+/* player */
+.ov-player { display: flex; flex-direction: column; gap: 8px; width: 100%; }
+.ov-player-box { display: flex; align-items: center; justify-content: center; min-height: 240px; height: 50vh; padding: 8px; }
+.ov-stage { position: relative; overflow: hidden; border: 1px solid #30363d; border-radius: 6px; }
+.ov-stage-fill { position: absolute; inset: 0; width: 100%; height: 100%; }
+.ov-stage-hint { position: absolute; inset: auto 0 45% 0; text-align: center; color: #8b949e; font-size: 13px; }
+.ov-text { position: absolute; white-space: pre; line-height: 1.25; user-select: none; pointer-events: none; }
+.ov-text-grab { cursor: move; pointer-events: auto; }
+.ov-text-selected { outline: 2px solid #58a6ff; }
+.ov-transport { display: flex; align-items: center; gap: 10px; }
+.ov-transport button { margin: 0; }
+.ov-time { font-variant-numeric: tabular-nums; font-size: 12px; color: #8b949e; min-width: 96px; }
+.ov-seek { flex: 1; accent-color: #58a6ff; }
+.ov-export { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+.ov-export button { margin: 0; }
+.ov-export-done { display: flex; align-items: center; gap: 6px; }
+
+/* timeline */
+.ov-timeline { width: 100%; display: flex; flex-direction: column; gap: 6px; }
+.ov-toolbar { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; }
+.ov-toolbar button { margin: 0; padding: 4px 9px; }
+.ov-save-state { font-size: 12px; color: #8b949e; }
+.ov-lanes { display: flex; flex-direction: column; gap: 4px; overflow-x: auto; padding-bottom: 4px; }
+.ov-lane { display: flex; gap: 8px; align-items: stretch; }
+.ov-lane-label { flex: 0 0 96px; font-size: 11px; color: #8b949e; display: flex; flex-direction: column;
+  justify-content: center; gap: 2px; }
+.ov-lane-content { position: relative; height: 46px; background: #0d1117; border: 1px solid #21262d; border-radius: 6px; }
+.ov-ruler .ov-lane-content { height: 18px; background-image: repeating-linear-gradient(to right, #30363d 0 1px, transparent 1px 48px); }
+.ov-chip { position: absolute; top: 3px; bottom: 3px; border-radius: 5px; padding: 2px 6px; overflow: hidden;
+  cursor: pointer; display: flex; flex-direction: column; border: 1px solid transparent; }
+.ov-chip-main { background: #1f3a5f; }
+.ov-chip-overlay { background: #3d2f5c; }
+.ov-chip-audio { background: #1f4436; }
+.ov-chip-selected { border-color: #58a6ff; box-shadow: 0 0 0 1px #58a6ff; }
+.ov-chip-name { font-size: 11px; color: #e6edf3; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.ov-chip-sub { font-size: 10px; color: #9db8d8; }
+.ov-chip-actions { position: absolute; right: 2px; top: 2px; display: none; gap: 2px; }
+.ov-chip:hover .ov-chip-actions { display: flex; }
+.ov-playhead { position: absolute; top: 0; bottom: 0; width: 2px; background: #f85149; pointer-events: none; margin-left: -1px; z-index: 2; }
+.ov-form { border: 1px solid #30363d; border-radius: 8px; padding: 10px; display: flex; flex-direction: column; gap: 6px; }
+.ov-row-button { text-align: left; }
+
+/* inspector */
+.ov-inspector { display: flex; flex-direction: column; gap: 4px; }
+.ov-inspector section { border-bottom: 1px solid #21262d; padding-bottom: 10px; margin-bottom: 4px; }
+.ov-inspector label { display: block; }
+.ov-inspector select,
+.ov-inspector textarea,
+.ov-inspector input[type='number'] { width: 100%; background: #0d1117; border: 1px solid #30363d;
+  color: #c9d1d9; border-radius: 6px; padding: 6px 8px; font-size: 12px; }
+.ov-inspector textarea { font-family: inherit; resize: vertical; }
+.ov-check { display: flex !important; align-items: center; gap: 6px; }
+.ov-check input { width: auto !important; }
+.ov-json { width: 100%; font-family: ui-monospace, SFMono-Regular, monospace; font-size: 11px;
+  background: #0d1117; color: #8b949e; border: 1px solid #30363d; border-radius: 6px; padding: 8px; }
+.ov-inspector details summary { cursor: pointer; }

@@ -5,6 +5,10 @@
 配套阅读：`README.md`（快速开始）、`docs/FRAMEWORK.zh.md`（架构取舍；产品相关段落见文首说明）、
 `docs/LEARNING-PATH.zh.md`（第一次接触本仓时的分阶段学习路径）。
 
+**仓内实例**：`product/openvideo/` 是按本清单落地的产品层（agent 友好的视频剪辑器，
+移植自 clawnify/OpenVideo，MIT）：产品 scope、身份、bundle 层、自己的名册生成器、
+测试与冒烟一应俱全，基座零改动——采纳前可对照它的形状。
+
 ---
 
 ## 一、分层：基座 vs 产品

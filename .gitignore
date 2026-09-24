@@ -4,11 +4,13 @@ node_modules/
 
 # Builds / generated
 apps/web/dist/
+product/*/apps/web/dist/
 
 # Logs / runtime
 *.log
 # runtime state a running host creates (confined plugins get a data dir here)
 .mediabase/
+.openvideo/
 .DS_Store
 
 # scratch dirs created by tests

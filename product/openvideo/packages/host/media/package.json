@@ -1,0 +1,26 @@
+{
+  "name": "@openvideo/host-media",
+  "version": "0.1.6",
+  "private": true,
+  "type": "module",
+  "description": "OpenVideo host capability: the media library, the project store (EDL documents on disk), asset byte routes, and the agent tool surface",
+  "main": "src/index.ts",
+  "types": "src/index.ts",
+  "exports": {
+    ".": "./src/index.ts"
+  },
+  "files": [
+    "src",
+    "README.md"
+  ],
+  "dependencies": {
+    "@mediabase/api": "^0.1.6",
+    "@mediabase/log": "^0.1.6",
+    "@mediabase/protocol": "^0.1.6",
+    "@mediabase/rpc": "^0.1.6",
+    "@mediabase/schema": "^0.1.6",
+    "@mediabase/tools": "^0.1.6",
+    "@openvideo/edl": "^0.1.6"
+  },
+  "license": "MIT"
+}

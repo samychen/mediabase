@@ -415,6 +415,163 @@ importers:
         specifier: ^0.1.6
         version: link:../../base/schema
 
+  product/openvideo/apps/cli:
+    dependencies:
+      '@deepseek-ai/cordis':
+        specifier: ^4.0.2
+        version: 4.0.2(@deepseek-ai/cordis-plugin-include@1.0.7)(@deepseek-ai/cordis-plugin-loader@1.0.3)
+      '@mediabase/agent':
+        specifier: ^0.1.6
+        version: link:../../../../packages/host/agent
+      '@mediabase/api':
+        specifier: ^0.1.6
+        version: link:../../../../packages/host/api
+      '@mediabase/boot':
+        specifier: ^0.1.6
+        version: link:../../../../packages/host/boot
+      '@mediabase/bundle-app':
+        specifier: ^0.1.6
+        version: link:../../../../packages/bundle/app
+      '@mediabase/log':
+        specifier: ^0.1.6
+        version: link:../../../../packages/base/log
+      '@mediabase/plugins':
+        specifier: ^0.1.6
+        version: link:../../../../packages/host/plugins
+      '@mediabase/protocol':
+        specifier: ^0.1.6
+        version: link:../../../../packages/base/protocol
+      '@mediabase/server':
+        specifier: ^0.1.6
+        version: link:../../../../packages/host/server
+      '@mediabase/settings':
+        specifier: ^0.1.6
+        version: link:../../../../packages/host/settings
+      '@mediabase/tools':
+        specifier: ^0.1.6
+        version: link:../../../../packages/host/tools
+      '@openvideo/bundle-app':
+        specifier: ^0.1.6
+        version: link:../../packages/bundle/app
+      '@openvideo/host-media':
+        specifier: ^0.1.6
+        version: link:../../packages/host/media
+
+  product/openvideo/apps/web:
+    dependencies:
+      '@deepseek-ai/cordis':
+        specifier: ^4.0.2
+        version: 4.0.2(@deepseek-ai/cordis-plugin-include@1.0.7)(@deepseek-ai/cordis-plugin-loader@1.0.3)
+      '@mediabase/connection':
+        specifier: ^0.1.6
+        version: link:../../../../packages/client/connection
+      '@mediabase/i18n':
+        specifier: ^0.1.6
+        version: link:../../../../packages/client/i18n
+      '@mediabase/ui':
+        specifier: ^0.1.6
+        version: link:../../../../packages/client/ui
+      '@mediabase/ui-web':
+        specifier: ^0.1.6
+        version: link:../../../../packages/client/ui-web
+      '@openvideo/bundle-ui':
+        specifier: ^0.1.6
+        version: link:../../packages/bundle/ui
+      '@openvideo/ui-editor':
+        specifier: ^0.1.6
+        version: link:../../packages/client/editor
+      react:
+        specifier: ^18.3.1
+        version: 18.3.1
+      react-dom:
+        specifier: ^18.3.1
+        version: 18.3.1(react@18.3.1)
+    devDependencies:
+      '@vitejs/plugin-react':
+        specifier: ^4.3.4
+        version: 4.3.4(vite@6.4.3(@types/node@22.20.1)(tsx@4.23.13))
+      vite:
+        specifier: ^6.0.5
+        version: 6.4.3(@types/node@22.20.1)(tsx@4.23.13)
+
+  product/openvideo/packages/bundle/app:
+    dependencies:
+      '@openvideo/host-media':
+        specifier: ^0.1.6
+        version: link:../../host/media
+
+  product/openvideo/packages/bundle/ui:
+    dependencies:
+      '@mediabase/connection':
+        specifier: ^0.1.6
+        version: link:../../../../../packages/client/connection
+      '@mediabase/i18n':
+        specifier: ^0.1.6
+        version: link:../../../../../packages/client/i18n
+      '@mediabase/ui':
+        specifier: ^0.1.6
+        version: link:../../../../../packages/client/ui
+      '@mediabase/ui-web':
+        specifier: ^0.1.6
+        version: link:../../../../../packages/client/ui-web
+      '@openvideo/ui-editor':
+        specifier: ^0.1.6
+        version: link:../../client/editor
+
+  product/openvideo/packages/client/editor:
+    dependencies:
+      '@deepseek-ai/cordis':
+        specifier: ^4.0.2
+        version: 4.0.2(@deepseek-ai/cordis-plugin-include@1.0.7)(@deepseek-ai/cordis-plugin-loader@1.0.3)
+      '@mediabase/connection':
+        specifier: ^0.1.6
+        version: link:../../../../../packages/client/connection
+      '@mediabase/i18n':
+        specifier: ^0.1.6
+        version: link:../../../../../packages/client/i18n
+      '@mediabase/protocol':
+        specifier: ^0.1.6
+        version: link:../../../../../packages/base/protocol
+      '@mediabase/ui':
+        specifier: ^0.1.6
+        version: link:../../../../../packages/client/ui
+      '@openvideo/edl':
+        specifier: ^0.1.6
+        version: link:../../edl
+      react:
+        specifier: ^18.3.1
+        version: 18.3.1
+
+  product/openvideo/packages/edl:
+    dependencies:
+      '@mediabase/schema':
+        specifier: ^0.1.6
+        version: link:../../../../packages/base/schema
+
+  product/openvideo/packages/host/media:
+    dependencies:
+      '@mediabase/api':
+        specifier: ^0.1.6
+        version: link:../../../../../packages/host/api
+      '@mediabase/log':
+        specifier: ^0.1.6
+        version: link:../../../../../packages/base/log
+      '@mediabase/protocol':
+        specifier: ^0.1.6
+        version: link:../../../../../packages/base/protocol
+      '@mediabase/rpc':
+        specifier: ^0.1.6
+        version: link:../../../../../packages/base/rpc
+      '@mediabase/schema':
+        specifier: ^0.1.6
+        version: link:../../../../../packages/base/schema
+      '@mediabase/tools':
+        specifier: ^0.1.6
+        version: link:../../../../../packages/host/tools
+      '@openvideo/edl':
+        specifier: ^0.1.6
+        version: link:../../edl
+
 packages:
 
   '@asamuzakjp/css-color@6.0.7':

@@ -38,6 +38,23 @@ pnpm run verify:base   # 对已启动的 host 做中性冒烟
 - **不** publish 到公共 npm（`private: true`）；可用 `pnpm run build:base` + `pnpm pack`
 - **照着做一遍**：`docs/WALKTHROUGH.zh.md` —— 在基座旁边新建一个计算器，计算部分有 JS / Python / C++ 三种可换后端（参考实现 12 个文件，零改动基座）
 - **第一次接触本仓**：`docs/LEARNING-PATH.zh.md` —— 分阶段学习路径：每阶段给出读什么、做什么、怎么算过关
+- **仓内产品层实例**：`product/openvideo/` —— 视频剪辑产品叠在基座上（`@openvideo/*` + 产品 bundle + 独立身份），基座零改动；见其 `README.zh.md`
+
+## 仓库内产品层：OpenVideo
+
+`product/openvideo/` 是在本基座上落地的第一个产品（agent 友好的视频剪辑器，移植自
+clawnify/OpenVideo，MIT）：`@openvideo/*` scope、自己的 bundle 层与身份（`OPENVIDEO_` /
+`~/.openvideo` / 端口 3090），基座包保持中立、零改动。它是 `docs/HANDOFF.zh.md`
+采纳清单的**仓内实例**——消费仓可以照着它的形状叠自己的产品层。
+
+```sh
+pnpm run build:openvideo   # 名册 + 页面
+pnpm run dev:openvideo     # http://127.0.0.1:3090
+pnpm run test:openvideo    # 产品测试套件
+pnpm run verify:openvideo  # 端到端冒烟
+```
+
+详见 `product/openvideo/README.zh.md`（设计、边界与规范落点）与 `product/openvideo/AGENT.md`（agent 指南）。
 
 ## 常用命令
 
@@ -48,6 +65,11 @@ pnpm run build:web       # 基座 roster 静态页
 pnpm run verify:compose  # 组合门禁
 pnpm test                # MEDIABASE_NO_BROWSER=1 可跳过浏览器
 pnpm run package         # Electron（无引擎资源）
+
+# 产品层（product/openvideo）
+pnpm run dev:openvideo       # 产品宿主 + 页面（:3090）
+pnpm run test:openvideo      # 产品测试套件
+pnpm run verify:openvideo    # 产品端到端冒烟
 ```
 
 浏览器相关缝：`MEDIABASE_NO_BROWSER` · `MEDIABASE_CHROME_ARGS` · `MEDIABASE_CHROME`。

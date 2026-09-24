@@ -1,0 +1,35 @@
+# @openvideo/bundle-app — the OpenVideo HOST composition layer.
+#
+# Stacked AFTER @mediabase/bundle-app (the profile's `openvideo.profile.bundles`
+# order says so): the base layer brings the infrastructure and the front door,
+# this layer inserts the product capability and moves the front door's default
+# port aside, so a base host (`pnpm run host`, :3088) and the product host
+# (`pnpm run host:openvideo`, :3090) can run at the same time.
+#
+# Rows resolve from THIS bundle's manifest (`@openvideo/host-media` is its
+# dependency); the registries are live, so `openvideo` mounting after `server`
+# is not a problem — the gateway resolves the method map per request.
+
+- insert:
+    - id: openvideo
+      name: '@openvideo/host-media'
+      config:
+        # Unset → the capability defaults under the identity home (~/.openvideo).
+        mediaDir: !!js ctx.env.str('MEDIA_DIR')
+        projectDir: !!js ctx.env.str('PROJECT_DIR')
+        maxUploadBytes: !!js ctx.env.num('MAX_UPLOAD_BYTES')
+
+# A patch replaces the WHOLE config of the row it targets, so this override
+# restates every field the base `server` row carried — only the default port
+# differs (still overridable by the environment's own PORT).
+- id: server
+  config:
+    root: !!js ctx.appPaths.root
+    port: !!js ctx.env.rawNum('PORT') ?? 3090
+    distIndex: !!js ctx.env.str('DIST_INDEX')
+    token: !!js ctx.env.str('TOKEN')
+    crossOriginIsolation: !!js ctx.env.flag('CROSS_ORIGIN_ISOLATION')
+    acl:
+      readonly: !!js ctx.env.flag('READONLY')
+      allow: !!js ctx.env.list('ACL_ALLOW')
+      deny: !!js ctx.env.list('ACL_DENY')

@@ -44,6 +44,12 @@ packages/    packages/<face>/<capability> (DSH convention).
 packaging/   desktop-electron: generic shell + sample PRODUCT block (no engine)
 scripts/     build-base · build-host · verify:compose · verify:base · notice · …
 tests/       package + composition + handoff-neutrality (no engine required)
+product/     in-repo product layers built ON the base — self-contained trees with
+             their own scope, bundles, apps, scripts and tests (never imported by
+             @mediabase/*; the root workspace shares one install). product/openvideo
+             is the shipped instance: an agent-friendly video editor ported from
+             clawnify/OpenVideo (MIT) — the in-repo reference for the HANDOFF
+             adoption checklist. Root scripts for it: *:openvideo.
 ```
 
 This repo ships **no** agent notes or repo-local skills: `.agents/notes` and the

@@ -82,3 +82,20 @@ jobs:
           kill -TERM "$host"
           wait "$host" || true
           cat /tmp/host.log
+
+      # The in-repo product layer (product/openvideo) has its own planes, suite
+      # and smoke — the base gates above do not cover it, and it must not rot.
+      - name: Product typecheck (openvideo)
+        run: pnpm run typecheck:openvideo
+
+      - name: Product composition gate (openvideo)
+        run: pnpm run verify:openvideo:compose
+
+      - name: Product test (openvideo)
+        run: pnpm run test:openvideo
+
+      - name: Product build + smoke (openvideo)
+        run: |
+          set -euo pipefail
+          pnpm run build:openvideo
+          pnpm run verify:openvideo

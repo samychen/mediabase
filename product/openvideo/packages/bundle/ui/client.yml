@@ -1,0 +1,23 @@
+# @openvideo/bundle-ui — the product's browser roster (mount order).
+#
+# The base rows first (the registries everything registers into), the product's
+# editor panels next, and the SHELL LAST — it mounts React and renders whatever
+# ctx.ui holds by then. The roster is data: `product/openvideo/scripts/
+# gen-client-roster.mjs` turns it into apps/web/src/roster.generated.ts.
+
+- id: connection
+  name: '@mediabase/connection'
+
+- id: i18n
+  name: '@mediabase/i18n'
+
+- id: ui
+  name: '@mediabase/ui'
+
+- id: editor
+  name: '@openvideo/ui-editor'
+
+- id: shell
+  name: '@mediabase/ui-web'
+  config:
+    title: OpenVideo

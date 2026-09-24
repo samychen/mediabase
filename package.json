@@ -23,7 +23,15 @@
     "verify:compose": "node scripts/verify-composition.mjs",
     "gen:ui-roster": "node scripts/gen-client-roster.mjs",
     "verify:ui": "node scripts/gen-client-roster.mjs --check",
-    "gen:config-catalog": "tsx scripts/gen-config-catalog.ts"
+    "gen:config-catalog": "tsx scripts/gen-config-catalog.ts",
+    "gen:openvideo-roster": "node product/openvideo/scripts/gen-client-roster.mjs",
+    "build:openvideo": "node product/openvideo/scripts/gen-client-roster.mjs && pnpm --filter @openvideo/web run build",
+    "host:openvideo": "tsx product/openvideo/apps/cli/src/index.ts",
+    "dev:openvideo": "pnpm run build:openvideo && pnpm run host:openvideo",
+    "typecheck:openvideo": "tsc -p product/openvideo/tsconfig.host.json && tsc -p product/openvideo/tsconfig.client.json && tsc -p product/openvideo/tsconfig.test.json",
+    "test:openvideo": "vitest run --config product/openvideo/vitest.config.ts",
+    "verify:openvideo:compose": "node scripts/verify-composition.mjs packages/bundle/app/cordis.patch.yml product/openvideo/packages/bundle/app/cordis.patch.yml product/openvideo/packages/bundle/ui/client.yml",
+    "verify:openvideo": "node product/openvideo/scripts/verify.mjs"
   },
   "devDependencies": {
     "@mediabase/boot": "workspace:^",

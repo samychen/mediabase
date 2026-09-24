@@ -1,0 +1,14 @@
+{
+  // esbuild (vitest / vite-node) reads `compilerOptions` from the nearest
+  // tsconfig.json when transforming files under this tree. The three real
+  // planes are tsconfig.host.json / tsconfig.client.json / tsconfig.test.json
+  // (used via tsc -p from the repo root); THIS file exists so JSX in the
+  // product's packages compiles with the automatic runtime in tests — without
+  // it, esbuild falls back to React.createElement and every panel dies with
+  // "React is not defined".
+  "extends": "../../tsconfig.base.json",
+  "compilerOptions": {
+    "jsx": "react-jsx"
+  },
+  "files": []
+}

@@ -2,5 +2,10 @@ packages:
   - 'packages/*'
   - 'packages/*/*'
   - 'apps/*'
+  # in-repo product layers: self-contained trees that consume the base as their
+  # foundation (see docs/HANDOFF.zh.md); @mediabase/* never imports them.
+  - 'product/*/packages/*'
+  - 'product/*/packages/*/*'
+  - 'product/*/apps/*'
 allowBuilds:
   esbuild: true

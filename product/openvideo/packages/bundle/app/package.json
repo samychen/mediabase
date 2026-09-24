@@ -1,0 +1,14 @@
+{
+  "name": "@openvideo/bundle-app",
+  "version": "0.1.6",
+  "private": true,
+  "type": "module",
+  "description": "OpenVideo host composition bundle: the product layer stacked AFTER @mediabase/bundle-app",
+  "files": [
+    "cordis.patch.yml"
+  ],
+  "dependencies": {
+    "@openvideo/host-media": "^0.1.6"
+  },
+  "license": "MIT"
+}

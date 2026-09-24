@@ -1,0 +1,403 @@
+// Player panel (monitor): the master-clock preview.
+//
+// One clock runs the cut — the wall clock, corrected by the playing video
+// element when it can be trusted (the same scheme the upstream editor uses).
+// Every layer reads that clock: the main-track video/image, overlay media and
+// text, the audio bed, and the project's captions. Pixel-exact rendering
+// (fonts, encoder) is the export's job; the stage shows cuts, layout and
+// timing, which is what an edit decision needs to be judged by.
+
+import { useEffect, useMemo, useRef, useState, type ReactElement } from 'react'
+import type { Context } from '@deepseek-ai/cordis'
+import { useI18n } from '@mediabase/i18n'
+import {
+  activeAudio,
+  activeOverlays,
+  activeSegment,
+  captionText,
+  fmtTime,
+  mainSegments,
+  totalDuration,
+  type Cue,
+  type OverlayTextElement,
+} from '@openvideo/edl'
+import { useEditor } from '../use-editor.ts'
+import { captionLines } from '../store.ts'
+import { exportProject, exportSupported, ExportError } from '../export.ts'
+import { TextOnStage } from './text-stage.tsx'
+
+interface ExportState {
+  phase: 'idle' | 'recording' | 'done' | 'error'
+  fraction: number
+  url?: string
+  size?: number
+  ext?: string
+  error?: string
+}
+
+const IDLE_EXPORT: ExportState = { phase: 'idle', fraction: 0 }
+
+export function PlayerPanel({ ctx }: { ctx: Context }): ReactElement | null {
+  const editor = useEditor(ctx)
+  const { t } = useI18n(ctx)
+  const boxRef = useRef<HTMLDivElement>(null)
+  const videoRef = useRef<HTMLVideoElement>(null)
+  const overlayVideos = useRef(new Map<string, HTMLVideoElement>())
+  const audioEls = useRef(new Map<string, HTMLAudioElement>())
+  const [fit, setFit] = useState({ w: 0, h: 0, scale: 1 })
+  const [cuesBySrc, setCuesBySrc] = useState<Map<string, Cue[]>>(new Map())
+  const [exportState, setExportState] = useState<ExportState>(IDLE_EXPORT)
+  const [savedExport, setSavedExport] = useState(false)
+  const exportBlob = useRef<Blob | null>(null)
+
+  const state = editor?.state ?? null
+  const store = editor?.store ?? null
+  const draft = state?.draft ?? null
+  const durations = state?.durations ?? {}
+
+  // Fit the stage to the pane: the limiting dimension wins (see the upstream
+  // note — aspect-ratio alone let the frame run off the bottom).
+  const outputW = draft?.output.width ?? 16
+  const outputH = draft?.output.height ?? 9
+  useEffect(() => {
+    const box = boxRef.current
+    if (box === null) return
+    const measure = (): void => {
+      const cs = getComputedStyle(box)
+      const width = box.clientWidth - parseFloat(cs.paddingLeft) - parseFloat(cs.paddingRight)
+      const height = box.clientHeight - parseFloat(cs.paddingTop) - parseFloat(cs.paddingBottom)
+      const s = Math.min(width / outputW, height / outputH)
+      if (s > 0 && Number.isFinite(s)) setFit({ w: outputW * s, h: outputH * s, scale: s })
+    }
+    measure()
+    const ro = new ResizeObserver(measure)
+    ro.observe(box)
+    return () => ro.disconnect()
+  }, [outputW, outputH])
+
+  const segments = useMemo(
+    () => (draft === null ? [] : mainSegments(draft, (src) => durations[src])),
+    [draft, durations],
+  )
+  const total = totalDuration(segments)
+  const playhead = state?.playhead ?? 0
+  const playing = state?.playing ?? false
+  const active = draft === null ? undefined : activeSegment(segments, playhead)
+  const overlays = draft === null ? [] : activeOverlays(draft, playhead)
+  const sounds = draft === null ? [] : activeAudio(draft, playhead)
+
+  const resolveSrc = (src: string): string | null => {
+    if (store === null) return null
+    if (src.startsWith('asset:')) return store.assetUrl(src.slice(6))
+    if (src.startsWith('https://') || src.startsWith('data:')) return src
+    return null
+  }
+
+  // Captions: fetch the transcripts the project needs whenever it (re)opens
+  // or captions toggle; missing transcripts simply contribute no lines.
+  const captionsOn = draft?.captions?.enabled === true
+  const openId = state?.openId ?? null
+  useEffect(() => {
+    if (store === null || draft === null || !captionsOn) return
+    let dead = false
+    const srcs = [...new Set(draft.main.elements.filter((el) => el.type === 'video').map((el) => el.src))]
+    void Promise.all(srcs.map(async (src) => [src, await store.transcriptFor(src)] as const))
+      .then((entries) => {
+        if (dead) return
+        const map = new Map<string, Cue[]>()
+        for (const [src, cues] of entries) {
+          if (cues !== null) map.set(src, cues)
+        }
+        setCuesBySrc(map)
+      })
+      .catch(() => {})
+    return () => {
+      dead = true
+    }
+  }, [store, draft, captionsOn, openId])
+
+  const captionNow = useMemo(() => {
+    if (draft === null || !captionsOn || draft.captions === undefined) return []
+    const style = draft.captions.style
+    const frame = { width: draft.output.width, height: draft.output.height }
+    return captionLines(draft, cuesBySrc, durations)
+      .filter((line) => playhead >= line.from && playhead < line.to)
+      .map((line, i) => captionText(line, style, frame, `cap-${i}`))
+  }, [draft, captionsOn, cuesBySrc, durations, playhead])
+
+  // ---- the master clock -----------------------------------------------------
+  const segmentsRef = useRef(segments)
+  segmentsRef.current = segments
+  const totalRef = useRef(total)
+  totalRef.current = total
+  useEffect(() => {
+    if (!playing || store === null) return
+    let raf = 0
+    let last = performance.now()
+    const tick = (now: number): void => {
+      const dt = (now - last) / 1000
+      last = now
+      let clockT = store.get().playhead + dt
+      // The playing main video IS the clock when it can be; a paused or
+      // starved element lets the wall clock carry on instead of freezing.
+      const seg = activeSegment(segmentsRef.current, clockT)
+      const v = videoRef.current
+      if (seg !== undefined && seg.el.type === 'video' && v !== null && !v.paused && v.readyState >= 2) {
+        clockT = seg.start + (v.currentTime - (seg.el.trimStart ?? 0))
+      }
+      if (clockT >= totalRef.current) {
+        store.setPlayhead(totalRef.current)
+        store.setPlaying(false)
+        return
+      }
+      store.setPlayhead(clockT)
+      raf = requestAnimationFrame(tick)
+    }
+    raf = requestAnimationFrame(tick)
+    return () => cancelAnimationFrame(raf)
+  }, [playing, store])
+
+  // ---- sync the media elements to the clock ---------------------------------
+  const activeVideoSrc = active !== undefined && active.el.type === 'video' ? active.el.src : null
+  useEffect(() => {
+    const v = videoRef.current
+    if (v === null) return
+    if (activeVideoSrc === null || active === undefined || active.el.type !== 'video') {
+      if (!v.paused) v.pause()
+      return
+    }
+    const el = active.el
+    const wanted = (el.trimStart ?? 0) + (playhead - active.start)
+    // A real jump (a scrub or a cut) is worth a seek; small drift is not —
+    // each seek empties the buffer.
+    const jumped = Math.abs(v.currentTime - wanted) > (playing ? 0.75 : 0.05)
+    if (jumped && !v.seeking) v.currentTime = wanted
+    v.volume = Math.min(1, el.volume ?? 1)
+    v.muted = el.sourceAudio === false
+    if (playing && v.paused) v.play().catch(() => {})
+    if (!playing && !v.paused) v.pause()
+  }, [playhead, playing, activeVideoSrc, active])
+
+  // Overlay videos: played muted (their words would fight the audio bed, and
+  // the document carries no per-overlay audio fields).
+  for (const el of overlays) {
+    if (el.type !== 'video') continue
+    const v = overlayVideos.current.get(el.id)
+    if (v === undefined) continue
+    const wanted = (el.trimStart ?? 0) + (playhead - el.startTime)
+    if (Math.abs(v.currentTime - wanted) > 0.5 && !v.seeking) v.currentTime = wanted
+    v.muted = true
+    if (playing && v.paused) v.play().catch(() => {})
+    if (!playing && !v.paused) v.pause()
+  }
+  for (const [id, v] of overlayVideos.current) {
+    if (!overlays.some((el) => el.id === id && el.type === 'video') && !v.paused) v.pause()
+  }
+
+  // Audio bed.
+  for (const el of sounds) {
+    const a = audioEls.current.get(el.id)
+    if (a === undefined) continue
+    const wanted = (el.trimStart ?? 0) + (playhead - el.startTime)
+    if (Math.abs(a.currentTime - wanted) > 0.5 && !a.seeking) a.currentTime = wanted
+    a.volume = Math.min(1, el.volume ?? 1)
+    if (playing && a.paused) a.play().catch(() => {})
+    if (!playing && !a.paused) a.pause()
+  }
+  for (const [id, a] of audioEls.current) {
+    if (!sounds.some((el) => el.id === id) && !a.paused) a.pause()
+  }
+
+  // ---- export ----------------------------------------------------------------
+  const runExport = async (): Promise<void> => {
+    if (draft === null || store === null) return
+    if (!exportSupported()) {
+      setExportState({ ...IDLE_EXPORT, phase: 'error', fraction: 0, error: t('ov.player.exportUnsupported') })
+      return
+    }
+    store.setPlaying(false)
+    setSavedExport(false)
+    setExportState({ phase: 'recording', fraction: 0 })
+    try {
+      const out = await exportProject({
+        edl: draft,
+        resolveSrc,
+        durations,
+        cuesBySrc,
+        onProgress: (fraction) => setExportState({ phase: 'recording', fraction }),
+      })
+      exportBlob.current = out.blob
+      const url = URL.createObjectURL(out.blob)
+      setExportState({ phase: 'done', fraction: 1, url, size: out.blob.size, ext: out.ext })
+    } catch (e) {
+      const text = e instanceof ExportError
+        ? t(e.message === 'export.unsupported' ? 'ov.player.exportUnsupported' : 'ov.player.exportFailed', { error: e.message })
+        : store.errorText(e)
+      setExportState({ phase: 'error', fraction: 0, error: text })
+    }
+  }
+
+  if (editor === null || state === null || store === null) return null
+
+  const projectName = state.projectName
+
+  return (
+    <div className="ov-player">
+      <div className="ov-player-box" ref={boxRef}>
+        {draft === null ? (
+          <div className="status">{t('ov.player.noProject')}</div>
+        ) : (
+          <div
+            className="ov-stage"
+            style={{ width: fit.w, height: fit.h, background: draft.output.background ?? '#000000' }}
+            onDoubleClick={() => store.setPlaying(!state.playing)}
+          >
+            {active !== undefined && active.el.type === 'video' && active.dur > 0 && (
+              <video
+                key={active.el.src}
+                ref={videoRef}
+                className="ov-stage-fill"
+                style={{ objectFit: active.el.fit === 'cover' ? 'cover' : 'contain' }}
+                playsInline
+                preload="auto"
+                src={resolveSrc(active.el.src) ?? undefined}
+              />
+            )}
+            {active !== undefined && active.el.type === 'image' && active.dur > 0 && (
+              <img
+                key={active.el.src}
+                className="ov-stage-fill"
+                style={{ objectFit: active.el.fit === 'cover' ? 'cover' : 'contain' }}
+                src={resolveSrc(active.el.src) ?? undefined}
+                alt=""
+              />
+            )}
+            {overlays.map((el) => {
+              if (el.type === 'text') {
+                return (
+                  <TextOnStage
+                    key={el.id}
+                    element={el as OverlayTextElement}
+                    frame={draft.output}
+                    scale={fit.scale}
+                    selected={state.sel?.kind === 'overlay' && (draft.overlays ?? [])[state.sel.track]?.elements[state.sel.index]?.id === el.id}
+                    onPointerDown={() => {
+                      const track = trackOf(draft, el.id)
+                      const index = (draft.overlays ?? [])[track]?.elements.findIndex((x) => x.id === el.id) ?? -1
+                      store.select({ kind: 'overlay', track, index: Math.max(0, index) })
+                    }}
+                  />
+                )
+              }
+              const url = resolveSrc(el.src)
+              const style = {
+                position: 'absolute' as const,
+                left: `${el.x * 100}%`,
+                top: `${el.y * 100}%`,
+                width: `${el.width * 100}%`,
+                opacity: el.opacity ?? 1,
+              }
+              return el.type === 'video' ? (
+                <video
+                  key={el.id}
+                  ref={(v) => {
+                    if (v === null) overlayVideos.current.delete(el.id)
+                    else overlayVideos.current.set(el.id, v)
+                  }}
+                  style={style}
+                  playsInline
+                  preload="auto"
+                  muted
+                  src={url ?? undefined}
+                />
+              ) : (
+                <img key={el.id} style={style} src={url ?? undefined} alt="" />
+              )
+            })}
+            {captionNow.map((cap) => (
+              <TextOnStage key={cap.id} element={{ ...cap, fontFamily: 'sans' }} frame={draft.output} scale={fit.scale} />
+            ))}
+            {sounds.map((el) => (
+              <audio
+                key={el.id}
+                ref={(a) => {
+                  if (a === null) audioEls.current.delete(el.id)
+                  else audioEls.current.set(el.id, a)
+                }}
+                preload="auto"
+                src={resolveSrc(el.src) ?? undefined}
+              />
+            ))}
+            {draft.main.elements.length === 0 && (
+              <div className="ov-stage-hint">{t('ov.player.empty')}</div>
+            )}
+          </div>
+        )}
+      </div>
+
+      {draft !== null && (
+        <div className="ov-transport">
+          <button onClick={() => store.setPlaying(!state.playing)} disabled={total <= 0}>
+            {state.playing ? `⏸ ${t('ov.player.pause')}` : `▶ ${t('ov.player.play')}`}
+          </button>
+          <span className="ov-time">
+            {t('ov.player.time', { cur: fmtTime(playhead), total: fmtTime(total) })}
+          </span>
+          <input
+            className="ov-seek"
+            type="range"
+            min={0}
+            max={Math.max(0.01, total)}
+            step={0.01}
+            value={Math.min(playhead, total)}
+            onChange={(e) => store.setPlayhead(parseFloat(e.target.value))}
+          />
+        </div>
+      )}
+
+      {draft !== null && (
+        <div className="ov-export">
+          <button onClick={() => void runExport()} disabled={exportState.phase === 'recording' || total <= 0}>
+            {t('ov.player.export')}
+          </button>
+          {exportState.phase === 'recording' && (
+            <span className="status">{t('ov.player.exporting', { pct: Math.round(exportState.fraction * 100) })}</span>
+          )}
+          {exportState.phase === 'done' && exportState.url !== undefined && (
+            <span className="ov-export-done">
+              <span className="status">
+                {t('ov.player.exportDone', { size: `${((exportState.size ?? 0) / 1e6).toFixed(1)} MB` })}
+              </span>
+              <a href={exportState.url} download={`${projectName || 'openvideo'}-export.${exportState.ext ?? 'webm'}`}>
+                <button className="secondary">{t('ov.player.exportDownload')}</button>
+              </a>
+              {!savedExport && (
+                <button
+                  className="secondary"
+                  onClick={() => {
+                    const blob = exportBlob.current
+                    if (blob === null) return
+                    void store
+                      .uploadBlob(blob, `${projectName || 'openvideo'}-export.${exportState.ext ?? 'webm'}`)
+                      .then(() => setSavedExport(true))
+                      .catch(() => {})
+                  }}
+                >
+                  {t('ov.player.exportSaveToLibrary')}
+                </button>
+              )}
+            </span>
+          )}
+          {exportState.phase === 'error' && (
+            <span className="status ov-error">{exportState.error ?? t('ov.player.exportFailed', { error: '' })}</span>
+          )}
+        </div>
+      )}
+    </div>
+  )
+}
+
+/** Which overlay track holds element `id` (selection needs track+index). */
+function trackOf(draft: { overlays?: { elements: { id: string }[] }[] }, id: string): number {
+  return (draft.overlays ?? []).findIndex((track) => track.elements.some((el) => el.id === id))
+}
