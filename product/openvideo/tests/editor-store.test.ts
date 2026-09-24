@@ -153,6 +153,22 @@ describe('editor store: basics', () => {
   })
 })
 
+describe('editor store: proxy seam', () => {
+  it('playUrlFor prefers a ready proxy on the sidecar, passes URLs through', async () => {
+    stub.reply('openvideo.assets.endpoint', { base: 'http://127.0.0.1:3095', port: 3095 })
+    stub.reply('openvideo.assets.list', {
+      assets: [asset({ proxy: { status: 'ready', target: 'webm', progress: 1, error: null } })],
+    })
+    await store.refresh()
+    expect(store.playUrlFor('asset:aaaaaaaaaaaaaaaa')).toBe('http://127.0.0.1:3095/proxy/aaaaaaaaaaaaaaaa')
+    expect(store.playUrlFor('https://example.com/x.mp4')).toBe('https://example.com/x.mp4')
+    // without a ready proxy it is the plain asset URL (sidecar-first)
+    stub.reply('openvideo.assets.list', { assets: [asset()] })
+    await store.refresh()
+    expect(store.playUrlFor('asset:aaaaaaaaaaaaaaaa')).toBe('http://127.0.0.1:3095/asset/aaaaaaaaaaaaaaaa')
+  })
+})
+
 describe('editor store: uploads', () => {
   it('chunks a blob in order and finishes with the new asset', async () => {
     stub.reply('openvideo.assets.upload.begin', { uploadId: 'u1', chunkBytes: 8 })

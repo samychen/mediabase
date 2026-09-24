@@ -24,6 +24,7 @@ interface AssetWire {
   createdAt: string
   duration: number | null
   hasTranscript: boolean
+  proxy?: { status: string; target: string | null; progress: number | null; error: string | null }
 }
 interface ProjectWire {
   id: string
@@ -59,6 +60,8 @@ describe('the composed openvideo host', () => {
       'openvideo.projects.get',
       'openvideo.projects.create',
       'openvideo.projects.save_edl',
+      'openvideo.proxy.info',
+      'openvideo.proxy.ensure',
       'openvideo.add_clip',
       'openvideo.trim_clip',
       'openvideo.split_clip',
@@ -188,6 +191,61 @@ describe('the composed openvideo host', () => {
     })
     expect(viaTool.said).toContain('Added the text')
   })
+
+  it('answers proxy.info from an executed probe, and degrades with a coded error when ffmpeg is absent', async () => {
+    const info = await host!.rpc.call<{ ffmpeg: boolean; version: string | null; targets: string[]; jobs: number }>('openvideo.proxy.info')
+    expect(info.targets).toContain('webm')
+    expect(typeof info.ffmpeg).toBe('boolean')
+    const assets = await host!.rpc.call<{ assets: AssetWire[] }>('openvideo.assets.list')
+    const id = assets.assets[0]!.id
+    if (!info.ffmpeg) {
+      const err = await expectError(host!.rpc, 'openvideo.proxy.ensure', { id })
+      expect(err.code).toBe(-32002) // UNAVAILABLE, not a crash and not silence
+      expect(err.messageKey).toBe('openvideo.proxyNoFfmpeg')
+      return
+    }
+    const out = await host!.rpc.call<{ proxy: { status: string } }>('openvideo.proxy.ensure', { id, target: 'webm' })
+    expect(['queued', 'running', 'ready']).toContain(out.proxy.status)
+    await host!.rpc.call('openvideo.proxy.cancel', { id })
+  })
+
+  it('transcodes a real proxy when ffmpeg exists, and serves it with Range (skipped with a reason when not)', async () => {
+    const info = await host!.rpc.call<{ ffmpeg: boolean }>('openvideo.proxy.info')
+    if (!info.ffmpeg) {
+      console.log('· 跳过完整代理转码(本机无 ffmpeg——按执行探测,不 reddening)')
+      return
+    }
+    const { execFileSync } = await import('node:child_process')
+    const { join } = await import('node:path')
+    const srcFile = join(host!.home, 'tiny.mp4')
+    execFileSync('ffmpeg', [
+      '-hide_banner', '-f', 'lavfi', '-i', 'testsrc2=duration=1:size=64x64:rate=10',
+      '-c:v', 'libx264', '-pix_fmt', 'yuv420p', '-y', srcFile,
+    ], { timeout: 60_000 })
+    const imported = await host!.rpc.call<{ asset: AssetWire }>('openvideo.assets.import', { path: srcFile })
+    await host!.rpc.call('openvideo.proxy.ensure', { id: imported.asset.id, target: 'webm' })
+    // poll until ready (a 1s 64x64 clip is quick; CI machines vary)
+    const deadline = Date.now() + 60_000
+    let status = ''
+    while (Date.now() < deadline) {
+      const s = await host!.rpc.call<{ proxy: { status: string; error: string | null } }>('openvideo.proxy.status', { id: imported.asset.id })
+      status = s.proxy.status
+      if (status === 'ready' || status === 'failed') {
+        if (status === 'failed') throw new Error(`proxy failed: ${s.proxy.error}`)
+        break
+      }
+      await new Promise((r) => setTimeout(r, 500))
+    }
+    expect(status).toBe('ready')
+    const ep = await host!.rpc.call<{ base: string }>('openvideo.assets.endpoint')
+    const part = await fetch(`${ep.base}/proxy/${imported.asset.id}`, { headers: { range: 'bytes=0-99' } })
+    expect(part.status).toBe(206)
+    expect(part.headers.get('content-type')).toBe('video/webm')
+    expect((await part.arrayBuffer()).byteLength).toBe(100)
+    // the asset row carries the ready facet
+    const after = await host!.rpc.call<{ assets: AssetWire[] }>('openvideo.assets.list')
+    expect(after.assets.find((a) => a.id === imported.asset.id)?.proxy?.status).toBe('ready')
+  }, 120_000)
 
   it('refuses to delete an asset a project still uses, naming the projects', async () => {
     const assets = await host!.rpc.call<{ assets: AssetWire[] }>('openvideo.assets.list')

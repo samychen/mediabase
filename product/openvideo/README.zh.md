@@ -44,6 +44,7 @@ pnpm run dev:openvideo       # 宿主 http://127.0.0.1:3090（页面由宿主服
 | `OPENVIDEO_HOME` | 状态目录（默认 `~/.openvideo`） |
 | `OPENVIDEO_MEDIA_DIR` / `OPENVIDEO_PROJECT_DIR` | 覆盖素材库 / 项目目录 |
 | `OPENVIDEO_MAX_UPLOAD_BYTES` | 单次浏览器上传上限（默认 512 MB） |
+| `OPENVIDEO_FFMPEG_PATH` | 代理转码用的 ffmpeg 可执行文件（默认 PATH 上的 `ffmpeg`；探测不到则代理功能带码降级，其余不受影响） |
 | `OPENVIDEO_LLM_KEY` / `OPENVIDEO_LLM_BASE` / `OPENVIDEO_LLM_MODEL` | 「用一句话要求修改」的 LLM 接入（基座 agent 行读取） |
 | `OPENVIDEO_STRICT_CAPABILITIES=1` | 清单对账失败即拒绝启动 |
 | `OPENVIDEO_READONLY=1` | 拒绝一切 `mutates` 方法 |
@@ -99,6 +100,7 @@ product/openvideo/
 | MP4 导出在托管 edit service | 浏览器端 canvas + MediaRecorder 实时录制（草稿级；受浏览器编码器限制，Chromium 通常给 webm，新版可给 mp4）。**解码同样依赖浏览器**：HEVC/H.265 等不受支持的编码会被事前探测并在 UI 明确报错（媒体库角标 / 舞台提示 / 导出拒绝），绝不静默黑屏 |
 | Google Drive 导入 | 宿主路径导入 + 浏览器上传（本地信任边界） |
 | 托管转写 / 素材分析（AI 看片） | `.vtt` 字幕稿边车（人工/外部工具产出后附加）；`clean_up_clip`、`autocut` 不移植 |
+| 托管 media service 的转码/HLS | **本地 ffmpeg 代理转码**（可选：按执行探测，缺 ffmpeg 带码降级）——浏览器解不了的素材一键生成 webm(VP9/Opus) 代理，预览/导出自动切换，原文件不动 |
 | D1 + R2 存储 | 文件系统：`~/.openvideo/media` + `projects`（项目文档就是那份 JSON） |
 | 自有 instruct LLM 循环（OpenRouter） | 基座 `agent.run` + 受检操作工具（同一组 op） |
 | 数据面 Range 请求（ seeking 大文件） | 基座路由整块响应；本地小素材可用,大文件建议 `OPENVIDEO_MEDIA_DIR` 指到快盘 |

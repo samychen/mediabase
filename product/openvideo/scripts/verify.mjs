@@ -139,6 +139,18 @@ try {
   const imported = await rpc.call('openvideo.assets.import', { path: importFile })
   checks.expect('assets.import 复制入库', imported?.asset?.name === 'imported.txt')
 
+  // ---- proxy transcoding: probed capability, coded degradation or a real job
+  const pinfo = await rpc.call('openvideo.proxy.info')
+  checks.expect('proxy.info 按执行探测', typeof pinfo?.ffmpeg === 'boolean' && Array.isArray(pinfo?.targets), `ffmpeg=${pinfo?.ffmpeg}`)
+  if (pinfo.ffmpeg) {
+    const ensured = await rpc.call('openvideo.proxy.ensure', { id: imported.asset.id, target: 'webm' })
+    checks.expect('proxy.ensure 启动/排队', ['queued', 'running', 'ready'].includes(ensured?.proxy?.status), ensured?.proxy?.status)
+    await rpc.call('openvideo.proxy.cancel', { id: imported.asset.id })
+  } else {
+    const perr = await expectError(rpc, 'openvideo.proxy.ensure', { id: imported.asset.id }, -32002)
+    checks.expect('无 ffmpeg 时带码降级', perr?.messageKey === 'openvideo.proxyNoFfmpeg')
+  }
+
   // ---- projects: create, invalid EDL, checked ops
   const created = await rpc.call('openvideo.projects.create', { name: '冒烟项目', brief: 'verify' })
   const pid = created?.project?.id

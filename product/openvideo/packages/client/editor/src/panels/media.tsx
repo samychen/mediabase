@@ -109,6 +109,20 @@ export function MediaPanel({ ctx }: { ctx: Context }): ReactElement | null {
                 {decodeState[asset.id] === 'fail' && (
                   <span className="ov-badge-warn" title={t('ov.media.undecodableHint')}>⚠ {t('ov.media.undecodable')}</span>
                 )}
+                {asset.proxy?.status === 'ready' && (
+                  <span className="ov-badge">{t('ov.media.proxyReady')}</span>
+                )}
+                {asset.proxy?.status === 'running' && (
+                  <span className="ov-item-sub">
+                    {t('ov.media.proxyRunning', { pct: Math.round((asset.proxy.progress ?? 0) * 100) })}
+                  </span>
+                )}
+                {asset.proxy?.status === 'queued' && (
+                  <span className="ov-item-sub">{t('ov.media.proxyQueued')}</span>
+                )}
+                {asset.proxy?.status === 'failed' && (
+                  <span className="ov-badge-warn" title={asset.proxy.error ?? ''}>⚠ {t('ov.media.proxyFailedBadge')}</span>
+                )}
               </span>
             </span>
             <span className="ov-item-actions">
@@ -127,6 +141,16 @@ export function MediaPanel({ ctx }: { ctx: Context }): ReactElement | null {
                 >
                   文
                 </button>
+              )}
+              {asset.contentType.startsWith('video/') && decodeState[asset.id] === 'fail'
+                && (asset.proxy === undefined || asset.proxy.status === 'none' || asset.proxy.status === 'failed') && (
+                <button className="ov-mini" title={t('ov.media.proxyHint')} onClick={() => void store.ensureProxy(asset.id)}>
+                  {t('ov.media.proxy')}
+                </button>
+              )}
+              {asset.contentType.startsWith('video/')
+                && (asset.proxy?.status === 'running' || asset.proxy?.status === 'queued') && (
+                <button className="ov-mini" title={t('ov.media.proxyCancel')} onClick={() => void store.cancelProxy(asset.id)}>⏹</button>
               )}
               <button className="ov-mini ov-mini-danger" title={t('ov.media.remove')} onClick={() => void store.removeAsset(asset.id)}>✕</button>
             </span>

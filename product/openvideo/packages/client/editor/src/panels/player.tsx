@@ -97,12 +97,7 @@ export function PlayerPanel({ ctx }: { ctx: Context }): ReactElement | null {
     return assets.find((a) => a.id === id)?.name ?? id.slice(0, 12)
   }
 
-  const resolveSrc = (src: string): string | null => {
-    if (store === null) return null
-    if (src.startsWith('asset:')) return store.assetUrl(src.slice(6))
-    if (src.startsWith('https://') || src.startsWith('data:')) return src
-    return null
-  }
+  const resolveSrc = (src: string): string | null => (store === null ? null : store.playUrlFor(src))
 
   // Captions: fetch the transcripts the project needs whenever it (re)opens
   // or captions toggle; missing transcripts simply contribute no lines.

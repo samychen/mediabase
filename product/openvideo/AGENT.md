@@ -49,6 +49,9 @@ plane at `GET /api/openvideo.asset.<id>`.
 | `openvideo.projects.update` *(method)* | `{ id, name?, brief?, edl? }` — same validation |
 | `openvideo.projects.op` *(method)* | `{ id, op, args }` — one checked operation, validated + saved as a unit |
 | `openvideo.projects.remove` *(method)* | delete a project |
+| `openvideo.proxy.info` | is ffmpeg present (probed), which targets, jobs running |
+| `openvideo.proxy.ensure` | `{ id, target?(webm\|mp4) }` — transcode a browser-decodable proxy for an asset (idempotent; poll `openvideo.assets.list` → `proxy.status`) |
+| `openvideo.proxy.cancel` *(method)* | cancel a queued/running proxy job |
 
 ## The checked operations
 
@@ -140,6 +143,11 @@ answer names the exact node:
 - **You cannot see or hear the footage.** Unlike the upstream's managed
   analysis, this local product has no `clean_up_clip`/autocut: work from names,
   durations and the user's words; ask the user when content matters.
+- **Undecodable footage has a fix**: when a video cannot be decoded in the
+  browser (HEVC and friends), call `openvideo_proxy_ensure` — the host
+  transcodes a proxy with its own ffmpeg; once `proxy.status` is `ready` in
+  `assets.list`, preview and export use it automatically. No ffmpeg on the
+  host → `-32002` with `openvideo.proxyNoFfmpeg`: tell the user to install it.
 - **Captions need transcripts**: `hasTranscript: true` in `assets.list` means a
   `.vtt` sidecar is attached; `set_captions` on footage without one produces
   no words (the setting is still valid).

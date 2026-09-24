@@ -55,6 +55,7 @@ Environment (all prefixed `OPENVIDEO_`, plus the environment-owned `PORT`):
 | `OPENVIDEO_HOME` | state dir (default `~/.openvideo`) |
 | `OPENVIDEO_MEDIA_DIR` / `OPENVIDEO_PROJECT_DIR` | override library / project dirs |
 | `OPENVIDEO_MAX_UPLOAD_BYTES` | one browser upload's ceiling (default 512 MB) |
+| `OPENVIDEO_FFMPEG_PATH` | ffmpeg binary for proxy transcoding (default `ffmpeg` on PATH; when the probe finds none, proxies degrade with a coded error and everything else is unaffected) |
 | `OPENVIDEO_LLM_KEY` / `OPENVIDEO_LLM_BASE` / `OPENVIDEO_LLM_MODEL` | the LLM behind "Ask for a change" (read by the base agent row) |
 | `OPENVIDEO_STRICT_CAPABILITIES=1` | a lying manifest fails the boot |
 | `OPENVIDEO_READONLY=1` | refuse every `mutates` method |
@@ -124,6 +125,7 @@ Where the conventions land (against the root `AGENTS.md`):
 | MP4 export on the managed edit service | browser-side canvas + MediaRecorder, real time (draft-grade; container depends on the browser — Chromium usually webm, newer builds mp4). **Decoding is browser-dependent too**: unsupported codecs (HEVC/H.265…) are probed up front and refused loudly (library badge, stage overlay, export refusal) — never a silent black screen |
 | Google Drive import | import by host path + browser upload (the local trust boundary) |
 | managed transcription / footage analysis | `.vtt` transcript sidecars (attach what you have); `clean_up_clip` and autocut are not ported |
+| the managed media service's transcode/HLS | **local ffmpeg proxy transcoding** (optional; probed by execution, coded degradation without ffmpeg) — one click makes a webm (VP9/Opus) proxy for anything the browser cannot decode; preview and export switch to it automatically, the original stays untouched |
 | D1 + R2 storage | the filesystem: `~/.openvideo/media` + `projects` (the project document IS the JSON) |
 | its own instruct LLM loop (OpenRouter) | the base `agent.run` over the same checked operations |
 | Range requests on the data plane | base routes answer whole bodies; fine for local clips — point `OPENVIDEO_MEDIA_DIR` at fast storage for big footage |

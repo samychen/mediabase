@@ -34,6 +34,13 @@ import type {} from '@mediabase/i18n'
 
 // ---- wire shapes (mirror @openvideo/host-media's result schemas) ------------
 
+export interface AssetProxyInfo {
+  status: 'none' | 'queued' | 'running' | 'ready' | 'failed'
+  target: 'webm' | 'mp4' | null
+  progress: number | null
+  error: string | null
+}
+
 export interface AssetRow {
   id: string
   key: string
@@ -43,6 +50,8 @@ export interface AssetRow {
   createdAt: string
   duration: number | null
   hasTranscript: boolean
+  /** Live proxy facet from the host (absent on hosts predating proxies). */
+  proxy?: AssetProxyInfo
 }
 
 export interface ProjectSummary {
@@ -132,6 +141,14 @@ export interface EditorStore {
   /** Split the main clip under the playhead; returns what happened (i18n key params). */
   splitAtPlayhead(): boolean
   assetUrl(id: string): string
+  /** What a media element should load for an EDL src: the proxy when the
+    * original is undecodable here and a proxy is ready; the asset otherwise;
+    * https/data pass through; anything else null. ONE seam for preview/export. */
+  playUrlFor(src: string): string | null
+  /** Ask the host to transcode a browser-friendly proxy (target picked from
+    * what THIS browser decodes); starts polling while jobs run. */
+  ensureProxy(id: string): Promise<void>
+  cancelProxy(id: string): Promise<void>
   errorText(e: unknown): string
   /** A status line for one gesture (rendered through ctx.i18n by panels). */
   flash(key: string, params?: Record<string, string | number>): void
@@ -230,6 +247,15 @@ export function createEditorStore(ctx: Context): EditorStore {
     }
   }
 
+  let pollTimer: ReturnType<typeof setTimeout> | null = null
+  const schedulePoll = (): void => {
+    if (pollTimer !== null) return
+    pollTimer = setTimeout(() => {
+      pollTimer = null
+      void store.refresh()
+    }, 2000)
+  }
+
   const store: EditorStore = {
     get: () => state,
     subscribe(listener) {
@@ -260,6 +286,11 @@ export function createEditorStore(ctx: Context): EditorStore {
           projects: projects.projects,
           durations: { ...state.durations, ...known },
         })
+        // A running proxy job is the only reason to poll: refresh again shortly
+        // so progress/ready land in the rows without a manual reload.
+        if (assets.assets.some((a) => a.proxy?.status === 'running' || a.proxy?.status === 'queued')) {
+          schedulePoll()
+        }
         // Probe what the library does not know yet (the player needs it to
         // place segments; the host backfills so an agent sees it too), and ask
         // this browser whether it can DECODE each video at all.
@@ -599,6 +630,47 @@ export function createEditorStore(ctx: Context): EditorStore {
       // job (a bare route name resolves relative to the page and hits the SPA
       // fallback: HTML where the media element expects bytes).
       return ctx.net.apiUrl(`/api/openvideo.asset.${id}`)
+    },
+
+    playUrlFor(src) {
+      if (src.startsWith('https://') || src.startsWith('data:')) return src
+      if (!src.startsWith('asset:')) return null
+      const id = src.slice(6)
+      const asset = state.assets.find((a) => a.id === id)
+      // The proxy exists for browsers that cannot decode the original; when it
+      // is ready, it IS the playable truth (proxies need the sidecar: they are
+      // served by the same Range-aware byte plane).
+      if (asset?.proxy?.status === 'ready' && state.assetsBase !== null) {
+        return `${state.assetsBase}/proxy/${id}`
+      }
+      return store.assetUrl(id)
+    },
+
+    async ensureProxy(id) {
+      // Pick what THIS browser actually decodes: vp9/opus webm is universal;
+      // fall back to h264/aac mp4, and to webm when neither claims support.
+      const probe = document.createElement('video')
+      const target = probe.canPlayType('video/webm; codecs="vp9,opus"') !== ''
+        ? 'webm'
+        : probe.canPlayType('video/mp4; codecs="avc1.42E032,mp4a.40.2"') !== ''
+          ? 'mp4'
+          : 'webm'
+      try {
+        await call('openvideo.proxy.ensure', { id, target })
+        store.flash('ov.status.proxyStarted', { name: state.assets.find((a) => a.id === id)?.name ?? id })
+        await store.refresh()
+      } catch (e) {
+        store.flash('ov.status.proxyFailed', { error: fail(e) })
+      }
+    },
+
+    async cancelProxy(id) {
+      try {
+        await call('openvideo.proxy.cancel', { id })
+        await store.refresh()
+      } catch (e) {
+        store.flash('ov.status.proxyFailed', { error: fail(e) })
+      }
     },
 
     errorText: (e) => fail(e),

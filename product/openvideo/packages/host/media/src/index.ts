@@ -35,6 +35,7 @@ import type {} from '@mediabase/api'
 import type {} from '@mediabase/tools'
 import { MediaStore, guessContentType, type AssetRow, type ProjectRow } from './store.ts'
 import { startAssetsServer, type AssetsServer } from './assets-http.ts'
+import { ProxyError, ProxyManager, probeFfmpeg, type ProxyInfo, type ProxyTarget } from './proxy.ts'
 import { UploadManager, UploadError } from './uploads.ts'
 
 export const name = 'openvideo'
@@ -53,6 +54,8 @@ export interface OpenvideoConfig {
   maxUploadBytes?: number
   /** Preferred port of the Range-aware assets sidecar (default 3095). */
   assetsPort?: number
+  /** ffmpeg executable for proxy transcoding (default `ffmpeg` on PATH). */
+  ffmpegPath?: string
 }
 
 export const Config: Schema<OpenvideoConfig, OpenvideoConfig> = z.object({
@@ -60,6 +63,7 @@ export const Config: Schema<OpenvideoConfig, OpenvideoConfig> = z.object({
   projectDir: z.string().description('project directory; default <appPaths.home>/projects'),
   maxUploadBytes: z.natural().default(512 * 1024 * 1024).description('upload ceiling in bytes'),
   assetsPort: z.natural().default(3095).description('Range-aware assets sidecar port'),
+  ffmpegPath: z.string().default('ffmpeg').description('ffmpeg binary for proxy transcoding'),
 })
 
 // ---- wire schemas (results are validated too: a capability that breaks its
@@ -77,7 +81,13 @@ const assetFields = {
   duration: z.union([z.number(), nullS]),
   hasTranscript: z.boolean().required(),
 }
-const AssetS = z.object(assetFields)
+const ProxyS = z.object({
+  status: z.union([z.const('none'), z.const('queued'), z.const('running'), z.const('ready'), z.const('failed')]).required(),
+  target: z.union([z.const('webm'), z.const('mp4'), nullS]),
+  progress: z.union([z.number(), nullS]),
+  error: z.union([z.string(), nullS]),
+})
+const AssetS = z.object({ ...assetFields, proxy: ProxyS.required() })
 const summaryFields = {
   id: z.string().required(),
   name: z.string().required(),
@@ -126,11 +136,17 @@ export const API_METHODS = [
   'openvideo.projects.update',
   'openvideo.projects.remove',
   'openvideo.projects.op',
+  'openvideo.proxy.info',
+  'openvideo.proxy.status',
+  'openvideo.proxy.ensure',
+  'openvideo.proxy.cancel',
 ] as const
 
 /** The CRUD tools beside the operation tools (which come from OPS). */
 export const CRUD_TOOLS = [
   'openvideo.assets.list',
+  'openvideo.proxy.info',
+  'openvideo.proxy.ensure',
   'openvideo.projects.list',
   'openvideo.projects.get',
   'openvideo.projects.create',
@@ -154,11 +170,28 @@ export function apply(ctx: Context, rawConfig: OpenvideoConfig): void {
   store.ensure()
   mkdirSync(tmpDir, { recursive: true })
 
+  // Proxy transcoding: probed BY EXECUTION, absent ffmpeg degrades to a coded
+  // UNAVAILABLE on ensure() — never a broken boot, never a silent no-op.
+  const ffmpegProbe = probeFfmpeg(config.ffmpegPath ?? 'ffmpeg')
+  const proxies = new ProxyManager({
+    dir: join(mediaDir, 'proxies'),
+    ffmpeg: ffmpegProbe?.path ?? null,
+    ffmpegVersion: ffmpegProbe?.version ?? null,
+    log,
+    durationOf: (id) => store.getAsset(id)?.duration ?? null,
+  })
+  if (ffmpegProbe === null) log.info('未检测到 ffmpeg — 代理转码不可用(其余功能不受影响)')
+
   // The Range-aware byte plane (see assets-http.ts): media elements need a
   // seekable response; the base gateway route answers whole bodies.
   let assetsServer: AssetsServer | null = null
   assetsServer = startAssetsServer({
     store,
+    proxyFile: (id) => {
+      const ready = proxies.readyFile(id)
+      if (ready === null) return null
+      return { path: ready.path, contentType: ready.target === 'mp4' ? 'video/mp4' : 'video/webm' }
+    },
     port: config.assetsPort ?? 3095,
     onError: (e) => log.warn('素材边车首选端口被占,改用随机端口', {
       error: e instanceof Error ? e.message : String(e),
@@ -217,12 +250,16 @@ export function apply(ctx: Context, rawConfig: OpenvideoConfig): void {
     }, 60_000)
     return () => {
       clearInterval(timer)
+      proxies.dispose()
       for (const dispose of routeDisposers.values()) dispose()
       routeDisposers.clear()
     }
-  }, `${name}: upload sweep + asset routes`)
+  }, `${name}: upload sweep + asset routes + proxy jobs`)
 
   // ---- helpers --------------------------------------------------------------
+
+  /** API rows carry the live proxy facet; the store keeps files-only truth. */
+  const wire = (row: AssetRow): AssetRow & { proxy: ProxyInfo } => ({ ...row, proxy: proxies.statusOf(row.id) })
 
   const mustAsset = (id: string): AssetRow => {
     const row = store.getAsset(id)
@@ -313,7 +350,7 @@ export function apply(ctx: Context, rawConfig: OpenvideoConfig): void {
     description: '媒体库列表(名称/类型/大小/时长/是否有字幕稿)',
     params: z.object({}),
     result: AssetsS,
-    handler: () => ({ assets: store.listAssets() }),
+    handler: () => ({ assets: store.listAssets().map(wire) }),
   })
 
   ctx.api.register({
@@ -335,7 +372,7 @@ export function apply(ctx: Context, rawConfig: OpenvideoConfig): void {
       const asset = store.importFile(p.path, typeof p.duration === 'number' && p.duration > 0 ? p.duration : null)
       serveAsset(asset)
       log.info(`imported "${asset.name}" (${asset.size} bytes) as ${asset.id}`)
-      return { asset }
+      return { asset: wire(asset) }
     },
   })
 
@@ -399,7 +436,7 @@ export function apply(ctx: Context, rawConfig: OpenvideoConfig): void {
         )
         serveAsset(asset)
         log.info(`uploaded "${asset.name}" (${asset.size} bytes) as ${asset.id}`)
-        return { asset }
+        return { asset: wire(asset) }
       } catch (e) {
         throw e instanceof UploadError ? uploadError(e) : e
       }
@@ -431,7 +468,7 @@ export function apply(ctx: Context, rawConfig: OpenvideoConfig): void {
       mustAsset(p.id)
       const asset = store.setDuration(p.id, p.duration)
       if (asset === null) throw RpcError.notFound(`no such asset "${p.id}"`)
-      return { asset }
+      return { asset: wire(asset) }
     },
   })
 
@@ -579,6 +616,75 @@ export function apply(ctx: Context, rawConfig: OpenvideoConfig): void {
     handler: (p) => runOp(p.id, p.op, p.args ?? {}),
   })
 
+  // ---- proxy transcoding (the local answer to "this browser cannot decode that")
+
+  const proxyError = (e: ProxyError, id: string): RpcError => {
+    if (e.kind === 'unavailable') {
+      return RpcError.unavailable(e.message, undefined, { messageKey: 'openvideo.proxyNoFfmpeg' })
+    }
+    if (e.kind === 'not_found') return RpcError.notFound(e.message)
+    return new RpcError(RpcCode.CONFLICT, e.message, undefined, {
+      messageKey: 'openvideo.proxyFailed',
+      messageParams: { id, detail: e.message },
+    })
+  }
+
+  ctx.api.register({
+    name: 'openvideo.proxy.info',
+    description: '代理转码能力:ffmpeg 是否可用(按执行探测)、支持的 targets、在跑的活',
+    params: z.object({}),
+    result: z.object({
+      ffmpeg: z.boolean().required(),
+      version: z.union([z.string(), nullS]),
+      targets: z.array(z.string()).required(),
+      jobs: z.natural().required(),
+    }),
+    handler: () => ({ ...proxies.info(), jobs: proxies.activeJobs() }),
+  })
+
+  ctx.api.register({
+    name: 'openvideo.proxy.status',
+    description: '一个素材的代理状态(none/queued/running/ready/failed + 进度)',
+    params: z.object({ id: z.string().required() }),
+    result: z.object({ proxy: ProxyS.required() }),
+    handler: (p) => {
+      mustAsset(p.id)
+      return { proxy: proxies.statusOf(p.id) }
+    },
+  })
+
+  ctx.api.register({
+    name: 'openvideo.proxy.ensure',
+    description: '为素材生成(或排队)浏览器友好的播放代理:webm=VP9/Opus(全平台),mp4=H.264/AAC;幂等',
+    mutates: true,
+    params: z.object({
+      id: z.string().required(),
+      target: z.union([z.const('webm'), z.const('mp4')]).description('default webm (decodable everywhere without codec packs)'),
+    }),
+    result: z.object({ proxy: ProxyS.required() }),
+    handler: (p) => {
+      const row = mustAsset(p.id)
+      try {
+        return { proxy: proxies.ensure(p.id, store.assetPath(row), (p.target ?? 'webm') as ProxyTarget) }
+      } catch (e) {
+        throw e instanceof ProxyError ? proxyError(e, p.id) : e
+      }
+    },
+  })
+
+  ctx.api.register({
+    name: 'openvideo.proxy.cancel',
+    description: '取消一个排队/进行中的代理转码',
+    mutates: true,
+    params: z.object({ id: z.string().required() }),
+    result: OkS,
+    handler: (p) => {
+      mustAsset(p.id)
+      proxies.cancel(p.id)
+      return OK
+    },
+  })
+
   // ---- agent tools ----------------------------------------------------------
   //
   // "Ask for a change" and any agent.run prompt act through THESE, never by
@@ -639,6 +745,30 @@ export function apply(ctx: Context, rawConfig: OpenvideoConfig): void {
     },
   })
 
+  ctx.tools.register({
+    name: 'openvideo.proxy.info',
+    description: 'Whether this host can transcode playback proxies (ffmpeg present?) and how many jobs are running.',
+    execute: () => ({ ...proxies.info(), jobs: proxies.activeJobs() }),
+  })
+
+  ctx.tools.register({
+    name: 'openvideo.proxy.ensure',
+    description: 'Make a browser-friendly playback proxy for a library asset (webm VP9/Opus by default). Use it when a video cannot be decoded in the browser; preview and export switch to the proxy automatically once ready. Idempotent; poll openvideo.projects… assets list for status.',
+    params: z.object({
+      id: z.string().description('asset id').required(),
+      target: z.union([z.const('webm'), z.const('mp4')]).description('default webm'),
+    }),
+    execute: (args) => {
+      const id = String(args.id)
+      const row = mustAsset(id)
+      try {
+        return proxies.ensure(id, store.assetPath(row), (args.target ?? 'webm') as ProxyTarget)
+      } catch (e) {
+        throw e instanceof ProxyError ? proxyError(e, id) : e
+      }
+    },
+  })
+
   for (const op of OPS) {
     ctx.tools.register({
       name: `openvideo.${op.name}`,
@@ -668,6 +798,7 @@ export function apply(ctx: Context, rawConfig: OpenvideoConfig): void {
       assetsPort: assetsServer?.port() ?? 0,
       projects: store.listProjects().length,
       uploads: uploads.active(),
+      proxy: { ffmpeg: ffmpegProbe !== null, jobs: proxies.activeJobs() },
       mediaDir,
       projectDir,
     },

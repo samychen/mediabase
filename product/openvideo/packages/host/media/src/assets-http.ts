@@ -26,12 +26,14 @@ export interface AssetsServer {
 
 export interface AssetsServerOptions {
   store: MediaStore
+  /** Resolve a proxy file for an asset (null = no proxy). */
+  proxyFile?: (assetId: string) => { path: string; contentType: string } | null
   /** Preferred port; when taken, the OS assigns one (discover via endpoint()). */
   port: number
   onError?: (e: unknown) => void
 }
 
-const ASSET_PATH = /^\/asset\/([0-9a-f]{16})$/
+const ASSET_PATH = /^\/(asset|proxy)\/([0-9a-f]{16})$/
 
 export function startAssetsServer(opts: AssetsServerOptions): AssetsServer {
   let server: Server | null = null
@@ -53,13 +55,28 @@ export function startAssetsServer(opts: AssetsServerOptions): AssetsServer {
       res.end()
       return
     }
-    const row = opts.store.getAsset(match[1]!)
-    if (row === null) {
-      res.statusCode = 404
-      res.end()
-      return
+    const [, kind, id] = match
+    let file: string
+    let contentType: string
+    if (kind === 'asset') {
+      const row = opts.store.getAsset(id!)
+      if (row === null) {
+        res.statusCode = 404
+        res.end()
+        return
+      }
+      file = opts.store.assetPath(row)
+      contentType = row.contentType
+    } else {
+      const proxy = opts.proxyFile?.(id!) ?? null
+      if (proxy === null) {
+        res.statusCode = 404
+        res.end()
+        return
+      }
+      file = proxy.path
+      contentType = proxy.contentType
     }
-    const file = opts.store.assetPath(row)
     let size = 0
     try {
       size = statSync(file).size
@@ -69,8 +86,9 @@ export function startAssetsServer(opts: AssetsServerOptions): AssetsServer {
       return
     }
     res.setHeader('Accept-Ranges', 'bytes')
-    res.setHeader('Content-Type', row.contentType)
-    res.setHeader('Cache-Control', 'public, max-age=31536000')
+    res.setHeader('Content-Type', contentType)
+    // Proxies are re-generable and may be replaced: no long cache for them.
+    res.setHeader('Cache-Control', kind === 'asset' ? 'public, max-age=31536000' : 'no-cache')
 
     const range = req.headers.range
     const parsed = range === undefined ? null : /^bytes=(\d*)-(\d*)$/.exec(range)

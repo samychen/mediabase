@@ -28,6 +28,13 @@ export const EDITOR_MESSAGES = {
     'ov.media.remove': '删除',
     'ov.media.transcript': '附加字幕稿(.vtt)',
     'ov.media.hasTranscript': '字幕稿',
+    'ov.media.proxy': '转代理',
+    'ov.media.proxyHint': '用宿主的 ffmpeg 转一份浏览器必解的代理(webm VP9/Opus);预览与导出自动改用代理,原文件不动',
+    'ov.media.proxyCancel': '取消转码',
+    'ov.media.proxyRunning': '代理转码中 {pct}%',
+    'ov.media.proxyQueued': '转码排队中',
+    'ov.media.proxyReady': '代理就绪',
+    'ov.media.proxyFailedBadge': '代理失败',
     'ov.media.undecodable': '无法解码',
     'ov.media.undecodableHint': '浏览器解不了这个流(常见:HEVC/H.265,或 H.264 10-bit/4:4:4)。转码请加 -pix_fmt yuv420p:-c:v libx264 -c:a aac;转码后请重新导入为新素材。',
     'ov.media.duration': '{dur}s',
@@ -153,6 +160,8 @@ export const EDITOR_MESSAGES = {
     'ov.status.transcriptFailed': '字幕稿附加失败:{error}',
     'ov.status.addedToMain': '已加入主轨:{name}',
     'ov.status.addedToAudio': '已加入音轨:{name}',
+    'ov.status.proxyStarted': '已开始转代理:{name}(就绪前预览仍可能黑屏)',
+    'ov.status.proxyFailed': '代理转码失败:{error}',
     'ov.status.splitFailed': '播放头不在片段内部,无法分割',
 
     // host errors (messageKey → localized text)
@@ -163,6 +172,8 @@ export const EDITOR_MESSAGES = {
     'openvideo.assetInUse': '素材仍被项目使用:{projects} — 先从项目里移除',
     'openvideo.uploadTooLarge': '超过上传上限({max} 字节)',
     'openvideo.importNotFile': '不是可读的文件:{path}',
+    'openvideo.proxyNoFfmpeg': '宿主上没有 ffmpeg — 安装后重启宿主(如 sudo apt install ffmpeg)',
+    'openvideo.proxyFailed': '代理转码失败:{detail}',
   },
   en: {
     // projects panel
@@ -187,6 +198,13 @@ export const EDITOR_MESSAGES = {
     'ov.media.remove': 'Delete',
     'ov.media.transcript': 'Attach transcript (.vtt)',
     'ov.media.hasTranscript': 'transcript',
+    'ov.media.proxy': 'Make proxy',
+    'ov.media.proxyHint': 'Transcode a browser-decodable proxy (webm VP9/Opus) with the host ffmpeg; preview and export switch to it automatically, the original stays untouched',
+    'ov.media.proxyCancel': 'Cancel transcode',
+    'ov.media.proxyRunning': 'proxying {pct}%',
+    'ov.media.proxyQueued': 'queued',
+    'ov.media.proxyReady': 'proxy ready',
+    'ov.media.proxyFailedBadge': 'proxy failed',
     'ov.media.undecodable': 'undecodable',
     'ov.media.undecodableHint': 'The browser cannot decode this stream (typical: HEVC/H.265, or 10-bit/4:4:4 H.264). Transcode with -pix_fmt yuv420p -c:v libx264 -c:a aac, then re-import as a new asset.',
     'ov.media.duration': '{dur}s',
@@ -312,6 +330,8 @@ export const EDITOR_MESSAGES = {
     'ov.status.transcriptFailed': 'Attaching the transcript failed: {error}',
     'ov.status.addedToMain': 'Added to the main track: {name}',
     'ov.status.addedToAudio': 'Added to the audio track: {name}',
+    'ov.status.proxyStarted': 'Proxy transcode started: {name} (preview may stay black until it is ready)',
+    'ov.status.proxyFailed': 'Proxy transcode failed: {error}',
     'ov.status.splitFailed': 'The playhead is not inside a clip — nothing to split',
 
     // host errors (messageKey → localized text)
@@ -322,5 +342,7 @@ export const EDITOR_MESSAGES = {
     'openvideo.assetInUse': 'Still used in: {projects} — remove it from the project first',
     'openvideo.uploadTooLarge': 'Above the upload ceiling ({max} bytes)',
     'openvideo.importNotFile': 'Not a readable file: {path}',
+    'openvideo.proxyNoFfmpeg': 'No ffmpeg on this host — install it and restart the host (e.g. sudo apt install ffmpeg)',
+    'openvideo.proxyFailed': 'Proxy transcode failed: {detail}',
   },
 } as const
