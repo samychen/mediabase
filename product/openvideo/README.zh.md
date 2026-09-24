@@ -5,7 +5,8 @@
 读写同一份文档。移植自 [clawnify/OpenVideo](https://github.com/clawnify/OpenVideo)（MIT，
 见 `NOTICE.md`），并按 `AGENTS.md` 的规范重构为 mediabase 的组合形态。
 
-English: [README.md](README.md)。
+English: [README.md](README.md)。集成设计与决策的完整说明：[INTEGRATION.zh.md](INTEGRATION.zh.md)；
+agent 对接指南：[AGENT.md](AGENT.md)；移植归属：[NOTICE.md](NOTICE.md)。
 
 ## 它是什么
 

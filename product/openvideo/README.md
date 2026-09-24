@@ -7,7 +7,9 @@ changes the same document through the same **checked operations**. Ported from
 [clawnify/OpenVideo](https://github.com/clawnify/OpenVideo) (MIT, see
 `NOTICE.md`) and reshaped to the conventions in the root `AGENTS.md`.
 
-中文：[README.zh.md](README.zh.md)。
+中文：[README.zh.md](README.zh.md)。Full integration rationale (zh):
+[INTEGRATION.zh.md](INTEGRATION.zh.md); agent guide: [AGENT.md](AGENT.md);
+attributions: [NOTICE.md](NOTICE.md).
 
 ## What it is
 
