@@ -7,9 +7,22 @@
 ## Derived work
 
 Portions of this product layer are derived from
-[clawnify/OpenVideo](https://github.com/clawnify/OpenVideo) (commit series up
-to `b30f75f`, September 2026), Copyright (c) 2025 Clawnify, licensed under the
-MIT License. The derived files, and what each carries over:
+[clawnify/OpenVideo](https://github.com/clawnify/OpenVideo), Copyright (c) 2025
+Clawnify, licensed under the MIT License.
+
+Exact provenance (the upstream snapshot every ported file was taken from):
+
+- Repository: `https://github.com/clawnify/OpenVideo` (default branch `main`)
+- Commit: `b30f75fd02c7cb3daed159e81d90f4efdc396348`
+  ("Import from Google Drive through the Google Drive integration (#11)",
+  committed 2026-09-22T16:03:06Z)
+- Cloned for this integration on 2026-09-23; the reference checkout was
+  deliberately NOT vendored — this table plus the "Derived from …" header in
+  each ported source file is the provenance of record.
+- Licence text: reproduced in full below; identical to the upstream `LICENSE`
+  at that commit.
+
+The derived files, and what each carries over:
 
 | Here | From there | What carried over |
 |---|---|---|
