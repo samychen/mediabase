@@ -254,11 +254,13 @@ their own (`AVSTUDIO_` / `~/.avstudio`, …) via `BootIdentity` — never by for
 
 ## Adopting this base
 
-`docs/LEARNING-PATH.zh.md` is the staged on-ramp for someone who has never touched this
-repo: seven stages (environment → mental model → the calculator tutorial → composition
-overrides → child-process backends → a page → product adoption), each naming what to read,
-what to run, and how to tell it worked. Keep its stage list and the doc index true when
-docs move.
+`docs/LEARNING-PATH.zh.md` is the staged on-ramp for newcomers who already know
+TypeScript (Node) and basic React: seven stages (environment → mental model → the
+calculator tutorial → composition overrides → child-process backends → a page →
+product adoption), each naming what to read, what to run, and how to tell it worked.
+C++-first engineers with little frontend should use the parallel track
+`docs/LEARNING-PATH.cpp.zh.md` instead (minimal TS prep, C++ subprocess earlier,
+UI optional). Keep both stage lists and the doc index true when docs move.
 
 `docs/WALKTHROUGH.zh.md` is the hands-on version of this: build a calculator beside
 the base whose computation has interchangeable JS / Python / C++ backends, and (section 12)
@@ -279,7 +281,7 @@ This base has **no** `.agents/notes/` and **no** repo-local skills: a base that 
 handed to many consumers must not carry one product's history. Decisions that a
 consumer or a future maintainer needs are written into the durable docs —
 `docs/FRAMEWORK.zh.md` (what is reusable, what stayed product-side),
-`docs/HANDOFF.zh.md` (adoption checklist), `docs/LEARNING-PATH.zh.md` (staged
-on-ramp for a newcomer), `docs/CONFIG-CATALOG.md` (generated row
+`docs/HANDOFF.zh.md` (adoption checklist), `docs/LEARNING-PATH.zh.md` /
+`docs/LEARNING-PATH.cpp.zh.md` (staged on-ramps for newcomers), `docs/CONFIG-CATALOG.md` (generated row
 contracts), `docs/STATUS.zh.md` (deliberate deltas from DSH) — or into this file as
 a rule. Anything else is a commit message.
