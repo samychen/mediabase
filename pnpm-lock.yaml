@@ -498,15 +498,15 @@ importers:
       '@mediabase/ui':
         specifier: ^0.1.6
         version: link:../../../../packages/client/ui
-      '@mediabase/ui-web':
-        specifier: ^0.1.6
-        version: link:../../../../packages/client/ui-web
       '@openvideo/bundle-ui':
         specifier: ^0.1.6
         version: link:../../packages/bundle/ui
       '@openvideo/ui-editor':
         specifier: ^0.1.6
         version: link:../../packages/client/editor
+      '@openvideo/ui-shell':
+        specifier: ^0.1.6
+        version: link:../../packages/client/shell
       react:
         specifier: ^18.3.1
         version: 18.3.1
@@ -541,12 +541,12 @@ importers:
       '@mediabase/ui':
         specifier: ^0.1.6
         version: link:../../../../../packages/client/ui
-      '@mediabase/ui-web':
-        specifier: ^0.1.6
-        version: link:../../../../../packages/client/ui-web
       '@openvideo/ui-editor':
         specifier: ^0.1.6
         version: link:../../client/editor
+      '@openvideo/ui-shell':
+        specifier: ^0.1.6
+        version: link:../../client/shell
 
   product/openvideo/packages/client/editor:
     dependencies:
@@ -571,6 +571,30 @@ importers:
       react:
         specifier: ^18.3.1
         version: 18.3.1
+
+  product/openvideo/packages/client/shell:
+    dependencies:
+      '@deepseek-ai/cordis':
+        specifier: ^4.0.2
+        version: 4.0.2(@deepseek-ai/cordis-plugin-include@1.0.7)(@deepseek-ai/cordis-plugin-loader@1.0.3)
+      '@mediabase/i18n':
+        specifier: ^0.1.6
+        version: link:../../../../../packages/client/i18n
+      '@mediabase/schema':
+        specifier: ^0.1.6
+        version: link:../../../../../packages/base/schema
+      '@mediabase/ui':
+        specifier: ^0.1.6
+        version: link:../../../../../packages/client/ui
+      '@openvideo/ui-editor':
+        specifier: ^0.1.6
+        version: link:../editor
+      react:
+        specifier: ^18.3.1
+        version: 18.3.1
+      react-dom:
+        specifier: ^18.3.1
+        version: 18.3.1(react@18.3.1)
 
   product/openvideo/packages/edl:
     dependencies:

@@ -6,15 +6,6 @@
 
 export const EDITOR_MESSAGES = {
   'zh-CN': {
-    // projects panel
-    'ov.projects.title': '项目',
-    'ov.projects.namePlaceholder': '项目名称',
-    'ov.projects.create': '新建',
-    'ov.projects.remove': '删除',
-    'ov.projects.removeConfirm': '再点一次删除「{name}」',
-    'ov.projects.empty': '还没有项目 — 新建一个开始剪辑',
-    'ov.projects.updated': '{date} 更新',
-    'ov.projects.current': '已打开',
 
     // media panel
     'ov.media.title': '媒体库',
@@ -183,15 +174,6 @@ export const EDITOR_MESSAGES = {
     'openvideo.proxyFailed': '代理转码失败:{detail}',
   },
   en: {
-    // projects panel
-    'ov.projects.title': 'Projects',
-    'ov.projects.namePlaceholder': 'Project name',
-    'ov.projects.create': 'New',
-    'ov.projects.remove': 'Delete',
-    'ov.projects.removeConfirm': 'Click again to delete "{name}"',
-    'ov.projects.empty': 'No projects yet — create one to start editing',
-    'ov.projects.updated': 'updated {date}',
-    'ov.projects.current': 'open',
 
     // media panel
     'ov.media.title': 'Media',

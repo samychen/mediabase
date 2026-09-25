@@ -25,8 +25,13 @@ declare module '@deepseek-ai/cordis' {
   }
 }
 
-/** Where the shell renders a panel: title row · left column · right area. */
-export type PanelArea = 'header' | 'sidebar' | 'monitor'
+/**
+ * Where a shell renders a panel: title row · left column · main area ·
+ * right column · bottom row. The right/bottom areas are OPTIONAL: a shell
+ * renders them only while they hold panels, and a composition that registers
+ * nothing there looks exactly like the classic three-area layout.
+ */
+export type PanelArea = 'header' | 'sidebar' | 'monitor' | 'right' | 'bottom'
 
 export interface UiPanel {
   id: string

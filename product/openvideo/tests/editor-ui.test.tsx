@@ -89,24 +89,26 @@ describe('the openvideo editor in the shell', () => {
     await ctx.fiber.dispose()
   })
 
-  it('registers its six panels into the right areas', () => {
+  it('registers its five panels into the four-region areas', () => {
     const registry = ctx.get('ui')!
-    const ids = (area: 'header' | 'sidebar' | 'monitor'): string[] => registry.list(area).map((p) => p.id)
+    const ids = (area: 'header' | 'sidebar' | 'monitor' | 'right' | 'bottom'): string[] =>
+      registry.list(area).map((p) => p.id)
     expect(ids('header')).toContain('openvideo.status')
-    expect(ids('sidebar')).toEqual(['openvideo.projects', 'openvideo.media', 'openvideo.inspector'])
-    expect(ids('monitor')).toEqual(['openvideo.player', 'openvideo.timeline'])
+    expect(ids('sidebar')).toEqual(['openvideo.media'])
+    expect(ids('monitor')).toEqual(['openvideo.player'])
+    expect(ids('right')).toEqual(['openvideo.inspector'])
+    expect(ids('bottom')).toEqual(['openvideo.timeline'])
   })
 
   it('renders the translated chrome in the shell', () => {
     const text = container.textContent ?? ''
     expect(text).toContain('OpenVideo')
-    expect(text).toContain('项目')      // projects panel heading (zh-CN)
     expect(text).toContain('媒体库')    // media panel heading
     expect(text).toContain('检查器')    // inspector heading
     expect(text).toContain('时间线')    // timeline heading
     expect(text).toContain('就绪')      // status with nothing open
-    // empty-state copy, not a crash
-    expect(text).toContain('还没有项目')
+    // empty-state copy of the media library, not a crash
+    expect(text).toContain('媒体库为空')
     expect(text).not.toContain('渲染失败')
   })
 

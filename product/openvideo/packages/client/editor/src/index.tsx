@@ -15,12 +15,16 @@ import { mainSegments, totalDuration } from '@openvideo/edl'
 import { EDITOR_MESSAGES } from './messages.ts'
 import { createEditorStore, type EditorStore } from './store.ts'
 import { StatusPanel } from './panels/status.tsx'
-import { ProjectsPanel } from './panels/projects.tsx'
 import { MediaPanel } from './panels/media.tsx'
 import { InspectorPanel } from './panels/inspector.tsx'
 import { PlayerPanel } from './panels/player.tsx'
 import { TimelinePanel } from './panels/timeline.tsx'
 import './styles.css'
+
+// The product shell (@openvideo/ui-shell) reads the store contract and borrows
+// a few glyphs; re-exported here so it imports ONE package, not deep paths.
+export type { AssetProxyInfo, AssetRow, EditorState, EditorStore, ProjectRow, ProjectSummary, Sel } from './store.ts'
+export { IconChevronLeft, IconFilm, IconPlus, IconTrash } from './icons.tsx'
 
 declare module '@deepseek-ai/cordis' {
   interface Context {
@@ -47,12 +51,13 @@ export function apply(ctx: Context): void {
   const store = createEditorStore(ctx)
   ctx.reflect.provide('openvideoEditor', store)
 
+  // Areas map onto the product shell's four-region grid (rail · player ·
+  // inspector · timeline); the projects HOME screen lives in the shell itself.
   ctx.ui.register({ id: 'openvideo.status', title: '', area: 'header', order: 10, component: asPanel(StatusPanel) })
-  ctx.ui.register({ id: 'openvideo.projects', title: 'Projects', titleKey: 'ov.projects.title', area: 'sidebar', order: 10, component: asPanel(ProjectsPanel) })
-  ctx.ui.register({ id: 'openvideo.media', title: 'Media', titleKey: 'ov.media.title', area: 'sidebar', order: 20, component: asPanel(MediaPanel) })
-  ctx.ui.register({ id: 'openvideo.inspector', title: 'Inspector', titleKey: 'ov.inspector.title', area: 'sidebar', order: 30, component: asPanel(InspectorPanel) })
+  ctx.ui.register({ id: 'openvideo.media', title: 'Media', titleKey: 'ov.media.title', area: 'sidebar', order: 10, component: asPanel(MediaPanel) })
   ctx.ui.register({ id: 'openvideo.player', title: 'Preview', titleKey: 'ov.player.title', area: 'monitor', order: 10, component: asPanel(PlayerPanel) })
-  ctx.ui.register({ id: 'openvideo.timeline', title: 'Timeline', titleKey: 'ov.timeline.title', area: 'monitor', order: 20, component: asPanel(TimelinePanel) })
+  ctx.ui.register({ id: 'openvideo.inspector', title: 'Inspector', titleKey: 'ov.inspector.title', area: 'right', order: 10, component: asPanel(InspectorPanel) })
+  ctx.ui.register({ id: 'openvideo.timeline', title: 'Timeline', titleKey: 'ov.timeline.title', area: 'bottom', order: 10, component: asPanel(TimelinePanel) })
 
   // The base `view` contract (@mediabase/ui): the capability that produces the
   // shared panel state provides it. While a project is open, sibling panels

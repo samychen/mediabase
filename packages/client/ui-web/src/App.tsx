@@ -86,9 +86,17 @@ export function App({ ctx, title = 'Mediabase' }: { ctx: Context; title?: string
   const header = usePanels(ui, 'header')
   const sidebar = usePanels(ui, 'sidebar')
   const monitor = usePanels(ui, 'monitor')
+  const right = usePanels(ui, 'right')
+  const bottom = usePanels(ui, 'bottom')
+
+  // The grid grows only when a product fills the optional areas: right adds a
+  // column, bottom a full-width row. With neither registered the layout is
+  // byte-for-byte the classic two-pane shell.
+  const columns = `360px 1fr${right.length > 0 ? ' 340px' : ''}`
+  const rows = bottom.length > 0 ? '1fr auto' : '1fr'
 
   return (
-    <div className="app">
+    <div className="app" style={{ gridTemplateColumns: columns, gridTemplateRows: rows }}>
       <div className="panel">
         <h1>
           {title}
@@ -109,6 +117,18 @@ export function App({ ctx, title = 'Mediabase' }: { ctx: Context; title?: string
       <div className="panel monitor">
         {monitor.map((panel) => renderPanel(panel, ctx, true, t))}
       </div>
+
+      {right.length > 0 && (
+        <div className="panel pane-right">
+          {right.map((panel) => renderPanel(panel, ctx, true, t))}
+        </div>
+      )}
+
+      {bottom.length > 0 && (
+        <div className="panel pane-bottom" style={{ gridColumn: '1 / -1' }}>
+          {bottom.map((panel) => renderPanel(panel, ctx, true, t))}
+        </div>
+      )}
     </div>
   )
 }

@@ -27,6 +27,6 @@
   name: '@openvideo/ui-editor'
 
 - id: shell
-  name: '@mediabase/ui-web'
+  name: '@openvideo/ui-shell'
   config:
     title: OpenVideo

@@ -14,9 +14,9 @@
     "@mediabase/i18n": "^0.1.6",
     "@mediabase/theme": "^0.1.6",
     "@mediabase/ui": "^0.1.6",
-    "@mediabase/ui-web": "^0.1.6",
     "@openvideo/bundle-ui": "^0.1.6",
     "@openvideo/ui-editor": "^0.1.6",
+    "@openvideo/ui-shell": "^0.1.6",
     "react": "^18.3.1",
     "react-dom": "^18.3.1"
   },

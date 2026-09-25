@@ -417,9 +417,9 @@ export function apply(ctx: Context, rawConfig: OpenvideoConfig): void {
         })
       }
       const urlName = decodeURIComponent(p.url.split('?')[0]?.split('#')[0]?.split('/').pop() ?? '') || ''
-      const name = (p.name ?? '').trim() !== '' ? (p.name ?? '').trim() : (urlName !== '' ? urlName : 'network-media')
+      const assetName = (p.name ?? '').trim() !== '' ? (p.name ?? '').trim() : (urlName !== '' ? urlName : 'network-media')
       const headerType = res.headers.get('content-type')?.split(';')[0]?.trim() ?? ''
-      const contentType = headerType !== '' && headerType !== 'application/octet-stream' ? headerType : guessContentType(name)
+      const contentType = headerType !== '' && headerType !== 'application/octet-stream' ? headerType : guessContentType(assetName)
 
       const tmp = join(tmpDir, `fetch-${randomBytes(8).toString('hex')}.part`)
       let received = 0
@@ -445,7 +445,7 @@ export function apply(ctx: Context, rawConfig: OpenvideoConfig): void {
         throw e
       }
       const asset = store.addAsset(
-        { name, contentType, size: received, duration: typeof p.duration === 'number' && p.duration > 0 ? p.duration : null },
+        { name: assetName, contentType, size: received, duration: typeof p.duration === 'number' && p.duration > 0 ? p.duration : null },
         tmp,
       )
       serveAsset(asset)

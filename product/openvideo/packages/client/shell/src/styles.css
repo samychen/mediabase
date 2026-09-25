@@ -1,0 +1,77 @@
+/* @openvideo/ui-shell — the product shell's layout: projects home + the
+   four-region editor grid. Layout grammar derived from clawnify/OpenVideo
+   src/client/edit.tsx (MIT): full-bleed panes (not cards-in-a-page), a slim
+   top bar, cards with 16:9 covers, and the empty state OUTSIDE any card
+   ("an empty card reads as broken"). Colors come from the design tokens. */
+
+/* ---- shared chrome ---- */
+.ovs-topbar { display: flex; align-items: center; gap: 10px; height: 48px; padding: 0 14px;
+  background: var(--panel, #161b22); box-shadow: inset 0 -1px 0 var(--border, #30363d);
+  position: sticky; top: 0; z-index: 5; }
+.ovs-brand { font-size: 15px; font-weight: 600; letter-spacing: -0.01em; color: var(--text, #c9d1d9); }
+.ovs-topbar-panels { margin-left: auto; display: flex; align-items: center; gap: 8px; }
+.ovs-missing { padding: 32px; color: var(--muted, #8b949e); font-size: 13px; }
+
+/* ---- home: projects as cards ---- */
+.ovs-home { min-height: 100vh; display: flex; flex-direction: column; }
+.ovs-home-body { max-width: 1080px; width: 100%; margin: 0 auto; padding: 28px 20px 48px; }
+.ovs-tagline { color: var(--muted, #8b949e); font-size: 13.5px; line-height: 1.55; margin: 4px 0 18px; max-width: 640px; }
+.ovs-newrow { display: flex; gap: 8px; max-width: 460px; margin-bottom: 26px; }
+.ovs-newrow input { flex: 1; }
+.ovs-newrow button { margin: 0; }
+
+.ovs-empty { display: grid; place-items: center; content-center: center; gap: 6px; padding: 56px 0; text-align: center; }
+.ovs-empty-icon { color: var(--muted, #8b949e); opacity: .7; }
+.ovs-empty-title { font-size: 15px; font-weight: 600; color: var(--text, #c9d1d9); }
+.ovs-empty-body { font-size: 13px; color: var(--muted, #8b949e); max-width: 380px; margin: 0; }
+
+.ovs-cards { display: grid; grid-template-columns: repeat(auto-fill, minmax(230px, 1fr)); gap: 14px; }
+.ovs-card { background: var(--panel, #161b22); border-radius: var(--radius, 12px);
+  box-shadow: inset 0 0 0 1px var(--border, #30363d); overflow: hidden;
+  transition: box-shadow .15s ease, transform .15s ease; }
+.ovs-card:hover { transform: translateY(-2px);
+  box-shadow: inset 0 0 0 1px var(--border, #30363d), var(--shadow, 0 2px 12px rgba(0,0,0,.35)); }
+.ovs-cover { display: block; width: 100%; aspect-ratio: 16 / 9; padding: 0; margin: 0; border: none;
+  background: var(--inset, #0d1117); cursor: pointer; position: relative; }
+.ovs-cover-media { width: 100%; height: 100%; object-fit: cover; display: block; }
+.ovs-cover-empty { position: absolute; inset: 0; display: grid; place-items: center;
+  color: var(--muted, #8b949e); opacity: .5; }
+.ovs-card-meta { display: flex; align-items: center; gap: 8px; padding: 9px 11px; }
+.ovs-card-name { flex: 1; min-width: 0; text-align: left; background: none; border: none; box-shadow: none;
+  color: var(--text, #c9d1d9); font-size: 13.5px; font-weight: 600; padding: 0; margin: 0; height: auto;
+  cursor: pointer; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.ovs-card-name:hover { filter: none; color: var(--accent, #58a6ff); }
+.ovs-card-sub { font-size: 11px; color: var(--muted, #8b949e); white-space: nowrap; }
+.ovs-card-delete { background: none; border: none; box-shadow: none; color: var(--muted, #8b949e);
+  width: 24px; height: 24px; min-width: 24px; padding: 0; margin: 0; border-radius: 999px; cursor: pointer; }
+.ovs-card-delete:hover { background: var(--danger-tint, #3a2424); color: var(--danger, #f85149); filter: none; }
+
+/* ---- editor: top bar + four-region grid ---- */
+.ovs-editor { height: 100vh; display: grid; grid-template-rows: 48px 1fr; }
+.ovs-back { display: inline-flex; align-items: center; gap: 4px; height: 28px; padding: 0 10px; margin: 0;
+  background: none; color: var(--muted, #8b949e); border: none; box-shadow: none; border-radius: 999px;
+  font-size: 13px; cursor: pointer; }
+.ovs-back:hover { background: var(--inset, #21262d); color: var(--text, #c9d1d9); filter: none; }
+.ovs-project-name { font-size: 14px; font-weight: 600; color: var(--text, #c9d1d9);
+  white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 320px; }
+
+.ovs-grid { display: grid; gap: 10px; padding: 10px; min-height: 0;
+  grid-template-columns: 300px minmax(0, 1fr) 320px;
+  grid-template-rows: minmax(0, 1fr) auto;
+  grid-template-areas:
+    'left center right'
+    'bottom bottom bottom'; }
+.ovs-pane { background: var(--panel, #161b22); border-radius: var(--radius, 12px);
+  box-shadow: inset 0 0 0 1px var(--border, #30363d); padding: 12px;
+  overflow: auto; min-height: 0; }
+.ovs-left { grid-area: left; }
+.ovs-center { grid-area: center; display: flex; flex-direction: column; }
+.ovs-right { grid-area: right; }
+.ovs-bottom { grid-area: bottom; max-height: 40vh; }
+.ovs-section { width: 100%; }
+.ovs-section + .ovs-section { margin-top: 14px; }
+.ovs-pane-title { font-size: 11px; font-weight: 600; letter-spacing: .04em; text-transform: uppercase;
+  color: var(--muted, #8b949e); margin-bottom: 8px; }
+
+/* the player pane should breathe: kill the fixed viewport height inside the grid */
+.ovs-center .ov-player-box { height: auto; flex: 1; min-height: 260px; }

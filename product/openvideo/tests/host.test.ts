@@ -252,7 +252,6 @@ describe('the composed openvideo host', () => {
       return
     }
     const { execFileSync } = await import('node:child_process')
-    const { join } = await import('node:path')
     const srcFile = join(host!.home, 'tiny.mp4')
     execFileSync('ffmpeg', [
       '-hide_banner', '-f', 'lavfi', '-i', 'testsrc2=duration=1:size=64x64:rate=10',

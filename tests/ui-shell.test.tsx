@@ -73,6 +73,17 @@ describe('<App/> shell', () => {
     expect(container.textContent).not.toContain('Mediabase')
   })
 
+  it('renders the optional right/bottom areas only while panels occupy them', async () => {
+    expect(container.querySelector('.pane-right')).toBeNull()
+    expect(container.querySelector('.pane-bottom')).toBeNull()
+    await act(async () => {
+      registry.register({ id: 'r1', title: 'R', area: 'right', component: panel('R1') })
+      registry.register({ id: 'b1', title: 'B', area: 'bottom', component: panel('B1') })
+    })
+    expect(container.querySelector('.pane-right')?.textContent).toContain('R1')
+    expect(container.querySelector('.pane-bottom')?.textContent).toContain('B1')
+  })
+
   it('renders a panel registered AFTER mount, and drops it on unregister', async () => {
     let unregister = (): void => {}
     await act(async () => {

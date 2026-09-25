@@ -28,7 +28,7 @@ describe('the openvideo client roster', () => {
   it('mounts the base registries, then the editor, and the shell LAST', () => {
     const rows = readRoster()
     const names = rows.map((row) => row.name)
-    expect(names.at(-1)).toBe('@mediabase/ui-web')
+    expect(names.at(-1)).toBe('@openvideo/ui-shell')
     for (const registry of ['@mediabase/connection', '@mediabase/i18n', '@mediabase/ui']) {
       expect(names.indexOf(registry)).toBeLessThan(names.indexOf('@openvideo/ui-editor'))
     }
@@ -41,6 +41,13 @@ describe('the openvideo client roster', () => {
   it('titles the shell as the product (branding is roster config, not code)', () => {
     const source = readFileSync(GENERATED, 'utf8')
     expect(source).toContain('"title":"OpenVideo"')
+  })
+
+  it('names the PRODUCT shell in the bundle manifest (the gate reads it)', () => {
+    const manifest = JSON.parse(readFileSync(join(PRODUCT_ROOT, 'packages/bundle/ui/package.json'), 'utf8')) as {
+      mediabase?: { uiBundle?: { shell?: string } }
+    }
+    expect(manifest.mediabase?.uiBundle?.shell).toBe('@openvideo/ui-shell')
   })
 
   it('is what the page actually mounts', () => {

@@ -37,6 +37,7 @@ The derived files, and what each carries over:
 | `tests/{split,captions,textLayout}.test.ts` | `test/{split,captions,textLayout}.test.ts` | the ported expectations |
 | `packages/client/theme/src/tokens.ts` (base repo, `studio` / `studio-light` skins) | `src/client/styles.css` | the warm-neutral palettes (dark + light), rose identity accent and ink-primary convention (color values only) |
 | page component recipes (`apps/web/index.html`, `product/openvideo/apps/web/index.html`, `packages/client/editor/src/styles.css`) | `src/client/ui.tsx` + `src/client/styles.css` | button/field/card grammar (ink primary, ring-edged secondary, ghost row actions, inset-ring fields with a tinted focus glow, cards edged — never drop-shadowed), the type scale, and the track-category hues (video blue / text purple / audio orange) |
+| `packages/client/shell/` (product shell) | `src/client/edit.tsx` (`ProjectsHome`, `EditEditor`) | projects as the home screen (cards, cover = the first clip's frame, empty state outside any card) and the four-region editor grid (left rail · center player · right inspector · full-width timeline) |
 
 Everything else (the host capability, the composition layers, the store, the
 export recorder, the rosters, the verify script) is original to this repo.

@@ -10,10 +10,11 @@ import { readFileSync, readdirSync, statSync } from 'node:fs'
 import { join } from 'node:path'
 import { describe, expect, it } from 'vitest'
 import { EDITOR_MESSAGES } from '../packages/client/editor/src/messages.ts'
+import { SHELL_MESSAGES } from '../packages/client/shell/src/messages.ts'
 import { PRODUCT_ROOT } from './support/host.ts'
 
-const zh = EDITOR_MESSAGES['zh-CN']
-const en = EDITOR_MESSAGES.en
+const zh = { ...EDITOR_MESSAGES['zh-CN'], ...SHELL_MESSAGES['zh-CN'] }
+const en = { ...EDITOR_MESSAGES.en, ...SHELL_MESSAGES.en }
 
 function sourcesUnder(dir: string): string[] {
   const out: string[] = []
@@ -46,7 +47,10 @@ describe('editor i18n coverage', () => {
   })
 
   it('has text for every literal key the client uses', () => {
-    const clientSources = sourcesUnder(join(PRODUCT_ROOT, 'packages/client/editor/src'))
+    const clientSources = [
+      ...sourcesUnder(join(PRODUCT_ROOT, 'packages/client/editor/src')),
+      ...sourcesUnder(join(PRODUCT_ROOT, 'packages/client/shell/src')),
+    ]
       .filter((f) => !f.endsWith('messages.ts'))
       .map((f) => readFileSync(f, 'utf8'))
       .join('\n')

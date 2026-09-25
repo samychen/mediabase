@@ -1,0 +1,26 @@
+{
+  "name": "@openvideo/ui-shell",
+  "version": "0.1.6",
+  "private": true,
+  "type": "module",
+  "description": "OpenVideo shell: the projects home screen and the four-pane editor grid (media rail · player · inspector · full-width timeline)",
+  "main": "src/index.tsx",
+  "types": "src/index.tsx",
+  "exports": {
+    ".": "./src/index.tsx"
+  },
+  "files": [
+    "src",
+    "README.md"
+  ],
+  "dependencies": {
+    "@deepseek-ai/cordis": "^4.0.2",
+    "@mediabase/i18n": "^0.1.6",
+    "@mediabase/schema": "^0.1.6",
+    "@mediabase/ui": "^0.1.6",
+    "@openvideo/ui-editor": "^0.1.6",
+    "react": "^18.3.1",
+    "react-dom": "^18.3.1"
+  },
+  "license": "MIT"
+}

@@ -11,7 +11,7 @@ import * as plugin1 from '@mediabase/i18n'
 import * as plugin2 from '@mediabase/ui'
 import * as plugin3 from '@mediabase/theme'
 import * as plugin4 from '@openvideo/ui-editor'
-import * as plugin5 from '@mediabase/ui-web'
+import * as plugin5 from '@openvideo/ui-shell'
 
 /** A client plugin module, as the roster names it. */
 export type ClientPlugin = Plugin.Object
@@ -26,5 +26,5 @@ export const CLIENT_ROSTER: ReadonlyArray<ClientRosterEntry> = [
   { id: 'ui', name: '@mediabase/ui', plugin: plugin2 as ClientPlugin },
   { id: 'theme', name: '@mediabase/theme', plugin: plugin3 as ClientPlugin, config: {"theme":"studio"} },
   { id: 'editor', name: '@openvideo/ui-editor', plugin: plugin4 as ClientPlugin },
-  { id: 'shell', name: '@mediabase/ui-web', plugin: plugin5 as ClientPlugin, config: {"title":"OpenVideo"} },
+  { id: 'shell', name: '@openvideo/ui-shell', plugin: plugin5 as ClientPlugin, config: {"title":"OpenVideo"} },
 ]

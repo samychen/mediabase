@@ -19,6 +19,12 @@ attributions: [NOTICE.md](NOTICE.md).
 - **Live preview**: one master clock drives stacked `<video>`/`<img>`/DOM
   layers (the upstream scheme — the preview shows cuts, layout and timing;
   pixel-exact rendering is the export's job).
+- **The upstream interface**: projects as a card home screen (cover = the
+  first clip's frame) + the four-region editor grid (media rail · player ·
+  inspector · full-width timeline), rendered by the product's OWN shell
+  `@openvideo/ui-shell` (the roster's shell slot is data — the base stays
+  unaware; for it, the base shell neutrally grew optional `right`/`bottom`
+  panel areas that change nothing when unused).
 - **Media library**: chunked browser upload (over the control plane, ≤ 512 KiB
   chunks), import by host path, **fetch a network URL into the library**
   (`assets.fetch`, http/https — full parity afterwards: probing, transcripts,
