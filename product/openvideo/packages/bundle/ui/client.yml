@@ -14,6 +14,13 @@
 - id: ui
   name: '@mediabase/ui'
 
+# Skins: the product ships with the midnight skin as its deployment default
+# (roster config — branding is data); the header picker can still switch it.
+- id: theme
+  name: '@mediabase/theme'
+  config:
+    theme: midnight
+
 - id: editor
   name: '@openvideo/ui-editor'
 

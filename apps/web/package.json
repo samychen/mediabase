@@ -9,12 +9,13 @@
     "build": "vite build"
   },
   "dependencies": {
+    "@deepseek-ai/cordis": "^4.0.2",
+    "@mediabase/bundle-ui": "workspace:^",
     "@mediabase/connection": "workspace:^",
     "@mediabase/i18n": "workspace:^",
+    "@mediabase/theme": "workspace:^",
     "@mediabase/ui": "workspace:^",
     "@mediabase/ui-web": "workspace:^",
-    "@mediabase/bundle-ui": "workspace:^",
-    "@deepseek-ai/cordis": "^4.0.2",
     "react": "^18.3.1",
     "react-dom": "^18.3.1"
   },

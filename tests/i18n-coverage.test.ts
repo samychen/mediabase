@@ -14,6 +14,7 @@ const UI_PACKAGES = [
   'packages/client/ui/src',
   'packages/client/ui-web/src',
   'packages/client/i18n/src',
+  'packages/client/theme/src',
 ]
 
 /** Any CJK ideograph, kana or fullwidth punctuation. */

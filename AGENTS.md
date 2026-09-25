@@ -39,7 +39,7 @@ packages/    packages/<face>/<capability> (DSH convention).
   host/      boot (shared profile-boot + BootIdentity) · api (ctx.api +
              ctx.capabilities) · tools · plugins · settings · agent · server
              (pure composition over gateway — names no capability)
-  client/    connection · i18n · ui · ui-web (SHELL last)
+  client/    connection · i18n · ui · theme (token skins + picker) · ui-web (SHELL last)
   bundle/    app (cordis.patch.yml) + ui (client.yml) — base rows only
 packaging/   desktop-electron: generic shell + sample PRODUCT block (no engine)
 scripts/     build-base · build-host · verify:compose · verify:base · notice · …

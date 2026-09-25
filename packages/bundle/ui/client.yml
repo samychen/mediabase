@@ -9,5 +9,10 @@
 - id: ui
   name: '@mediabase/ui'
 
+# Skins: token values + the header picker. Additive — without this row the
+# page renders its inline fallbacks (the classic dark shell).
+- id: theme
+  name: '@mediabase/theme'
+
 - id: shell
   name: '@mediabase/ui-web'

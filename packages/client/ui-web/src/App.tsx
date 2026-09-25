@@ -62,7 +62,7 @@ class PanelBoundary extends Component<{ label: string; children: ReactNode; t?: 
       const text = this.props.t !== undefined
         ? this.props.t('shell.panelError', { panel: this.props.label, message: this.state.error.message })
         : `panel "${this.props.label}" failed: ${this.state.error.message}`
-      return <div className="status" style={{ color: '#f85149' }}>{text}</div>
+      return <div className="status" style={{ color: 'var(--danger, #f85149)' }}>{text}</div>
     }
     return this.props.children
   }

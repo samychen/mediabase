@@ -9,7 +9,8 @@ import type { Plugin } from '@deepseek-ai/cordis'
 import * as plugin0 from '@mediabase/connection'
 import * as plugin1 from '@mediabase/i18n'
 import * as plugin2 from '@mediabase/ui'
-import * as plugin3 from '@mediabase/ui-web'
+import * as plugin3 from '@mediabase/theme'
+import * as plugin4 from '@mediabase/ui-web'
 
 /** A client plugin module, as the roster names it. */
 export type ClientPlugin = Plugin.Object
@@ -22,5 +23,6 @@ export const CLIENT_ROSTER: ReadonlyArray<ClientRosterEntry> = [
   { id: 'connection', name: '@mediabase/connection', plugin: plugin0 as ClientPlugin },
   { id: 'i18n', name: '@mediabase/i18n', plugin: plugin1 as ClientPlugin },
   { id: 'ui', name: '@mediabase/ui', plugin: plugin2 as ClientPlugin },
-  { id: 'shell', name: '@mediabase/ui-web', plugin: plugin3 as ClientPlugin },
+  { id: 'theme', name: '@mediabase/theme', plugin: plugin3 as ClientPlugin },
+  { id: 'shell', name: '@mediabase/ui-web', plugin: plugin4 as ClientPlugin },
 ]
