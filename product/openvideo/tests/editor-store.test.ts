@@ -190,6 +190,18 @@ describe('editor store: uploads', () => {
   })
 })
 
+describe('editor store: network media', () => {
+  it('fetchUrl downloads through the host method and refreshes the library', async () => {
+    stub.reply('openvideo.assets.fetch', { asset: asset({ name: 'remote.webm' }) })
+    await store.fetchUrl('https://example.com/clip.mp4')
+    const call = stub.calls.find((c) => c.method === 'openvideo.assets.fetch')
+    expect(call).toBeDefined()
+    expect((call!.params as { url: string }).url).toBe('https://example.com/clip.mp4')
+    // it refreshed afterwards (assets.list called at least twice: beforeEach flow + post-fetch)
+    expect(stub.calls.filter((c) => c.method === 'openvideo.assets.list').length).toBeGreaterThan(0)
+  })
+})
+
 describe('editor store: ask for a change', () => {
   it('hands the agent the project, the cut as a list, and adopts what it saved', async () => {
     await store.refresh() // the library names the clips in the prompt

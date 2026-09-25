@@ -56,6 +56,7 @@ describe('the composed openvideo host', () => {
     const names = tools.map((t) => t.name)
     for (const wanted of [
       'openvideo.assets.list',
+      'openvideo.assets.fetch',
       'openvideo.projects.list',
       'openvideo.projects.get',
       'openvideo.projects.create',
@@ -192,6 +193,41 @@ describe('the composed openvideo host', () => {
     expect(viaTool.said).toContain('Added the text')
   })
 
+  it('fetches network media into the library, with the same parity as any asset', async () => {
+    const http = await import('node:http')
+    const payload = Buffer.from('remote clip bytes\n'.repeat(50))
+    const server = http.createServer((req, res) => {
+      if (req.url === '/clip.bin') {
+        res.writeHead(200, { 'content-type': 'video/webm', 'content-length': String(payload.length) })
+        res.end(payload)
+      } else {
+        res.writeHead(404)
+        res.end()
+      }
+    })
+    await new Promise<void>((r) => server.listen(0, '127.0.0.1', r))
+    const port = (server.address() as { port: number }).port
+    try {
+      const out = await host!.rpc.call<{ asset: AssetWire }>('openvideo.assets.fetch', {
+        url: `http://127.0.0.1:${port}/clip.bin`,
+        name: 'remote.webm',
+      })
+      expect(out.asset.size).toBe(payload.length)
+      expect(out.asset.contentType).toBe('video/webm')
+      // parity: it is served by the ordinary data-plane route like any asset
+      const served = await fetch(`http://127.0.0.1:${host!.port}/api/openvideo.asset.${out.asset.id}`)
+      expect(Buffer.from(await served.arrayBuffer()).equals(payload)).toBe(true)
+
+      const notFound = await expectError(host!.rpc, 'openvideo.assets.fetch', { url: `http://127.0.0.1:${port}/nope` })
+      expect(notFound.code).toBe(-32602)
+      expect(notFound.messageKey).toBe('openvideo.fetchFailed')
+      const badScheme = await expectError(host!.rpc, 'openvideo.assets.fetch', { url: 'ftp://example/x.mp4' })
+      expect(badScheme.code).toBe(-32602)
+    } finally {
+      server.close()
+    }
+  })
+
   it('answers proxy.info from an executed probe, and degrades with a coded error when ffmpeg is absent', async () => {
     const info = await host!.rpc.call<{ ffmpeg: boolean; version: string | null; targets: string[]; jobs: number }>('openvideo.proxy.info')
     expect(info.targets).toContain('webm')
@@ -248,10 +284,13 @@ describe('the composed openvideo host', () => {
   }, 120_000)
 
   it('refuses to delete an asset a project still uses, naming the projects', async () => {
-    const assets = await host!.rpc.call<{ assets: AssetWire[] }>('openvideo.assets.list')
     const projects = await host!.rpc.call<{ projects: { id: string; name: string }[] }>('openvideo.projects.list')
     const opProject = projects.projects.find((p) => p.name === 'op 项目')!
-    const used = assets.assets[0]!
+    // Resolve the ACTUAL referenced asset from the document (list order changed
+    // once the fetch test added a newer asset — never guess by position).
+    const full = await host!.rpc.call<{ project: ProjectWire }>('openvideo.projects.get', { id: opProject.id })
+    const usedSrc = (full.project.edl.main as { elements: { src: string }[] }).elements[0]!.src
+    const used = { id: usedSrc.slice(6) }
     const err = await expectError(host!.rpc, 'openvideo.assets.remove', { id: used.id })
     expect(err.code).toBe(-32004)
     expect(err.messageKey).toBe('openvideo.assetInUse')

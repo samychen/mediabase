@@ -30,13 +30,18 @@ Everything a project uses lives in the library.
 |---|---|
 | `openvideo.assets.list` | `[{ id, name, contentType, size, duration, hasTranscript }]` |
 | `openvideo.assets.import` *(method)* | `{ path }` — copy a file from the host's filesystem into the library |
+| `openvideo.assets.fetch` | `{ url, name? }` — download an http/https media URL into the library (subject to the upload ceiling); full parity with any asset afterwards |
 | `openvideo.assets.upload.*` *(methods)* | chunked browser upload (begin → chunk… → end); agents normally do not need this |
 | `openvideo.assets.probe` *(method)* | `{ id, duration }` — backfill a measured length |
 | `openvideo.assets.transcript[.set]` *(methods)* | attach / read a `.vtt` transcript sidecar (the caption words) |
 | `openvideo.assets.remove` *(method)* | refuses with `-32004` + the project names while any project references the asset |
 
 A project references a file as `asset:<id>`. Bytes are served on the data
-plane at `GET /api/openvideo.asset.<id>`.
+plane at `GET /api/openvideo.asset.<id>` (and with Range support on the
+assets sidecar). Direct `https://` sources are also valid in a document — but
+prefer `assets.fetch` + `asset:<id>`: a library asset gets duration probing,
+transcripts, proxy transcoding and CORS-free export, a raw URL gets none of
+those guarantees.
 
 ## Projects
 

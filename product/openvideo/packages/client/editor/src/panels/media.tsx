@@ -30,6 +30,8 @@ export function MediaPanel({ ctx }: { ctx: Context }): ReactElement | null {
   const vttRef = useRef<HTMLInputElement>(null)
   const [vttTarget, setVttTarget] = useState<string | null>(null)
   const [path, setPath] = useState('')
+  const [url, setUrl] = useState('')
+  const [fetching, setFetching] = useState(false)
   const [uploading, setUploading] = useState<{ name: string; fraction: number } | null>(null)
 
   if (editor === null) return null
@@ -92,6 +94,35 @@ export function MediaPanel({ ctx }: { ctx: Context }): ReactElement | null {
         </button>
       </div>
       <div className="sub">{t('ov.media.importPath')}</div>
+      <div className="ov-row">
+        <input
+          type="text"
+          value={url}
+          placeholder={t('ov.media.urlPlaceholder')}
+          onChange={(e) => setUrl(e.target.value)}
+          onKeyDown={(e) => {
+            if (e.key === 'Enter' && url.trim() !== '' && !fetching) {
+              const u = url.trim()
+              setUrl('')
+              setFetching(true)
+              void store.fetchUrl(u).finally(() => setFetching(false))
+            }
+          }}
+        />
+        <button
+          className="secondary"
+          disabled={url.trim() === '' || fetching}
+          onClick={() => {
+            const u = url.trim()
+            setUrl('')
+            setFetching(true)
+            void store.fetchUrl(u).finally(() => setFetching(false))
+          }}
+        >
+          {fetching ? '…' : t('ov.media.fetch')}
+        </button>
+      </div>
+      <div className="sub">{t('ov.media.addUrl')}</div>
 
       {state.assets.length === 0 && <div className="status">{t('ov.media.empty')}</div>}
       <input ref={vttRef} type="file" accept=".vtt,text/vtt" style={{ display: 'none' }} onChange={(e) => void onVtt(e.target.files)} />

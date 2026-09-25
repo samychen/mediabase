@@ -14,7 +14,9 @@
 // hosted transcription/analysis/export) are replaced by their local seams:
 // import-by-path, transcript sidecars, and a browser-side export.
 
-import { existsSync, mkdirSync, readFileSync, statSync } from 'node:fs'
+import { createWriteStream, existsSync, mkdirSync, readFileSync, statSync, unlinkSync } from 'node:fs'
+import { Readable } from 'node:stream'
+import { randomBytes } from 'node:crypto'
 import { join } from 'node:path'
 import { homedir } from 'node:os'
 import type { Context } from '@deepseek-ai/cordis'
@@ -122,6 +124,7 @@ export const API_METHODS = [
   'openvideo.assets.endpoint',
   'openvideo.assets.list',
   'openvideo.assets.import',
+  'openvideo.assets.fetch',
   'openvideo.assets.upload.begin',
   'openvideo.assets.upload.chunk',
   'openvideo.assets.upload.end',
@@ -145,6 +148,7 @@ export const API_METHODS = [
 /** The CRUD tools beside the operation tools (which come from OPS). */
 export const CRUD_TOOLS = [
   'openvideo.assets.list',
+  'openvideo.assets.fetch',
   'openvideo.proxy.info',
   'openvideo.proxy.ensure',
   'openvideo.projects.list',
@@ -372,6 +376,80 @@ export function apply(ctx: Context, rawConfig: OpenvideoConfig): void {
       const asset = store.importFile(p.path, typeof p.duration === 'number' && p.duration > 0 ? p.duration : null)
       serveAsset(asset)
       log.info(`imported "${asset.name}" (${asset.size} bytes) as ${asset.id}`)
+      return { asset: wire(asset) }
+    },
+  })
+
+  ctx.api.register({
+    name: 'openvideo.assets.fetch',
+    description: '把网络媒体(http/https)下载进媒体库:受上传上限约束,流式落盘,入库后与普通素材完全同权(探测/代理/导出)',
+    mutates: true,
+    params: z.object({
+      url: z.string().pattern(/^https?:\/\/.+/).description('http(s) URL of the media').required(),
+      name: z.string().min(1).max(200).description('library name; default: the URL\'s file name'),
+      duration: z.number().min(0).description('seconds, when the caller already knows it'),
+    }),
+    result: AssetS1,
+    handler: async (p) => {
+      const max = config.maxUploadBytes ?? 512 * 1024 * 1024
+      let res: Response
+      try {
+        // Local trust boundary: the host fetches what the user/agent names, but
+        // only http(s), only within the upload ceiling, only with a hard timeout.
+        res = await fetch(p.url, { redirect: 'follow', signal: AbortSignal.timeout(600_000) })
+      } catch (e) {
+        throw new RpcError(RpcCode.INVALID_PARAMS, `fetch failed: ${(e as Error).message}`, undefined, {
+          messageKey: 'openvideo.fetchFailed',
+          messageParams: { detail: (e as Error).message },
+        })
+      }
+      if (!res.ok || res.body === null) {
+        throw new RpcError(RpcCode.INVALID_PARAMS, `fetch failed: HTTP ${res.status}`, undefined, {
+          messageKey: 'openvideo.fetchFailed',
+          messageParams: { detail: `HTTP ${res.status}` },
+        })
+      }
+      const declared = Number(res.headers.get('content-length') ?? 'NaN')
+      if (Number.isFinite(declared) && declared > max) {
+        throw new RpcError(RpcCode.CONFLICT, `remote file is ${declared} bytes, above the ${max} byte ceiling`, undefined, {
+          messageKey: 'openvideo.uploadTooLarge',
+          messageParams: { max: String(max) },
+        })
+      }
+      const urlName = decodeURIComponent(p.url.split('?')[0]?.split('#')[0]?.split('/').pop() ?? '') || ''
+      const name = (p.name ?? '').trim() !== '' ? (p.name ?? '').trim() : (urlName !== '' ? urlName : 'network-media')
+      const headerType = res.headers.get('content-type')?.split(';')[0]?.trim() ?? ''
+      const contentType = headerType !== '' && headerType !== 'application/octet-stream' ? headerType : guessContentType(name)
+
+      const tmp = join(tmpDir, `fetch-${randomBytes(8).toString('hex')}.part`)
+      let received = 0
+      const out = createWriteStream(tmp)
+      try {
+        for await (const chunk of Readable.fromWeb(res.body as import('node:stream/web').ReadableStream<Uint8Array>)) {
+          received += (chunk as Buffer).byteLength
+          if (received > max) {
+            throw new RpcError(RpcCode.CONFLICT, `stream exceeded the ${max} byte ceiling`, undefined, {
+              messageKey: 'openvideo.uploadTooLarge',
+              messageParams: { max: String(max) },
+            })
+          }
+          if (!out.write(chunk)) await new Promise<void>((r) => out.once('drain', r))
+        }
+        await new Promise<void>((resolve, reject) => {
+          out.end(() => resolve())
+          out.on('error', reject)
+        })
+      } catch (e) {
+        out.destroy()
+        try { unlinkSync(tmp) } catch { /* best effort */ }
+        throw e
+      }
+      const asset = store.addAsset(
+        { name, contentType, size: received, duration: typeof p.duration === 'number' && p.duration > 0 ? p.duration : null },
+        tmp,
+      )
+      serveAsset(asset)
+      log.info(`fetched "${asset.name}" (${asset.size} bytes) from ${p.url} as ${asset.id}`)
       return { asset: wire(asset) }
     },
   })
@@ -742,6 +820,23 @@ export function apply(ctx: Context, rawConfig: OpenvideoConfig): void {
       const updated: ProjectRow = { ...project, edl, updatedAt: new Date().toISOString() }
       store.saveProject(updated)
       return { ok: true, id: updated.id }
+    },
+  })
+
+  ctx.tools.register({
+    name: 'openvideo.assets.fetch',
+    description: 'Download a network video/audio/image (http/https URL) into the media library and return its asset row — reference it afterwards as "asset:<id>". Subject to the host\'s upload ceiling.',
+    params: z.object({
+      url: z.string().pattern(/^https?:\/\/.+/).description('http(s) URL').required(),
+      name: z.string().min(1).max(200).description('library name; default the URL file name'),
+    }),
+    execute: async (args) => {
+      // Reuse the method path so limits, typing and the wire facet stay one story.
+      const out = await ctx.api.call('openvideo.assets.fetch', {
+        url: String(args.url),
+        ...(args.name !== undefined ? { name: String(args.name) } : {}),
+      }) as { asset: { id: string; name: string; size: number } }
+      return out.asset
     },
   })
 

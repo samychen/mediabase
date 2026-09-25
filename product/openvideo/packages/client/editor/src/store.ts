@@ -131,6 +131,8 @@ export interface EditorStore {
   uploadFile(file: File, onProgress?: (fraction: number) => void): Promise<AssetRow>
   uploadBlob(blob: Blob, name: string, onProgress?: (fraction: number) => void): Promise<AssetRow>
   importPath(path: string): Promise<void>
+  /** Download a network media URL into the library (host-side fetch). */
+  fetchUrl(url: string, name?: string): Promise<void>
   removeAsset(id: string): Promise<void>
   probeDuration(id: string, duration: number): Promise<void>
   attachTranscript(id: string, vtt: string): Promise<void>
@@ -218,6 +220,7 @@ export function createEditorStore(ctx: Context): EditorStore {
       undoDepth: past.length,
       redoDepth: 0,
     })
+    ensureUrlDurations()
   }
 
   const scheduleSave = (): void => {
@@ -406,6 +409,7 @@ export function createEditorStore(ctx: Context): EditorStore {
         future.length = 0
       }
       set({ draft: next, dirty: true, undoDepth: past.length, redoDepth: future.length })
+      ensureUrlDurations()
       scheduleSave()
     },
 
@@ -424,6 +428,7 @@ export function createEditorStore(ctx: Context): EditorStore {
       if (next === undefined || state.draft === null) return
       past.push(state.draft)
       set({ draft: next, dirty: true, undoDepth: past.length, redoDepth: future.length })
+      ensureUrlDurations()
       scheduleSave()
     },
 
@@ -534,6 +539,21 @@ export function createEditorStore(ctx: Context): EditorStore {
         store.flash('ov.status.imported', { path })
       } catch (e) {
         store.flash('ov.status.importFailed', { error: fail(e) })
+      }
+    },
+
+    async fetchUrl(url, name) {
+      const short = url.length > 48 ? `${url.slice(0, 45)}…` : url
+      store.flash('ov.status.fetchStarted', { url: short })
+      try {
+        const { asset } = await call<{ asset: AssetRow }>('openvideo.assets.fetch', {
+          url,
+          ...(name !== undefined && name.trim() !== '' ? { name: name.trim() } : {}),
+        })
+        await store.refresh()
+        store.flash('ov.status.fetched', { name: asset.name })
+      } catch (e) {
+        store.flash('ov.status.fetchFailed', { error: fail(e) })
       }
     },
 
@@ -740,6 +760,42 @@ export function createEditorStore(ctx: Context): EditorStore {
     // Same seam as playback (sidecar when available, full /api/ path else) —
     // a bare route name resolves against the page and returns HTML.
     v.src = store.assetUrl(asset.id)
+  }
+
+  /**
+   * Direct `https://` sources in the draft have no library row, so nothing
+   * else would ever learn their length — and a zero-length segment renders no
+   * element at all. Probe them here (once per src per session) and cancel the
+   * download the moment metadata lands.
+   */
+  const urlProbeAttempted = new Set<string>()
+  function ensureUrlDurations(): void {
+    const d = state.draft
+    if (d === null || typeof document === 'undefined') return
+    const srcs = new Set<string>()
+    for (const el of d.main.elements) srcs.add(el.src)
+    for (const tr of d.overlays ?? []) for (const el of tr.elements) if ('src' in el) srcs.add(el.src)
+    for (const tr of d.audio ?? []) for (const el of tr.elements) srcs.add(el.src)
+    for (const src of srcs) {
+      if (!src.startsWith('https://')) continue
+      if (state.durations[src] !== undefined || urlProbeAttempted.has(src)) continue
+      urlProbeAttempted.add(src)
+      const el = document.createElement('video')
+      let done = false
+      const finish = (duration: number | null): void => {
+        if (done) return
+        done = true
+        el.onloadedmetadata = null
+        el.onerror = null
+        el.removeAttribute('src')
+        if (duration !== null) set({ durations: { ...state.durations, [src]: duration } })
+      }
+      el.preload = 'auto'
+      el.onloadedmetadata = () => finish(Number.isFinite(el.duration) && el.duration > 0 ? el.duration : null)
+      el.onerror = () => finish(null)
+      setTimeout(() => finish(null), 8000)
+      el.src = src
+    }
   }
 
   /**

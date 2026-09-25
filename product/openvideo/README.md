@@ -20,8 +20,12 @@ attributions: [NOTICE.md](NOTICE.md).
   layers (the upstream scheme — the preview shows cuts, layout and timing;
   pixel-exact rendering is the export's job).
 - **Media library**: chunked browser upload (over the control plane, ≤ 512 KiB
-  chunks), import by host path, duration backfill, `.vtt` transcript sidecars
-  (captions follow every trim, split and reorder).
+  chunks), import by host path, **fetch a network URL into the library**
+  (`assets.fetch`, http/https — full parity afterwards: probing, transcripts,
+  proxies, export), duration backfill, `.vtt` transcript sidecars (captions
+  follow every trim, split and reorder). EDL documents also accept direct
+  `https://` sources (preview plays them through, the client probes their
+  length; export needs CORS on the remote).
 - **Ask for a change**: goes through the base's `agent.run` — the model calls
   the fixed set of checked `openvideo.*` tools; one instruction, one undo. No
   `OPENVIDEO_LLM_KEY` configured → a coded error, never a blocked editor.
