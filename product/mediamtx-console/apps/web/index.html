@@ -1,0 +1,20 @@
+<!doctype html>
+<html lang="zh">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>MediaMTX Console</title>
+    <style>
+      /* LAYOUT ONLY — and this page owns almost none: the base shell
+         (@mediabase/ui-web) brings the full page grid, and the shared element
+         recipes come from @mediabase/theme/chrome.css via src/main.tsx. What
+         stays is the color-scheme hint and the root box. */
+      :root { color-scheme: dark; }
+      #root { min-height: 100vh; }
+    </style>
+  </head>
+  <body>
+    <div id="root"></div>
+    <script type="module" src="/src/main.tsx"></script>
+  </body>
+</html>

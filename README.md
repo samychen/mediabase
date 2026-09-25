@@ -38,7 +38,7 @@ pnpm run verify:base   # 对已启动的 host 做中性冒烟
 - **不** publish 到公共 npm（`private: true`）；可用 `pnpm run build:base` + `pnpm pack`
 - **照着做一遍**：`docs/WALKTHROUGH.zh.md` —— 在基座旁边新建一个计算器，计算部分有 JS / Python / C++ 三种可换后端（参考实现 12 个文件，零改动基座）
 - **第一次接触本仓**：`docs/LEARNING-PATH.zh.md` —— 分阶段学习路径：每阶段给出读什么、做什么、怎么算过关
-- **仓内产品层实例**：`product/openvideo/` —— 视频剪辑产品叠在基座上（`@openvideo/*` + 产品 bundle + 独立身份），基座零改动；见其 `README.zh.md`
+- **仓内产品层实例**：`product/openvideo/`（视频剪辑）与 `product/mediamtx-console/`（流媒体服务器管理台，净室实现）—— 产品叠在基座上（各自的 `@scope` + 产品 bundle + 独立身份），基座零改动；见各自 `README.zh.md`
 
 ## 仓库内产品层：OpenVideo
 
@@ -56,6 +56,24 @@ pnpm run verify:openvideo  # 端到端冒烟
 
 详见 `product/openvideo/README.zh.md`（设计、边界与规范落点）与 `product/openvideo/AGENT.md`（agent 指南）。
 
+## 仓库内产品层：MediaMTX Console
+
+`product/mediamtx-console/` 是第二个仓内产品（agent 友好的 MediaMTX 流媒体
+服务器管理台，**净室实现**：不含第三方派生代码，接口知识来自对真实 MediaMTX
+v1.21 的实测与其公开路由表，见其 `NOTICE.md`）：`@mtxconsole/*` scope、自己的
+bundle 层与身份（`MTXCONSOLE_` / `~/.mtxconsole` / 端口 3091），基座零改动。
+浏览器经 WHEP/HLS 直连 MediaMTX 取流（媒体字节不过宿主），宿主桥只管命令与行。
+
+```sh
+pnpm run build:mtxconsole   # 名册 + 页面
+pnpm run dev:mtxconsole     # http://127.0.0.1:3091
+pnpm run test:mtxconsole    # 产品测试套件（有 mediamtx 二进制时自动 LIVE）
+pnpm run verify:mtxconsole  # 端到端冒烟（LIVE/DEGRADED 双模式）
+```
+
+详见 `product/mediamtx-console/README.zh.md` 与 `product/mediamtx-console/AGENT.md`（agent 指南）。
+
+
 ## 常用命令
 
 ```sh
@@ -69,6 +87,10 @@ pnpm run package         # Electron（无引擎资源）
 # 产品层（product/openvideo）
 pnpm run dev:openvideo       # 产品宿主 + 页面（:3090）
 pnpm run test:openvideo      # 产品测试套件
+
+# 第二个产品（product/mediamtx-console）
+pnpm run dev:mtxconsole      # 控制台宿主 + 页面（:3091，需要一个在跑的 MediaMTX）
+pnpm run test:mtxconsole     # 产品测试套件
 pnpm run verify:openvideo    # 产品端到端冒烟
 ```
 

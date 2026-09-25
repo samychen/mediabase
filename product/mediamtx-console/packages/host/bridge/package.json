@@ -1,0 +1,26 @@
+{
+  "name": "@mtxconsole/host-bridge",
+  "version": "0.1.6",
+  "private": true,
+  "type": "module",
+  "description": "MediaMTX console host capability: authenticated API bridge, normalized rows, metrics parsing, session kicks, and the agent tool surface",
+  "main": "src/index.ts",
+  "types": "src/index.ts",
+  "exports": {
+    ".": "./src/index.ts"
+  },
+  "files": [
+    "src",
+    "README.md"
+  ],
+  "dependencies": {
+    "@mediabase/api": "^0.1.6",
+    "@mediabase/log": "^0.1.6",
+    "@mediabase/protocol": "^0.1.6",
+    "@mediabase/rpc": "^0.1.6",
+    "@mediabase/schema": "^0.1.6",
+    "@mediabase/tools": "^0.1.6",
+    "@mtxconsole/protocol": "^0.1.6"
+  },
+  "license": "MIT"
+}

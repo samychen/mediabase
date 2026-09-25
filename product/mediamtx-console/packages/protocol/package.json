@@ -1,0 +1,20 @@
+{
+  "name": "@mtxconsole/protocol",
+  "version": "0.1.6",
+  "private": true,
+  "type": "module",
+  "description": "MediaMTX console protocol: normalized wire shapes over the MediaMTX v3 API, Prometheus metrics parsing, endpoint derivation — pure, both planes",
+  "main": "src/index.ts",
+  "types": "src/index.ts",
+  "exports": {
+    ".": "./src/index.ts"
+  },
+  "files": [
+    "src",
+    "README.md"
+  ],
+  "dependencies": {
+    "@mediabase/schema": "^0.1.6"
+  },
+  "license": "MIT"
+}

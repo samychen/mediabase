@@ -1,0 +1,37 @@
+# @mtxconsole/bundle-app — the MediaMTX console HOST composition layer.
+#
+# Stacked AFTER @mediabase/bundle-app (the profile's bundle order says so):
+# the base layer brings the infrastructure and the front door, this layer
+# inserts the bridge capability and moves the front door's default port aside,
+# so a base host (:3088), the OpenVideo host (:3090) and the console host
+# (:3091) can all run at the same time.
+#
+# Rows resolve from THIS bundle's manifest (`@mtxconsole/host-bridge` is its
+# dependency); the registries are live, so `mediamtx` mounting after `server`
+# is not a problem — the gateway resolves the method map per request.
+
+- insert:
+    - id: mediamtx
+      name: '@mtxconsole/host-bridge'
+      config:
+        # SHORT env names: the identity prefix (MTXCONSOLE_) is applied by the
+        # boot layer, so these read MTXCONSOLE_SERVER_URL etc.
+        serverUrl: !!js ctx.env.str('SERVER_URL')
+        username: !!js ctx.env.str('USERNAME')
+        password: !!js ctx.env.str('PASSWORD')
+        timeoutMs: !!js ctx.env.num('TIMEOUT_MS')
+
+# A patch replaces the WHOLE config of the row it targets, so this override
+# restates every field the base `server` row carried — only the default port
+# differs (still overridable by the environment's own PORT).
+- id: server
+  config:
+    root: !!js ctx.appPaths.root
+    port: !!js ctx.env.rawNum('PORT') ?? 3091
+    distIndex: !!js ctx.env.str('DIST_INDEX')
+    token: !!js ctx.env.str('TOKEN')
+    crossOriginIsolation: !!js ctx.env.flag('CROSS_ORIGIN_ISOLATION')
+    acl:
+      readonly: !!js ctx.env.flag('READONLY')
+      allow: !!js ctx.env.list('ACL_ALLOW')
+      deny: !!js ctx.env.list('ACL_DENY')

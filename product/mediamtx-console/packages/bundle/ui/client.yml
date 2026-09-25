@@ -1,0 +1,32 @@
+# @mtxconsole/bundle-ui — the product's browser roster (mount order).
+#
+# The base rows first (the registries everything registers into), the console
+# panels next, and the SHELL LAST — it mounts React and renders whatever
+# ctx.ui holds by then. This product does NOT need a custom shell: the base
+# web shell (@mediabase/ui-web) already renders header/sidebar/monitor/bottom
+# areas and takes its branding from the roster row (branding is data).
+#
+# The roster is data: `product/mediamtx-console/scripts/gen-client-roster.mjs`
+# turns it into apps/web/src/roster.generated.ts.
+
+- id: connection
+  name: '@mediabase/connection'
+
+- id: i18n
+  name: '@mediabase/i18n'
+
+- id: ui
+  name: '@mediabase/ui'
+
+# Default skin (dark) — a server console reads best on the classic dark theme;
+# the header picker can still switch it at runtime.
+- id: theme
+  name: '@mediabase/theme'
+
+- id: console
+  name: '@mtxconsole/ui-console'
+
+- id: shell
+  name: '@mediabase/ui-web'
+  config:
+    title: MediaMTX Console

@@ -59,6 +59,24 @@ pnpm run verify:openvideo  # 端到端冒烟
 
 详见 `product/openvideo/README.zh.md`（设计、边界与规范落点）与 `product/openvideo/AGENT.md`（agent 指南）。
 
+## 仓库内产品层：MediaMTX Console
+
+`product/mediamtx-console/` 是第二个仓内产品（agent 友好的 MediaMTX 流媒体
+服务器管理台，**净室实现**：不含第三方派生代码，接口知识来自对真实 MediaMTX
+v1.21 的实测与其公开路由表，见其 `NOTICE.md`）：`@mtxconsole/*` scope、自己的
+bundle 层与身份（`MTXCONSOLE_` / `~/.mtxconsole` / 端口 3091），基座零改动。
+浏览器经 WHEP/HLS 直连 MediaMTX 取流（媒体字节不过宿主），宿主桥只管命令与行。
+
+```sh
+pnpm run build:mtxconsole   # 名册 + 页面
+pnpm run dev:mtxconsole     # http://127.0.0.1:3091
+pnpm run test:mtxconsole    # 产品测试套件（有 mediamtx 二进制时自动 LIVE）
+pnpm run verify:mtxconsole  # 端到端冒烟（LIVE/DEGRADED 双模式）
+```
+
+详见 `product/mediamtx-console/README.zh.md` 与 `product/mediamtx-console/AGENT.md`（agent 指南）。
+
+
 ## 常用命令
 
 ```sh
@@ -72,6 +90,10 @@ pnpm run package         # Electron（无引擎资源）
 # 产品层（product/openvideo）
 pnpm run dev:openvideo       # 产品宿主 + 页面（:3090）
 pnpm run test:openvideo      # 产品测试套件
+
+# 第二个产品（product/mediamtx-console）
+pnpm run dev:mtxconsole      # 控制台宿主 + 页面（:3091，需要一个在跑的 MediaMTX）
+pnpm run test:mtxconsole     # 产品测试套件
 pnpm run verify:openvideo    # 产品端到端冒烟
 ```
 

@@ -31,7 +31,15 @@
     "typecheck:openvideo": "tsc -p product/openvideo/tsconfig.host.json && tsc -p product/openvideo/tsconfig.client.json && tsc -p product/openvideo/tsconfig.test.json",
     "test:openvideo": "vitest run --config product/openvideo/vitest.config.ts",
     "verify:openvideo:compose": "node scripts/verify-composition.mjs packages/bundle/app/cordis.patch.yml product/openvideo/packages/bundle/app/cordis.patch.yml product/openvideo/packages/bundle/ui/client.yml",
-    "verify:openvideo": "node product/openvideo/scripts/verify.mjs"
+    "verify:openvideo": "node product/openvideo/scripts/verify.mjs",
+    "gen:mtxconsole-roster": "node product/mediamtx-console/scripts/gen-client-roster.mjs",
+    "build:mtxconsole": "node product/mediamtx-console/scripts/gen-client-roster.mjs && pnpm --filter @mtxconsole/web run build",
+    "host:mtxconsole": "tsx product/mediamtx-console/apps/cli/src/index.ts",
+    "dev:mtxconsole": "pnpm run build:mtxconsole && pnpm run host:mtxconsole",
+    "typecheck:mtxconsole": "tsc -p product/mediamtx-console/tsconfig.host.json && tsc -p product/mediamtx-console/tsconfig.client.json && tsc -p product/mediamtx-console/tsconfig.test.json",
+    "test:mtxconsole": "vitest run --config product/mediamtx-console/vitest.config.ts",
+    "verify:mtxconsole:compose": "node scripts/verify-composition.mjs packages/bundle/app/cordis.patch.yml product/mediamtx-console/packages/bundle/app/cordis.patch.yml product/mediamtx-console/packages/bundle/ui/client.yml",
+    "verify:mtxconsole": "node product/mediamtx-console/scripts/verify.mjs"
   },
   "devDependencies": {
     "@mediabase/boot": "workspace:^",

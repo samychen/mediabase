@@ -1,0 +1,27 @@
+{
+  "name": "@mtxconsole/ui-console",
+  "version": "0.1.6",
+  "private": true,
+  "type": "module",
+  "description": "MediaMTX console panels (client plane): dashboard, streams, WHEP/HLS player, sessions — registers its own PanelDescriptors",
+  "main": "src/index.tsx",
+  "types": "src/index.tsx",
+  "exports": {
+    ".": "./src/index.tsx",
+    "./styles.css": "./src/styles.css"
+  },
+  "files": [
+    "src",
+    "README.md"
+  ],
+  "dependencies": {
+    "@deepseek-ai/cordis": "^4.0.2",
+    "@mediabase/connection": "^0.1.6",
+    "@mediabase/i18n": "^0.1.6",
+    "@mediabase/schema": "^0.1.6",
+    "@mediabase/ui": "^0.1.6",
+    "@mtxconsole/protocol": "^0.1.6",
+    "react": "^18.3.1"
+  },
+  "license": "MIT"
+}

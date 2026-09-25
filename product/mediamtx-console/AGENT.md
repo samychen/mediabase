@@ -1,0 +1,60 @@
+# MediaMTX Console — agent guide
+
+The promise: **the streaming server is a document you can act on**. An agent
+reads the normalized state (paths, sessions, metrics) and changes it through a
+fixed set of checked operations — never by inventing API shapes. Everything
+below was derived clean-room from MediaMTX v1.21's own API (see NOTICE.md).
+
+You reach the host two ways:
+
+1. **As tools** (the normal way): the host's AI capability (`agent.run`) plans
+   over `ctx.tools`; every operation below is a registered tool.
+2. **As RPC methods** (direct): WS JSON-RPC on `/rpc` (JSON-RPC 2.0). Every
+   method below is `mediamtx.*`. Smoke the whole surface from a shell:
+
+   ```sh
+   # with the console host running (it spawns its own MediaMTX if MTX_BIN is set)
+   pnpm run verify:mtxconsole
+   ```
+
+## Reading the server
+
+| Tool / method | Returns |
+|---|---|
+| `mediamtx.info` | `{ version, started, apiBase }` — which server you are talking to |
+| `mediamtx.endpoints` | absolute viewer URLs: `{ webrtc, hls, rtsp, rtmp, srt, metrics, playback }`; `null` means that protocol is disabled upstream |
+| `mediamtx.paths.list` | normalized rows: `{ name, ready, source, sourceType, readers, inboundBytes, outboundBytes, tracks[{type,codec,id}], record }` |
+| RPC `mediamtx.sessions.list` `{kind?}` | one row per viewer/publisher across all 8 protocols (omit `kind` for everything) |
+| RPC `mediamtx.metrics` | `{ pathsReady, pathsNotReady, totalReaders, perPath[] }` parsed from Prometheus |
+| RPC `mediamtx.recordings.list` / `.get {name}` | recorded paths and their day/segment summaries |
+| RPC `mediamtx.config.global.get` | the server's flat config (122 keys) for review |
+
+`ready: false` is not an error — it means no publisher is connected yet.
+`source` shows the configured pull URL once set (a path created without one
+waits for a live push).
+
+## Changing the server
+
+| Tool / method | Effect |
+|---|---|
+| `mediamtx.path.add` `{name, source?, record?}` | **the director's gesture**: with `source` (e.g. `rtsp://user:pass@cam.local/stream1`) the server starts PULLING immediately; without it the path waits for a publisher. `record: true` persists it to disk. |
+| `mediamtx.path.delete` `{name}` | take it off air |
+| `mediamtx.sessions.kick` `{kind, id}` | drop one viewer/publisher (ids from `paths.list` readers / `sessions.list`) |
+| RPC `mediamtx.config.paths.patch` `{name, source?, record?}` | re-point or re-arm a path |
+| RPC `mediamtx.config.global.patch` `{values}` | subset-patch the global config — **handle with care**; changing listener addresses takes effect immediately |
+
+## Error contract (branch on `code`, not prose)
+
+| Situation | Wire |
+|---|---|
+| server unreachable | `-32002 UNAVAILABLE`, `messageKey: mediamtx.unreachable` |
+| upstream refused (duplicate path, bad value…) | code by status: 400→`-32602`, 404→`-32001`, 401/403→`-32002`, else `-32004`; `messageKey: mediamtx.upstream`, `messageParams.detail` carries MediaMTX's own words |
+| protocol cannot be kicked (rtmp) | `-32602`, `messageKey: mediamtx.notKickable` |
+| metrics disabled upstream | `-32002`, `messageKey: mediamtx.noMetrics` |
+
+## Recipes
+
+- **"Put the lobby camera on air"**: `mediamtx.path.add {name:"lobby", source:"rtsp://…"}` → poll `mediamtx.paths.list` until `ready:true` (a source that never connects stays `ready:false` — say so, don't retry silently).
+- **"Who's watching cam1?"**: `mediamtx.sessions.list` (or paths.list `readers`), filter `path==="cam1"`.
+- **"Kick the stale WebRTC viewer"**: find the row (`kind:"webrtc"`), then `mediamtx.sessions.kick {kind, id}`.
+- **"Is the server healthy?"**: `mediamtx.info` + `mediamtx.metrics`; report version, ready/idle counts, total viewers.

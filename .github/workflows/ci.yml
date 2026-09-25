@@ -99,3 +99,22 @@ jobs:
           set -euo pipefail
           pnpm run build:openvideo
           pnpm run verify:openvideo
+
+      # The second product (product/mediamtx-console) has the same gates. Its
+      # live-server suites SKIP without a mediamtx binary (the smoke then runs
+      # in DEGRADED mode: coded failures against an unreachable server), so CI
+      # needs no extra download to stay green.
+      - name: Product typecheck (mediamtx-console)
+        run: pnpm run typecheck:mtxconsole
+
+      - name: Product composition gate (mediamtx-console)
+        run: pnpm run verify:mtxconsole:compose
+
+      - name: Product test (mediamtx-console)
+        run: pnpm run test:mtxconsole
+
+      - name: Product build + smoke (mediamtx-console)
+        run: |
+          set -euo pipefail
+          pnpm run build:mtxconsole
+          pnpm run verify:mtxconsole
