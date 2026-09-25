@@ -35,6 +35,7 @@ The derived files, and what each carries over:
 | `packages/edl/src/timeline.ts` | `src/client/edit.tsx` | `mainDur` / `mainSegments` placement math |
 | `packages/client/editor/src/panels/*` | `src/client/edit.tsx` | preview/player scheme (master clock, stacked elements, drift-corrected seeks), projects-home and editor interactions — rebuilt for the base's panel contract (React 18, no Tailwind, no Clawnify platform deps) |
 | `tests/{split,captions,textLayout}.test.ts` | `test/{split,captions,textLayout}.test.ts` | the ported expectations |
+| `packages/client/theme/src/tokens.ts` (base repo, `studio` skin) | `src/client/styles.css` | the warm-neutral dark palette, rose identity accent and ink-primary convention (color values only) |
 
 Everything else (the host capability, the composition layers, the store, the
 export recorder, the rosters, the verify script) is original to this repo.

@@ -14,12 +14,14 @@
 - id: ui
   name: '@mediabase/ui'
 
-# Skins: the product ships with the midnight skin as its deployment default
-# (roster config — branding is data); the header picker can still switch it.
+# Skins: the product ships with the studio skin (warm-neutral dark, rose
+# identity accent, ink buttons — the upstream OpenVideo look) as its
+# deployment default (roster config — branding is data); the header picker
+# can still switch it.
 - id: theme
   name: '@mediabase/theme'
   config:
-    theme: midnight
+    theme: studio
 
 - id: editor
   name: '@openvideo/ui-editor'

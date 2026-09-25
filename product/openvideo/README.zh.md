@@ -22,7 +22,7 @@ agent 对接指南：[AGENT.md](AGENT.md)；移植归属：[NOTICE.md](NOTICE.md
   （`openvideo.*` 工具），一次指令一步撤销；没配 `OPENVIDEO_LLM_KEY` 时得到带码错误，不阻塞编辑器。
 - **导出 MP4/WebM**：浏览器端 canvas + MediaRecorder 实时录制（本地替代上游的托管导出服务；
   草稿级保真，见「边界」）。
-- **一键换肤**：基座 `@mediabase/theme`（暗色/午夜/浅色三套设计令牌皮肤，header 下拉即换、浏览器记忆；本产品默认"午夜"，由名册行配置决定）。
+- **一键换肤**：基座 `@mediabase/theme`（暗色/午夜/浅色/工作室四套设计令牌皮肤，header 下拉即换、浏览器记忆；本产品默认"工作室"——上游 OpenVideo 的暖调暗色+玫红点缀+墨色按钮风格，由名册行配置决定）。
 - **Agent 就绪**：EDL 校验错误带 JSON 指针（`/main/elements/2/trimStart`），agent 的
   读 → 改 → 存循环可以自我纠错。指南见 [AGENT.md](AGENT.md)。
 

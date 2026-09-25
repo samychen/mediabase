@@ -24,7 +24,7 @@ export const CLIENT_ROSTER: ReadonlyArray<ClientRosterEntry> = [
   { id: 'connection', name: '@mediabase/connection', plugin: plugin0 as ClientPlugin },
   { id: 'i18n', name: '@mediabase/i18n', plugin: plugin1 as ClientPlugin },
   { id: 'ui', name: '@mediabase/ui', plugin: plugin2 as ClientPlugin },
-  { id: 'theme', name: '@mediabase/theme', plugin: plugin3 as ClientPlugin, config: {"theme":"midnight"} },
+  { id: 'theme', name: '@mediabase/theme', plugin: plugin3 as ClientPlugin, config: {"theme":"studio"} },
   { id: 'editor', name: '@openvideo/ui-editor', plugin: plugin4 as ClientPlugin },
   { id: 'shell', name: '@mediabase/ui-web', plugin: plugin5 as ClientPlugin, config: {"title":"OpenVideo"} },
 ]

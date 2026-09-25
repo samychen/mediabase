@@ -35,6 +35,13 @@ export interface ThemeTokens {
   warn: string
   /** Success / saved. */
   ok: string
+  /** Solid (primary) button surface — upstream-OpenVideo-style skins keep
+    * this "ink" while the accent stays an identity color. */
+  primary: string
+  /** Text drawn ON the primary surface. */
+  primaryText: string
+  /** UI font stack (a skin may prefer a face the user has installed). */
+  font: string
   /** Corner radius scale. */
   radius: string
   /** Panel elevation. */
@@ -43,7 +50,7 @@ export interface ThemeTokens {
   colorScheme: string
 }
 
-export const THEME_IDS = ['dark', 'midnight', 'light'] as const
+export const THEME_IDS = ['dark', 'midnight', 'light', 'studio'] as const
 export type ThemeId = (typeof THEME_IDS)[number]
 
 export const isThemeId = (value: string): value is ThemeId =>
@@ -60,6 +67,9 @@ export const THEMES: Record<ThemeId, ThemeTokens> = {
     muted: '#9198a1',
     accent: '#6ea8fe',
     accentText: '#0b0f14',
+    primary: '#6ea8fe',
+    primaryText: '#0b0f14',
+    font: "ui-sans-serif, system-ui, -apple-system, 'Segoe UI', sans-serif",
     danger: '#f85149',
     warn: '#d29922',
     ok: '#3fb950',
@@ -77,11 +87,38 @@ export const THEMES: Record<ThemeId, ThemeTokens> = {
     muted: '#8fa0c9',
     accent: '#7c9cff',
     accentText: '#0b1020',
+    primary: '#7c9cff',
+    primaryText: '#0b1020',
+    font: "ui-sans-serif, system-ui, -apple-system, 'Segoe UI', sans-serif",
     danger: '#ff7b8a',
     warn: '#ffd479',
     ok: '#57d9a3',
     radius: '12px',
     shadow: '0 2px 12px rgba(2, 6, 23, 0.55)',
+    colorScheme: 'dark',
+  },
+  // Warm-neutral dark with a rose identity accent and INK primary buttons —
+  // palette derived from clawnify/OpenVideo src/client/styles.css (MIT):
+  // surfaces on hue 85 ("never blue-gray"), accent for identity/focus only,
+  // "the one solid button per screen is ink, not the accent". Inter leads the
+  // font stack when the user has it; no font files are shipped or fetched.
+  studio: {
+    bg: '#100f0e',
+    panel: '#161615',
+    inset: '#222120',
+    border: '#2e2e2c',
+    text: '#efeeed',
+    muted: '#c0bdb9',
+    accent: '#e4415d',
+    accentText: '#ffffff',
+    primary: '#efeeed',
+    primaryText: '#100f0e',
+    font: "Inter, 'Inter Variable', ui-sans-serif, system-ui, -apple-system, 'Segoe UI', sans-serif",
+    danger: '#e64243',
+    warn: '#e5bd7e',
+    ok: '#3c9c5d',
+    radius: '8px',
+    shadow: '0 1px 2px rgba(0, 0, 0, 0.4)',
     colorScheme: 'dark',
   },
   light: {
@@ -93,6 +130,9 @@ export const THEMES: Record<ThemeId, ThemeTokens> = {
     muted: '#57606a',
     accent: '#0969da',
     accentText: '#ffffff',
+    primary: '#0969da',
+    primaryText: '#ffffff',
+    font: "ui-sans-serif, system-ui, -apple-system, 'Segoe UI', sans-serif",
     danger: '#cf222e',
     warn: '#9a6700',
     ok: '#1a7f37',
@@ -115,6 +155,9 @@ export function renderTokenStyles(): string {
       '--muted': t.muted,
       '--accent': t.accent,
       '--accent-text': t.accentText,
+      '--primary': t.primary,
+      '--primary-text': t.primaryText,
+      '--font': t.font,
       '--danger': t.danger,
       '--warn': t.warn,
       '--ok': t.ok,

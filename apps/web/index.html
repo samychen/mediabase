@@ -11,7 +11,7 @@
          shell — theming is additive, never load-bearing. */
       :root { color-scheme: dark; }
       * { box-sizing: border-box; }
-      body { margin: 0; font-family: ui-sans-serif, system-ui, -apple-system, "Segoe UI", sans-serif;
+      body { margin: 0; font-family: var(--font, ui-sans-serif, system-ui, -apple-system, "Segoe UI", sans-serif);
              background: var(--bg, #0d1117); color: var(--text, #c9d1d9); }
       .app { display: grid; grid-template-columns: 360px 1fr; gap: 16px; padding: 16px; min-height: 100vh; }
       .panel { background: var(--panel, #161b22); border: 1px solid var(--border, #30363d);
@@ -24,7 +24,7 @@
              color: var(--text, #c9d1d9); border-radius: calc(var(--radius, 10px) * 0.6); padding: 7px 9px; font-size: 13px; }
       input:focus-visible, select:focus-visible, textarea:focus-visible, button:focus-visible {
              outline: 2px solid var(--accent, #58a6ff); outline-offset: 1px; }
-      button { background: var(--accent, #238636); border: none; color: var(--accent-text, #fff);
+      button { background: var(--primary, #238636); border: none; color: var(--primary-text, #fff);
              padding: 8px 12px; border-radius: calc(var(--radius, 10px) * 0.6);
              font-size: 13px; cursor: pointer; margin-right: 6px; margin-top: 6px;
              transition: filter .12s ease; }

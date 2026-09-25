@@ -32,7 +32,7 @@ attributions: [NOTICE.md](NOTICE.md).
 - **Export to MP4/WebM**: browser-side canvas + MediaRecorder, real time (the
   local replacement for the upstream managed edit service; draft-grade — see
   Boundaries).
-- **One-click skins**: the base's `@mediabase/theme` (dark/midnight/light design-token skins, header picker, remembered per browser; this product defaults to midnight via its roster row).
+- **One-click skins**: the base's `@mediabase/theme` (dark/midnight/light/studio design-token skins, header picker, remembered per browser; this product defaults to studio — the upstream OpenVideo look — via its roster row).
 - **Agent-ready**: EDL validation errors carry a JSON pointer
   (`/main/elements/2/trimStart`), so an agent's read → transform → save loop
   self-corrects. Guide: [AGENT.md](AGENT.md).

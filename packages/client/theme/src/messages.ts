@@ -7,11 +7,13 @@ export const THEME_MESSAGES = {
     'theme.name.dark': '暗色',
     'theme.name.midnight': '午夜',
     'theme.name.light': '浅色',
+    'theme.name.studio': '工作室',
   },
   en: {
     'theme.picker': 'Theme',
     'theme.name.dark': 'Dark',
     'theme.name.midnight': 'Midnight',
     'theme.name.light': 'Light',
+    'theme.name.studio': 'Studio',
   },
 } as const
