@@ -8,6 +8,7 @@ import type { Context } from '@deepseek-ai/cordis'
 import { useI18n } from '@mediabase/i18n'
 import { useEditor } from '../use-editor.ts'
 import type { AssetRow } from '../store.ts'
+import { IconCaptions, IconFilm, IconImage, IconMusic, IconPlus, IconTrash, IconUpload } from '../icons.tsx'
 
 function fmtBytes(n: number): string {
   if (n >= 1e9) return `${(n / 1e9).toFixed(1)} GB`
@@ -16,11 +17,11 @@ function fmtBytes(n: number): string {
   return `${n} B`
 }
 
-function kindIcon(asset: AssetRow): string {
-  if (asset.contentType.startsWith('video/')) return '🎬'
-  if (asset.contentType.startsWith('image/')) return '🖼'
-  if (asset.contentType.startsWith('audio/')) return '🎵'
-  return '📄'
+function KindIcon({ asset }: { asset: AssetRow }): ReactElement {
+  if (asset.contentType.startsWith('video/')) return <IconFilm size={14} />
+  if (asset.contentType.startsWith('image/')) return <IconImage size={14} />
+  if (asset.contentType.startsWith('audio/')) return <IconMusic size={14} />
+  return <IconCaptions size={14} />
 }
 
 export function MediaPanel({ ctx }: { ctx: Context }): ReactElement | null {
@@ -64,7 +65,7 @@ export function MediaPanel({ ctx }: { ctx: Context }): ReactElement | null {
     <div className="ov-media">
       <div className="ov-row">
         <input ref={fileRef} type="file" multiple style={{ display: 'none' }} onChange={(e) => void onFiles(e.target.files)} />
-        <button onClick={() => fileRef.current?.click()}>{t('ov.media.upload')}</button>
+        <button onClick={() => fileRef.current?.click()}><IconUpload size={13} />{t('ov.media.upload')}</button>
       </div>
       {uploading !== null && (
         <div className="status">{t('ov.media.uploading', { name: uploading.name, pct: Math.round(uploading.fraction * 100) })}</div>
@@ -129,7 +130,7 @@ export function MediaPanel({ ctx }: { ctx: Context }): ReactElement | null {
       <ul className="ov-list">
         {state.assets.map((asset) => (
           <li key={asset.id} className="ov-item">
-            <span className="ov-item-icon">{kindIcon(asset)}</span>
+            <span className="ov-item-icon"><KindIcon asset={asset} /></span>
             <span className="ov-item-main">
               <span className="ov-item-name" title={asset.name}>{asset.name}</span>
               <span className="ov-item-sub">
@@ -157,9 +158,9 @@ export function MediaPanel({ ctx }: { ctx: Context }): ReactElement | null {
               </span>
             </span>
             <span className="ov-item-actions">
-              <button className="ov-mini" title={t('ov.media.addMain')} onClick={() => store.addAssetToMain(asset)}>＋</button>
+              <button className="ov-mini" title={t('ov.media.addMain')} onClick={() => store.addAssetToMain(asset)}><IconPlus size={12} /></button>
               {asset.contentType.startsWith('audio/') && (
-                <button className="ov-mini" title={t('ov.media.addAudio')} onClick={() => store.addAssetToAudio(asset)}>♪</button>
+                <button className="ov-mini" title={t('ov.media.addAudio')} onClick={() => store.addAssetToAudio(asset)}><IconMusic size={12} /></button>
               )}
               {asset.contentType.startsWith('video/') && (
                 <button
@@ -170,7 +171,7 @@ export function MediaPanel({ ctx }: { ctx: Context }): ReactElement | null {
                     vttRef.current?.click()
                   }}
                 >
-                  文
+                  <IconCaptions size={12} />
                 </button>
               )}
               {asset.contentType.startsWith('video/') && decodeState[asset.id] === 'fail'
@@ -183,7 +184,7 @@ export function MediaPanel({ ctx }: { ctx: Context }): ReactElement | null {
                 && (asset.proxy?.status === 'running' || asset.proxy?.status === 'queued') && (
                 <button className="ov-mini" title={t('ov.media.proxyCancel')} onClick={() => void store.cancelProxy(asset.id)}>⏹</button>
               )}
-              <button className="ov-mini ov-mini-danger" title={t('ov.media.remove')} onClick={() => void store.removeAsset(asset.id)}>✕</button>
+              <button className="ov-mini ov-mini-danger" title={t('ov.media.remove')} onClick={() => void store.removeAsset(asset.id)}><IconTrash size={12} /></button>
             </span>
           </li>
         ))}

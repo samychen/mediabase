@@ -5,48 +5,68 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>mediabase</title>
     <style>
-      /* Every color/shape is a design TOKEN with a literal fallback: with
-         @mediabase/theme composed, `html[data-theme=…]` redefines them all
-         (one-click skins); without it, the fallbacks render the classic dark
-         shell — theming is additive, never load-bearing. */
+      /* Design-token page chrome. With @mediabase/theme composed, tokens come
+         from the active skin (html[data-theme=…]); the literals are fallbacks
+         so a theme-less composition still renders the classic shell.
+         Component recipes (buttons/fields/cards) follow the warm-neutral
+         grammar derived from clawnify/OpenVideo ui.tsx (MIT): ink primary
+         buttons, ring-edged secondary, ghost row actions, inset-ring fields
+         with a tinted focus glow, cards edged — never drop-shadowed. */
       :root { color-scheme: dark; }
       * { box-sizing: border-box; }
-      body { margin: 0; font-family: var(--font, ui-sans-serif, system-ui, -apple-system, "Segoe UI", sans-serif);
+      body { margin: 0;
+             font-family: var(--font, ui-sans-serif, system-ui, -apple-system, "Segoe UI", sans-serif);
+             font-size: 14px; line-height: 1.45;
              background: var(--bg, #0d1117); color: var(--text, #c9d1d9); }
       .app { display: grid; grid-template-columns: 360px 1fr; gap: 16px; padding: 16px; min-height: 100vh; }
+      /* card: surface, edged by its ring; elevation only where the skin asks */
       .panel { background: var(--panel, #161b22); border: 1px solid var(--border, #30363d);
              border-radius: var(--radius, 10px); padding: 16px; box-shadow: var(--shadow, none); }
-      h1 { font-size: 16px; margin: 0 0 4px; display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
-      .sub { color: var(--muted, #8b949e); font-size: 12px; margin-bottom: 14px; }
+      h1 { font-size: 15px; font-weight: 600; letter-spacing: -0.01em; margin: 0 0 4px;
+             display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+      .sub { color: var(--muted, #8b949e); font-size: 13px; margin-bottom: 14px; }
       label { display: block; font-size: 12px; color: var(--muted, #8b949e); margin: 10px 0 4px; }
+      /* field recipe: inset ring at rest; ring + tinted glow on focus */
       input[type=text], input[type=number], select, textarea {
-             width: 100%; background: var(--inset, #0d1117); border: 1px solid var(--border, #30363d);
-             color: var(--text, #c9d1d9); border-radius: calc(var(--radius, 10px) * 0.6); padding: 7px 9px; font-size: 13px; }
-      input:focus-visible, select:focus-visible, textarea:focus-visible, button:focus-visible {
-             outline: 2px solid var(--accent, #58a6ff); outline-offset: 1px; }
-      button { background: var(--primary, #238636); border: none; color: var(--primary-text, #fff);
-             padding: 8px 12px; border-radius: calc(var(--radius, 10px) * 0.6);
-             font-size: 13px; cursor: pointer; margin-right: 6px; margin-top: 6px;
-             transition: filter .12s ease; }
-      button:hover:not(:disabled) { filter: brightness(1.12); }
-      button.secondary { background: var(--panel, #21262d); border: 1px solid var(--border, #30363d);
-             color: var(--text, #c9d1d9); }
+             width: 100%; background: var(--inset, #0d1117); color: var(--text, #c9d1d9);
+             border: none; box-shadow: inset 0 0 0 1px var(--border, #30363d);
+             border-radius: calc(var(--radius, 10px) * 0.66); padding: 7px 10px; font-size: 13px;
+             font-family: inherit; }
+      input:focus-visible, select:focus-visible, textarea:focus-visible {
+             outline: none;
+             box-shadow: inset 0 0 0 1px var(--accent, #58a6ff), 0 0 0 3px var(--accent-tint, rgba(88, 166, 255, 0.25)); }
+      button:focus-visible { outline: 2px solid var(--accent, #58a6ff); outline-offset: 1px; }
+      /* button recipe: one ink-solid primary per screen; everything else is a
+         ring-edged secondary or a ghost */
+      button { display: inline-flex; align-items: center; justify-content: center; gap: 6px;
+             height: 30px; padding: 0 12px; border: none; cursor: pointer;
+             background: var(--primary, #238636); color: var(--primary-text, #fff);
+             border-radius: calc(var(--radius, 10px) * 0.66);
+             font-size: 13.5px; font-weight: 500; font-family: inherit; white-space: nowrap;
+             margin-right: 6px; margin-top: 6px; transition: filter .12s ease, background .12s ease; }
+      button:hover:not(:disabled) { filter: brightness(1.08); }
+      button.secondary { background: var(--panel, #21262d); color: var(--text, #c9d1d9);
+             box-shadow: inset 0 0 0 1px var(--border, #30363d); }
+      button.secondary:hover:not(:disabled) { filter: none; background: var(--inset, #1c2128); }
       button:disabled { opacity: .5; cursor: not-allowed; }
       .row { display: flex; gap: 8px; }
       .row > * { flex: 1; }
       .monitor { display: flex; flex-direction: column; align-items: center; justify-content: center; }
-      canvas { background: #000; border: 1px solid var(--border, #30363d);
+      canvas { background: #000; border: none; box-shadow: inset 0 0 0 1px var(--border, #30363d);
              border-radius: calc(var(--radius, 10px) * 0.8); max-width: 100%; image-rendering: pixelated; }
-      .badge { display: inline-block; font-size: 11px; padding: 2px 8px; border-radius: 999px; margin-left: 8px; }
-      .badge.on { background: var(--ok, #1f6f3c); color: #fff; }
-      .badge.off { background: #3a2424; color: var(--danger, #f85149); }
-      .status { font-size: 12px; color: var(--muted, #8b949e); margin-top: 10px; min-height: 16px; }
+      /* badges: pill, tinted wash + identity color (never a solid shout) */
+      .badge { display: inline-block; font-size: 11px; font-weight: 500; padding: 2px 9px;
+             border-radius: 999px; margin-left: 8px;
+             background: var(--accent-tint, #1f6f3c); color: var(--accent, #fff); }
+      .badge.on { background: var(--accent-tint, #1f6f3c); color: var(--ok, #3fb950); }
+      .badge.off { background: var(--danger-tint, #3a2424); color: var(--danger, #f85149); }
+      .status { font-size: 13px; color: var(--muted, #8b949e); margin-top: 10px; min-height: 16px; }
       code { background: var(--inset, #0d1117); padding: 1px 5px; border-radius: 4px; font-size: 12px; }
       /* the theme picker (header area, registered by @mediabase/theme) */
-      .theme-picker { width: auto !important; font-size: 12px; padding: 3px 6px; margin: 0;
-             background: var(--inset, #0d1117); border: 1px solid var(--border, #30363d);
-             color: var(--text, #c9d1d9); border-radius: 999px; cursor: pointer; }
-      /* scrollbars follow the skin */
+      .theme-picker { width: auto !important; font-size: 12px; height: 24px; padding: 0 8px; margin: 0;
+             background: var(--inset, #0d1117); color: var(--text, #c9d1d9);
+             border: none; box-shadow: inset 0 0 0 1px var(--border, #30363d);
+             border-radius: 999px; cursor: pointer; }
       * { scrollbar-color: var(--border, #30363d) transparent; }
     </style>
   </head>

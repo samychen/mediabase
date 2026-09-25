@@ -8,6 +8,7 @@ export const THEME_MESSAGES = {
     'theme.name.midnight': '午夜',
     'theme.name.light': '浅色',
     'theme.name.studio': '工作室',
+    'theme.name.studio-light': '工作室·浅色',
   },
   en: {
     'theme.picker': 'Theme',
@@ -15,5 +16,6 @@ export const THEME_MESSAGES = {
     'theme.name.midnight': 'Midnight',
     'theme.name.light': 'Light',
     'theme.name.studio': 'Studio',
+    'theme.name.studio-light': 'Studio Light',
   },
 } as const

@@ -6,6 +6,7 @@ import { useState, type ReactElement } from 'react'
 import type { Context } from '@deepseek-ai/cordis'
 import { useI18n } from '@mediabase/i18n'
 import { useEditor } from '../use-editor.ts'
+import { IconPlus, IconTrash } from '../icons.tsx'
 
 export function ProjectsPanel({ ctx }: { ctx: Context }): ReactElement | null {
   const editor = useEditor(ctx)
@@ -35,7 +36,7 @@ export function ProjectsPanel({ ctx }: { ctx: Context }): ReactElement | null {
             if (e.key === 'Enter') create()
           }}
         />
-        <button onClick={create} disabled={name.trim() === ''}>{t('ov.projects.create')}</button>
+        <button onClick={create} disabled={name.trim() === ''}><IconPlus size={13} />{t('ov.projects.create')}</button>
       </div>
       {state.projects.length === 0 && <div className="status">{t('ov.projects.empty')}</div>}
       <ul className="ov-list">
@@ -59,7 +60,7 @@ export function ProjectsPanel({ ctx }: { ctx: Context }): ReactElement | null {
                 }
               }}
             >
-              ✕
+              <IconTrash size={12} />
             </button>
           </li>
         ))}

@@ -13,6 +13,7 @@ import type { Context } from '@deepseek-ai/cordis'
 import { useI18n } from '@mediabase/i18n'
 import { DEFAULT_CAPTIONS, applyOp, type Edl } from '@openvideo/edl'
 import { useEditor } from '../use-editor.ts'
+import { IconSparkles } from '../icons.tsx'
 
 /** A numeric field that commits one undo step on blur/Enter. */
 function NumField({ label, value, onCommit, min, max, step = 0.1 }: {
@@ -513,7 +514,7 @@ export function InspectorPanel({ ctx }: { ctx: Context }): ReactElement | null {
             void store.ask(text)
           }}
         >
-          ✨ {state.ask.busy ? t('ov.inspector.askBusy') : t('ov.inspector.askButton')}
+          <IconSparkles size={13} />{state.ask.busy ? t('ov.inspector.askBusy') : t('ov.inspector.askButton')}
         </button>
         {state.ask.answer !== null && <div className="status">{state.ask.answer}</div>}
         {state.ask.error !== null && <div className="status ov-error">{state.ask.error}</div>}

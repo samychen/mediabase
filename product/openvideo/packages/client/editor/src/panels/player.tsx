@@ -25,6 +25,7 @@ import { useEditor } from '../use-editor.ts'
 import { captionLines } from '../store.ts'
 import { exportProject, exportSupported, ExportError } from '../export.ts'
 import { TextOnStage } from './text-stage.tsx'
+import { IconActivity, IconDownload, IconPause, IconPlay } from '../icons.tsx'
 
 interface ExportState {
   phase: 'idle' | 'recording' | 'done' | 'error'
@@ -390,7 +391,8 @@ export function PlayerPanel({ ctx }: { ctx: Context }): ReactElement | null {
       {draft !== null && (
         <div className="ov-transport">
           <button onClick={() => store.setPlaying(!state.playing)} disabled={total <= 0}>
-            {state.playing ? `⏸ ${t('ov.player.pause')}` : `▶ ${t('ov.player.play')}`}
+            {state.playing ? <IconPause size={13} /> : <IconPlay size={13} />}
+            {state.playing ? t('ov.player.pause') : t('ov.player.play')}
           </button>
           <span className="ov-time">
             {t('ov.player.time', { cur: fmtTime(playhead), total: fmtTime(total) })}
@@ -424,7 +426,7 @@ export function PlayerPanel({ ctx }: { ctx: Context }): ReactElement | null {
               }, null, 2))
             }}
           >
-            {t('ov.player.diag')}
+            <IconActivity size={13} />{t('ov.player.diag')}
           </button>
           <input
             className="ov-seek"
@@ -443,7 +445,7 @@ export function PlayerPanel({ ctx }: { ctx: Context }): ReactElement | null {
       {draft !== null && (
         <div className="ov-export">
           <button onClick={() => void runExport()} disabled={exportState.phase === 'recording' || total <= 0}>
-            {t('ov.player.export')}
+            <IconDownload size={13} />{t('ov.player.export')}
           </button>
           {exportState.phase === 'recording' && (
             <span className="status">{t('ov.player.exporting', { pct: Math.round(exportState.fraction * 100) })}</span>
@@ -454,7 +456,7 @@ export function PlayerPanel({ ctx }: { ctx: Context }): ReactElement | null {
                 {t('ov.player.exportDone', { size: `${((exportState.size ?? 0) / 1e6).toFixed(1)} MB` })}
               </span>
               <a href={exportState.url} download={`${projectName || 'openvideo'}-export.${exportState.ext ?? 'webm'}`}>
-                <button className="secondary">{t('ov.player.exportDownload')}</button>
+                <button className="secondary"><IconDownload size={13} />{t('ov.player.exportDownload')}</button>
               </a>
               {!savedExport && (
                 <button

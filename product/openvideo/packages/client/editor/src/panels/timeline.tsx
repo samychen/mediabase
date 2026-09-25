@@ -11,6 +11,23 @@ import type { Context } from '@deepseek-ai/cordis'
 import { useI18n } from '@mediabase/i18n'
 import { applyOp, fmtTime, mainSegments, rid, splitClip, totalDuration } from '@openvideo/edl'
 import { useEditor } from '../use-editor.ts'
+import {
+  IconChevronLeft,
+  IconChevronRight,
+  IconEye,
+  IconEyeOff,
+  IconMinus,
+  IconMusic,
+  IconPlus,
+  IconRedo,
+  IconSave,
+  IconScissors,
+  IconType,
+  IconUndo,
+  IconVolume,
+  IconVolumeOff,
+  IconX,
+} from '../icons.tsx'
 
 const MIN_PPS = 8
 const MAX_PPS = 400
@@ -72,8 +89,8 @@ export function TimelinePanel({ ctx }: { ctx: Context }): ReactElement | null {
   return (
     <div className="ov-timeline">
       <div className="ov-toolbar">
-        <button className="secondary ov-mini" title={t('ov.timeline.zoomOut')} onClick={() => setPps((p) => Math.max(MIN_PPS, Math.round(p / 1.4)))}>−</button>
-        <button className="secondary ov-mini" title={t('ov.timeline.zoomIn')} onClick={() => setPps((p) => Math.min(MAX_PPS, Math.round(p * 1.4)))}>＋</button>
+        <button className="secondary" title={t('ov.timeline.zoomOut')} onClick={() => setPps((p) => Math.max(MIN_PPS, Math.round(p / 1.4)))}><IconMinus size={13} /></button>
+        <button className="secondary" title={t('ov.timeline.zoomIn')} onClick={() => setPps((p) => Math.min(MAX_PPS, Math.round(p * 1.4)))}><IconPlus size={13} /></button>
         <button
           className="secondary"
           title={t('ov.timeline.split')}
@@ -81,12 +98,12 @@ export function TimelinePanel({ ctx }: { ctx: Context }): ReactElement | null {
             if (!store.splitAtPlayhead()) store.flash('ov.status.splitFailed')
           }}
         >
-          ✂ {t('ov.timeline.split')}
+          <IconScissors size={13} />{t('ov.timeline.split')}
         </button>
-        <button className="secondary" disabled={state.undoDepth === 0} onClick={() => store.undo()}>↩ {t('ov.timeline.undo')}</button>
-        <button className="secondary" disabled={state.redoDepth === 0} onClick={() => store.redo()}>↪ {t('ov.timeline.redo')}</button>
+        <button className="secondary" disabled={state.undoDepth === 0} onClick={() => store.undo()}><IconUndo size={13} />{t('ov.timeline.undo')}</button>
+        <button className="secondary" disabled={state.redoDepth === 0} onClick={() => store.redo()}><IconRedo size={13} />{t('ov.timeline.redo')}</button>
         <button className="secondary" disabled={!state.dirty || state.saving} onClick={() => void store.saveNow()}>
-          {t('ov.timeline.save')}
+          <IconSave size={13} />{t('ov.timeline.save')}
         </button>
         <span className="ov-save-state">
           {state.saveError !== null
@@ -156,7 +173,7 @@ export function TimelinePanel({ ctx }: { ctx: Context }): ReactElement | null {
                       disabled={seg.i === 0}
                       onClick={() => store.setDraft((d) => { applyOp(d, 'move_clip', { clip: seg.i, to: seg.i - 1 }) })}
                     >
-                      ◀
+                      <IconChevronLeft size={11} />
                     </button>
                     <button
                       className="ov-mini"
@@ -172,7 +189,7 @@ export function TimelinePanel({ ctx }: { ctx: Context }): ReactElement | null {
                         })
                       }}
                     >
-                      ✂
+                      <IconScissors size={11} />
                     </button>
                     <button
                       className="ov-mini"
@@ -180,14 +197,14 @@ export function TimelinePanel({ ctx }: { ctx: Context }): ReactElement | null {
                       disabled={seg.i === draft.main.elements.length - 1}
                       onClick={() => store.setDraft((d) => { applyOp(d, 'move_clip', { clip: seg.i, to: seg.i + 1 }) })}
                     >
-                      ▶
+                      <IconChevronRight size={11} />
                     </button>
                     <button
                       className="ov-mini ov-mini-danger"
                       title={t('ov.timeline.delete')}
                       onClick={() => store.setDraft((d) => { applyOp(d, 'delete_clip', { clip: seg.i }) })}
                     >
-                      ✕
+                      <IconX size={11} />
                     </button>
                   </span>
                 </div>
@@ -210,7 +227,7 @@ export function TimelinePanel({ ctx }: { ctx: Context }): ReactElement | null {
                   if (target !== undefined) target.hidden = target.hidden !== true
                 })}
               >
-                {track.hidden === true ? '◌' : '●'}
+                {track.hidden === true ? <IconEyeOff size={11} /> : <IconEye size={11} />}
               </button>
             </div>
             <div className="ov-lane-content" style={{ width: laneWidth, opacity: track.hidden === true ? 0.4 : 1 }} onClick={seekFromEvent}>
@@ -227,7 +244,7 @@ export function TimelinePanel({ ctx }: { ctx: Context }): ReactElement | null {
                     }}
                   >
                     <span className="ov-chip-name">
-                      {el.type === 'text' ? `“${el.text.slice(0, 24)}”` : `${el.type === 'image' ? '🖼' : '🎬'} ${nameOf(el.src)}`}
+                      {el.type === 'text' ? `“${el.text.slice(0, 24)}”` : nameOf(el.src)}
                     </span>
                     <span className="ov-chip-actions" onClick={(e) => e.stopPropagation()}>
                       <button
@@ -237,7 +254,7 @@ export function TimelinePanel({ ctx }: { ctx: Context }): ReactElement | null {
                           d.overlays?.[ti]?.elements.splice(ei, 1)
                         })}
                       >
-                        ✕
+                        <IconX size={11} />
                       </button>
                     </span>
                   </div>
@@ -261,7 +278,7 @@ export function TimelinePanel({ ctx }: { ctx: Context }): ReactElement | null {
                   if (target !== undefined) target.muted = target.muted !== true
                 })}
               >
-                {track.muted === true ? '🔇' : '🔊'}
+                {track.muted === true ? <IconVolumeOff size={11} /> : <IconVolume size={11} />}
               </button>
             </div>
             <div className="ov-lane-content" style={{ width: laneWidth, opacity: track.muted === true ? 0.4 : 1 }} onClick={seekFromEvent}>
@@ -287,7 +304,7 @@ export function TimelinePanel({ ctx }: { ctx: Context }): ReactElement | null {
                           d.audio?.[ti]?.elements.splice(ei, 1)
                         })}
                       >
-                        ✕
+                        <IconX size={11} />
                       </button>
                     </span>
                   </div>
@@ -300,8 +317,8 @@ export function TimelinePanel({ ctx }: { ctx: Context }): ReactElement | null {
       </div>
 
       <div className="ov-toolbar">
-        <button className="secondary" onClick={() => setTextForm((f) => ({ ...f, open: !f.open }))}>＋ {t('ov.timeline.addText')}</button>
-        <button className="secondary" onClick={() => setAudioPicker((v) => !v)}>＋ {t('ov.timeline.addAudio')}</button>
+        <button className="secondary" onClick={() => setTextForm((f) => ({ ...f, open: !f.open }))}><IconType size={13} />{t('ov.timeline.addText')}</button>
+        <button className="secondary" onClick={() => setAudioPicker((v) => !v)}><IconMusic size={13} />{t('ov.timeline.addAudio')}</button>
       </div>
 
       {textForm.open && (
@@ -339,7 +356,7 @@ export function TimelinePanel({ ctx }: { ctx: Context }): ReactElement | null {
                 setAudioPicker(false)
               }}
             >
-              ♪ {asset.name}
+              <IconMusic size={12} />{asset.name}
             </button>
           ))}
         </div>

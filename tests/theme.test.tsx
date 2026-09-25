@@ -74,7 +74,7 @@ describe('@mediabase/theme', () => {
     for (const id of THEME_IDS) {
       expect(css).toContain(`html[data-theme="${id}"]`)
     }
-    for (const token of ['--bg', '--panel', '--inset', '--border', '--text', '--muted', '--accent', '--accent-text', '--primary', '--primary-text', '--font', '--danger', '--warn', '--ok', '--radius', '--shadow']) {
+    for (const token of ['--bg', '--panel', '--inset', '--border', '--text', '--muted', '--accent', '--accent-text', '--accent-tint', '--danger-tint', '--primary', '--primary-text', '--font', '--danger', '--warn', '--ok', '--radius', '--shadow']) {
       // one declaration per skin
       expect(css.split(`${token}:`).length - 1).toBe(THEME_IDS.length)
     }

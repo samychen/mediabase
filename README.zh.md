@@ -30,7 +30,7 @@ pnpm run verify:base   # 对已启动的 host 做中性冒烟
 |----|-----|
 | 中立基元 | `rpc` · `schema` · `log` · `protocol` · `engine-client` · `gateway` · `confine` · `shm` |
 | 宿主能力 | `boot` · `api` · `server` · `tools` · `plugins` · `settings` · `agent` |
-| 客户端 | `connection` · `i18n` · `ui` · `theme`（皮肤令牌+一键换肤，内置 dark/midnight/light/studio） · `ui-web` |
+| 客户端 | `connection` · `i18n` · `ui` · `theme`（皮肤令牌+一键换肤，内置 dark/midnight/light/studio/studio-light） · `ui-web` |
 | 组合 | `@mediabase/bundle-app` · `@mediabase/bundle-ui` |
 
 ## 被消费方式

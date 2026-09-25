@@ -1,7 +1,45 @@
 /* @openvideo/ui-editor — component styles, scoped to .ov-* so they layer on
    the page tokens (apps/web/index.html) without leaking into other panels.
-   Derived in structure from clawnify/OpenVideo src/client/styles.css (MIT),
-   rebuilt without Tailwind: the base ships plain CSS and so does this. */
+
+   Recipes derived from clawnify/OpenVideo src/client/styles.css + ui.tsx
+   (MIT): ring-edged surfaces instead of flat borders, ghost pills for row
+   actions, tinted identity badges, and the upstream TRACK-CATEGORY palette —
+   one hue per element kind (video blue / text purple / audio orange), shared
+   by timeline and player so a clip is the same colour wherever it appears.
+   Category values are product-owned tokens (--ov-*): the base theme never
+   injects them; this file maps them per skin via html[data-theme=…]. */
+
+/* product-owned category tokens: defaults keep the classic hues … */
+:root {
+  --ov-chip-main: #1f3a5f;
+  --ov-chip-main-text: #cfe0f5;
+  --ov-chip-overlay: #3d2f5c;
+  --ov-chip-overlay-text: #ddcdf5;
+  --ov-chip-audio: #1f4436;
+  --ov-chip-audio-text: #c2e5d4;
+  --ov-chip-sub: #9db8d8;
+}
+/* … the studio skins switch to the upstream track families (tint bg + solid
+   text): video #5580e8/#12234f, text #9c61e8/#2c1e41, audio #c56a35/#342218
+   (dark) and #4977ed/#ecf0f9, #9952ed/#f2eef9, #c0632a/#f9ede8 (light). */
+html[data-theme='studio'] {
+  --ov-chip-main: #12234f;
+  --ov-chip-main-text: #9db4ee;
+  --ov-chip-overlay: #2c1e41;
+  --ov-chip-overlay-text: #c3a2ee;
+  --ov-chip-audio: #342218;
+  --ov-chip-audio-text: #e0a06a;
+  --ov-chip-sub: #82807c;
+}
+html[data-theme='studio-light'] {
+  --ov-chip-main: #ecf0f9;
+  --ov-chip-main-text: #4977ed;
+  --ov-chip-overlay: #f2eef9;
+  --ov-chip-overlay-text: #9952ed;
+  --ov-chip-audio: #f9ede8;
+  --ov-chip-audio-text: #c0632a;
+  --ov-chip-sub: #9a9893;
+}
 
 /* header status */
 .ov-status { font-size: 12px; color: var(--muted, #8b949e); margin-left: 8px; font-weight: 400; }
@@ -14,31 +52,45 @@
 .ov-row { display: flex; gap: 6px; align-items: center; margin: 6px 0; }
 .ov-row > input[type='text'] { flex: 1; }
 .ov-list { list-style: none; margin: 8px 0 0; padding: 0; }
-.ov-item { display: flex; align-items: center; gap: 6px; padding: 4px 2px; border-bottom: 1px solid var(--border, #21262d); }
-.ov-item-open { background: var(--panel, #1c2128); border-radius: 6px; }
-.ov-item-main { flex: 1; display: flex; flex-direction: column; background: none; border: none; color: inherit;
-  text-align: left; cursor: pointer; padding: 2px; margin: 0; min-width: 0; }
-.ov-item-main:hover { background: none; }
-.ov-item-name { font-size: 13px; color: var(--text, #c9d1d9); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.ov-item { display: flex; align-items: center; gap: 6px; padding: 4px 2px;
+  border-bottom: 1px solid var(--border, #21262d); }
+.ov-item-open { background: var(--accent-tint, #1c2128); border-radius: 8px; }
+.ov-item-main { flex: 1; display: flex; flex-direction: column; background: none; border: none;
+  box-shadow: none; color: inherit; text-align: left; cursor: pointer; padding: 2px; margin: 0;
+  min-width: 0; height: auto; }
+.ov-item-main:hover { background: none; filter: none; }
+.ov-item-name { font-size: 13px; color: var(--text, #c9d1d9); white-space: nowrap; overflow: hidden;
+  text-overflow: ellipsis; }
 .ov-item-sub { font-size: 11px; color: var(--muted, #8b949e); }
-.ov-item-icon { font-size: 16px; }
+.ov-item-icon { font-size: 15px; display: inline-flex; color: var(--muted, #8b949e); }
 .ov-item-actions { display: flex; gap: 2px; }
-.ov-item-danger { background: none; border: none; color: var(--muted, #8b949e); margin: 0; padding: 2px 6px; }
-.ov-item-danger:hover { color: var(--danger, #f85149); background: none; }
-.ov-badge { font-size: 10px; background: var(--ok, #1f6f3c); color: #fff; border-radius: 999px; padding: 1px 7px; }
-.ov-badge-warn { color: var(--warn, #d29922); border: 1px solid var(--warn, #d29922); border-radius: 999px; padding: 0 6px; font-size: 10px; margin-left: 4px; }
-.ov-mini { background: var(--inset, #21262d); border: 1px solid var(--border, #30363d); color: var(--text, #c9d1d9); border-radius: 4px;
-  padding: 1px 5px; font-size: 11px; margin: 0; }
-.ov-mini:hover { background: var(--border, #30363d); }
+.ov-item-danger { background: none; border: none; box-shadow: none; color: var(--muted, #8b949e);
+  margin: 0; padding: 2px 6px; height: auto; }
+.ov-item-danger:hover { color: var(--danger, #f85149); background: var(--danger-tint, transparent); filter: none; }
+
+/* badges: pill, tinted wash + identity color (upstream: accent is identity) */
+.ov-badge { font-size: 10px; font-weight: 500; background: var(--accent-tint, #1f6f3c);
+  color: var(--accent, #fff); border-radius: 999px; padding: 1px 8px; }
+.ov-badge-warn { color: var(--warn, #d29922); border: 1px solid var(--warn, #d29922);
+  border-radius: 999px; padding: 0 6px; font-size: 10px; margin-left: 4px; }
+
+/* ghost pill row actions (upstream btnGhost recipe) */
+.ov-mini { display: inline-flex; align-items: center; justify-content: center;
+  background: none; border: none; box-shadow: none; color: var(--muted, #c9d1d9);
+  border-radius: 999px; padding: 2px; width: 22px; height: 22px; font-size: 11px; margin: 0; }
+.ov-mini:hover:not(:disabled) { background: var(--inset, #30363d); color: var(--text, #c9d1d9); filter: none; }
 .ov-mini:disabled { opacity: 0.4; cursor: not-allowed; }
-.ov-mini-danger:hover { color: var(--danger, #f85149); border-color: var(--danger, #f85149); }
+.ov-mini-danger:hover:not(:disabled) { color: var(--danger, #f85149); background: var(--danger-tint, transparent); }
 
 /* player */
 .ov-player { display: flex; flex-direction: column; gap: 8px; width: 100%; }
-.ov-player-box { display: flex; align-items: center; justify-content: center; min-height: 240px; height: 50vh; padding: 8px; }
-.ov-stage { position: relative; overflow: hidden; border: 1px solid var(--border, #30363d); border-radius: 6px; }
+.ov-player-box { display: flex; align-items: center; justify-content: center; min-height: 240px;
+  height: 50vh; padding: 8px; }
+.ov-stage { position: relative; overflow: hidden; border: 1px solid var(--border, #30363d);
+  border-radius: calc(var(--radius, 10px) * 0.8); }
 .ov-stage-fill { position: absolute; inset: 0; width: 100%; height: 100%; }
-.ov-stage-hint { position: absolute; inset: auto 0 45% 0; text-align: center; color: var(--muted, #8b949e); font-size: 13px; }
+.ov-stage-hint { position: absolute; inset: auto 0 45% 0; text-align: center;
+  color: var(--muted, #8b949e); font-size: 13px; padding: 0 12px; }
 .ov-text { position: absolute; white-space: pre; line-height: 1.25; user-select: none; pointer-events: none; }
 .ov-text-grab { cursor: move; pointer-events: auto; }
 .ov-text-selected { outline: 2px solid var(--accent, #58a6ff); }
@@ -53,27 +105,36 @@
 /* timeline */
 .ov-timeline { width: 100%; display: flex; flex-direction: column; gap: 6px; }
 .ov-toolbar { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; }
-.ov-toolbar button { margin: 0; padding: 4px 9px; }
+.ov-toolbar button { margin: 0; height: 28px; padding: 0 10px; }
 .ov-save-state { font-size: 12px; color: var(--muted, #8b949e); }
 .ov-lanes { display: flex; flex-direction: column; gap: 4px; overflow-x: auto; padding-bottom: 4px; }
 .ov-lane { display: flex; gap: 8px; align-items: stretch; }
-.ov-lane-label { flex: 0 0 96px; font-size: 11px; color: var(--muted, #8b949e); display: flex; flex-direction: column;
-  justify-content: center; gap: 2px; }
-.ov-lane-content { position: relative; height: 46px; background: var(--inset, #0d1117); border: 1px solid var(--border, #21262d); border-radius: 6px; }
-.ov-ruler .ov-lane-content { height: 18px; background-image: repeating-linear-gradient(to right, var(--border, #30363d) 0 1px, transparent 1px 48px); }
-.ov-chip { position: absolute; top: 3px; bottom: 3px; border-radius: 5px; padding: 2px 6px; overflow: hidden;
-  cursor: pointer; display: flex; flex-direction: column; border: 1px solid transparent; }
-.ov-chip-main { background: var(--ov-chip-main, #1f3a5f); }
-.ov-chip-overlay { background: var(--ov-chip-overlay, #3d2f5c); }
-.ov-chip-audio { background: var(--ov-chip-audio, #1f4436); }
-.ov-chip-selected { border-color: var(--accent, #58a6ff); box-shadow: 0 0 0 1px var(--accent, #58a6ff); }
-.ov-chip-name { font-size: 11px; color: #e6edf3; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-.ov-chip-sub { font-size: 10px; color: #9db8d8; }
+.ov-lane-label { flex: 0 0 96px; font-size: 11px; color: var(--muted, #8b949e); display: flex;
+  flex-direction: column; justify-content: center; gap: 2px; }
+.ov-lane-label .ov-mini { margin-left: -2px; }
+.ov-lane-content { position: relative; height: 46px; background: var(--inset, #0d1117);
+  border: none; box-shadow: inset 0 0 0 1px var(--border, #21262d); border-radius: 8px; }
+.ov-ruler .ov-lane-content { height: 18px;
+  background-image: repeating-linear-gradient(to right, var(--border, #30363d) 0 1px, transparent 1px 48px); }
+.ov-chip { position: absolute; top: 3px; bottom: 3px; border-radius: 6px; padding: 2px 6px;
+  overflow: hidden; cursor: pointer; display: flex; flex-direction: column;
+  border: none; box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.06); }
+.ov-chip-main { background: var(--ov-chip-main); color: var(--ov-chip-main-text); }
+.ov-chip-overlay { background: var(--ov-chip-overlay); color: var(--ov-chip-overlay-text); }
+.ov-chip-audio { background: var(--ov-chip-audio); color: var(--ov-chip-audio-text); }
+.ov-chip-selected { box-shadow: 0 0 0 1.5px var(--accent, #58a6ff); }
+.ov-chip-name { font-size: 11px; font-weight: 500; white-space: nowrap; overflow: hidden;
+  text-overflow: ellipsis; display: inline-flex; align-items: center; gap: 3px; }
+.ov-chip-sub { font-size: 10px; color: var(--ov-chip-sub); }
 .ov-chip-actions { position: absolute; right: 2px; top: 2px; display: none; gap: 2px; }
 .ov-chip:hover .ov-chip-actions { display: flex; }
-.ov-playhead { position: absolute; top: 0; bottom: 0; width: 2px; background: #f85149; pointer-events: none; margin-left: -1px; z-index: 2; }
-.ov-form { border: 1px solid var(--border, #30363d); border-radius: 8px; padding: 10px; display: flex; flex-direction: column; gap: 6px; }
-.ov-row-button { text-align: left; }
+.ov-chip-actions .ov-mini { width: 18px; height: 18px; background: rgba(0, 0, 0, 0.35); color: inherit; }
+.ov-chip-actions .ov-mini:hover:not(:disabled) { background: rgba(0, 0, 0, 0.55); color: #fff; }
+.ov-playhead { position: absolute; top: 0; bottom: 0; width: 2px; background: var(--danger, #f85149);
+  pointer-events: none; margin-left: -1px; z-index: 2; }
+.ov-form { background: var(--panel, #161b22); box-shadow: inset 0 0 0 1px var(--border, #30363d);
+  border-radius: calc(var(--radius, 10px)); padding: 10px; display: flex; flex-direction: column; gap: 6px; }
+.ov-row-button { text-align: left; justify-content: flex-start; }
 
 /* inspector */
 .ov-inspector { display: flex; flex-direction: column; gap: 4px; }
@@ -81,11 +142,13 @@
 .ov-inspector label { display: block; }
 .ov-inspector select,
 .ov-inspector textarea,
-.ov-inspector input[type='number'] { width: 100%; background: var(--inset, #0d1117); border: 1px solid var(--border, #30363d);
-  color: var(--text, #c9d1d9); border-radius: 6px; padding: 6px 8px; font-size: 12px; }
+.ov-inspector input[type='number'] { width: 100%; background: var(--inset, #0d1117);
+  color: var(--text, #c9d1d9); border: none; box-shadow: inset 0 0 0 1px var(--border, #30363d);
+  border-radius: calc(var(--radius, 10px) * 0.66); padding: 6px 9px; font-size: 12px; }
 .ov-inspector textarea { font-family: inherit; resize: vertical; }
 .ov-check { display: flex !important; align-items: center; gap: 6px; }
-.ov-check input { width: auto !important; }
+.ov-check input { width: auto !important; box-shadow: none; accent-color: var(--accent, #58a6ff); }
 .ov-json { width: 100%; font-family: ui-monospace, SFMono-Regular, monospace; font-size: 11px;
-  background: var(--inset, #0d1117); color: var(--muted, #8b949e); border: 1px solid var(--border, #30363d); border-radius: 6px; padding: 8px; }
+  background: var(--inset, #0d1117); color: var(--muted, #8b949e); border: none;
+  box-shadow: inset 0 0 0 1px var(--border, #30363d); border-radius: 8px; padding: 8px; }
 .ov-inspector details summary { cursor: pointer; }
