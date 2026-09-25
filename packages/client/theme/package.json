@@ -7,7 +7,8 @@
   "main": "src/index.tsx",
   "types": "src/index.tsx",
   "exports": {
-    ".": "./src/index.tsx"
+    ".": "./src/index.tsx",
+    "./chrome.css": "./src/chrome.css"
   },
   "files": [
     "src",

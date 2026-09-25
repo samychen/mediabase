@@ -1,11 +1,12 @@
-// Player panel (monitor): the master-clock preview.
+// Player panel (monitor): orchestration — state, the clock hook, the element
+// sync effects, the caption fetch and the export run. The frame itself is
+// stage.tsx, the controls are transport.tsx, the clock loop is
+// use-master-clock.ts; this file is the wiring between them and the store.
 //
-// One clock runs the cut — the wall clock, corrected by the playing video
-// element when it can be trusted (the same scheme the upstream editor uses).
-// Every layer reads that clock: the main-track video/image, overlay media and
-// text, the audio bed, and the project's captions. Pixel-exact rendering
-// (fonts, encoder) is the export's job; the stage shows cuts, layout and
-// timing, which is what an edit decision needs to be judged by.
+// Preview semantics (from the upstream editor, MIT): one master clock; the
+// playing video corrects it; seeks only on real jumps (each seek empties the
+// buffer); the stage shows cuts, layout and timing — pixel-exact rendering is
+// the export's job.
 
 import { useEffect, useMemo, useRef, useState, type ReactElement } from 'react'
 import type { Context } from '@deepseek-ai/cordis'
@@ -15,28 +16,17 @@ import {
   activeOverlays,
   activeSegment,
   captionText,
-  fmtTime,
   mainSegments,
   totalDuration,
   type Cue,
-  type OverlayTextElement,
+  type OverlayElement,
 } from '@openvideo/edl'
 import { useEditor } from '../use-editor.ts'
 import { captionLines } from '../store.ts'
 import { exportProject, exportSupported, ExportError } from '../export.ts'
-import { TextOnStage } from './text-stage.tsx'
-import { IconActivity, IconDownload, IconPause, IconPlay } from '../icons.tsx'
-
-interface ExportState {
-  phase: 'idle' | 'recording' | 'done' | 'error'
-  fraction: number
-  url?: string
-  size?: number
-  ext?: string
-  error?: string
-}
-
-const IDLE_EXPORT: ExportState = { phase: 'idle', fraction: 0 }
+import { StageLayers, trackOf } from './stage.tsx'
+import { ExportBar, IDLE_EXPORT, TransportBar, type ExportState } from './transport.tsx'
+import { useMasterClock } from './use-master-clock.ts'
 
 export function PlayerPanel({ ctx }: { ctx: Context }): ReactElement | null {
   const editor = useEditor(ctx)
@@ -54,6 +44,7 @@ export function PlayerPanel({ ctx }: { ctx: Context }): ReactElement | null {
   const [diag, setDiag] = useState<string | null>(null)
   const [savedExport, setSavedExport] = useState(false)
   const exportBlob = useRef<Blob | null>(null)
+  const exportAbort = useRef<AbortController | null>(null)
 
   const state = editor?.state ?? null
   const store = editor?.store ?? null
@@ -132,39 +123,19 @@ export function PlayerPanel({ ctx }: { ctx: Context }): ReactElement | null {
       .map((line, i) => captionText(line, style, frame, `cap-${i}`))
   }, [draft, captionsOn, cuesBySrc, durations, playhead])
 
-  // ---- the master clock -----------------------------------------------------
+  // ---- the master clock (its own hook; refs keep it off the render path) ----
   const segmentsRef = useRef(segments)
   segmentsRef.current = segments
   const totalRef = useRef(total)
   totalRef.current = total
-  useEffect(() => {
-    if (!playing || store === null) return
-    let raf = 0
-    let last = performance.now()
-    const tick = (now: number): void => {
-      const dt = (now - last) / 1000
-      last = now
-      let clockT = store.get().playhead + dt
-      // The playing main video IS the clock when it can be; a paused or
-      // starved element lets the wall clock carry on instead of freezing.
-      const seg = activeSegment(segmentsRef.current, clockT)
-      const v = videoRef.current
-      if (seg !== undefined && seg.el.type === 'video' && v !== null && !v.paused && v.readyState >= 2) {
-        clockT = seg.start + (v.currentTime - (seg.el.trimStart ?? 0))
-      }
-      if (clockT >= totalRef.current) {
-        store.setPlayhead(totalRef.current)
-        store.setPlaying(false)
-        return
-      }
-      store.setPlayhead(clockT)
-      raf = requestAnimationFrame(tick)
-    }
-    raf = requestAnimationFrame(tick)
-    return () => cancelAnimationFrame(raf)
-  }, [playing, store])
+  useMasterClock({ playing, store, segmentsRef, totalRef, videoRef })
 
   // ---- sync the media elements to the clock ---------------------------------
+  const playBlocked = (err: unknown): void => {
+    const e = err as { name?: string; message?: string }
+    store?.flash('ov.player.playBlocked', { error: e?.name ?? e?.message ?? 'play()' })
+  }
+
   const activeVideoSrc = active !== undefined && active.el.type === 'video' ? active.el.src : null
   useEffect(() => {
     const v = videoRef.current
@@ -181,12 +152,7 @@ export function PlayerPanel({ ctx }: { ctx: Context }): ReactElement | null {
     if (jumped && !v.seeking) v.currentTime = wanted
     v.volume = Math.min(1, el.volume ?? 1)
     v.muted = el.sourceAudio === false
-    if (playing && v.paused) {
-      v.play().catch((err: unknown) => {
-        const e = err as { name?: string; message?: string }
-        store?.flash('ov.player.playBlocked', { error: e?.name ?? e?.message ?? 'play()' })
-      })
-    }
+    if (playing && v.paused) v.play().catch(playBlocked)
     if (!playing && !v.paused) v.pause()
   }, [playhead, playing, activeVideoSrc, active, store])
 
@@ -199,12 +165,7 @@ export function PlayerPanel({ ctx }: { ctx: Context }): ReactElement | null {
     const wanted = (el.trimStart ?? 0) + (playhead - el.startTime)
     if (Math.abs(v.currentTime - wanted) > 0.5 && !v.seeking) v.currentTime = wanted
     v.muted = true
-    if (playing && v.paused) {
-      v.play().catch((err: unknown) => {
-        const e = err as { name?: string; message?: string }
-        store?.flash('ov.player.playBlocked', { error: e?.name ?? e?.message ?? 'play()' })
-      })
-    }
+    if (playing && v.paused) v.play().catch(playBlocked)
     if (!playing && !v.paused) v.pause()
   }
   for (const [id, v] of overlayVideos.current) {
@@ -218,12 +179,7 @@ export function PlayerPanel({ ctx }: { ctx: Context }): ReactElement | null {
     const wanted = (el.trimStart ?? 0) + (playhead - el.startTime)
     if (Math.abs(a.currentTime - wanted) > 0.5 && !a.seeking) a.currentTime = wanted
     a.volume = Math.min(1, el.volume ?? 1)
-    if (playing && a.paused) {
-      a.play().catch((err: unknown) => {
-        const e = err as { name?: string; message?: string }
-        store?.flash('ov.player.playBlocked', { error: e?.name ?? e?.message ?? 'play()' })
-      })
-    }
+    if (playing && a.paused) a.play().catch(playBlocked)
     if (!playing && !a.paused) a.pause()
   }
   for (const [id, a] of audioEls.current) {
@@ -240,12 +196,15 @@ export function PlayerPanel({ ctx }: { ctx: Context }): ReactElement | null {
     store.setPlaying(false)
     setSavedExport(false)
     setExportState({ phase: 'recording', fraction: 0 })
+    const abort = new AbortController()
+    exportAbort.current = abort
     try {
       const out = await exportProject({
         edl: draft,
         resolveSrc,
         durations,
         cuesBySrc,
+        signal: abort.signal,
         onProgress: (fraction) => setExportState({ phase: 'recording', fraction }),
       })
       exportBlob.current = out.blob
@@ -253,21 +212,31 @@ export function PlayerPanel({ ctx }: { ctx: Context }): ReactElement | null {
       setExportState({ phase: 'done', fraction: 1, url, size: out.blob.size, ext: out.ext })
     } catch (e) {
       const msg = e instanceof Error ? e.message : String(e)
-      const PREFIX = 'export.undecodable:'
-      const text = msg.startsWith(PREFIX)
-        ? t('ov.player.exportUndecodable', {
-          assets: msg.slice(PREFIX.length).split(',').filter(Boolean).map(nameForSrc).join(', '),
-        })
-        : e instanceof ExportError
-          ? t(msg === 'export.unsupported' ? 'ov.player.exportUnsupported' : 'ov.player.exportFailed', { error: msg })
-          : store.errorText(e)
+      const UNDECODABLE = 'export.undecodable:'
+      const text = msg === 'export.aborted'
+        ? t('ov.player.exportCanceled')
+        : msg.startsWith(UNDECODABLE)
+          ? t('ov.player.exportUndecodable', {
+            assets: msg.slice(UNDECODABLE.length).split(',').filter(Boolean).map(nameForSrc).join(', '),
+          })
+          : e instanceof ExportError
+            ? t(msg === 'export.unsupported' ? 'ov.player.exportUnsupported' : 'ov.player.exportFailed', { error: msg })
+            : store.errorText(e)
       setExportState({ phase: 'error', fraction: 0, error: text })
+    } finally {
+      exportAbort.current = null
     }
   }
 
   if (editor === null || state === null || store === null) return null
 
   const projectName = state.projectName
+  const selectOverlay = (el: OverlayElement): void => {
+    if (draft === null) return
+    const track = trackOf(draft, el.id)
+    const index = (draft.overlays ?? [])[track]?.elements.findIndex((x) => x.id === el.id) ?? -1
+    store.select({ kind: 'overlay', track, index: Math.max(0, index) })
+  }
 
   return (
     <div className="ov-player">
@@ -280,211 +249,113 @@ export function PlayerPanel({ ctx }: { ctx: Context }): ReactElement | null {
             style={{ width: fit.w, height: fit.h, background: draft.output.background ?? '#000000' }}
             onDoubleClick={() => store.setPlaying(!state.playing)}
           >
-            {active !== undefined && active.el.type === 'video' && active.dur > 0 && (
-              <video
-                key={active.el.src}
-                ref={videoRef}
-                className="ov-stage-fill"
-                style={{ objectFit: active.el.fit === 'cover' ? 'cover' : 'contain' }}
-                playsInline
-                preload="auto"
-                src={resolveSrc(active.el.src) ?? undefined}
-                onError={(e) => {
-                  const v = e.currentTarget
-                  // MEDIA_ERR_ABORTED (1): the element was torn down (segment
-                  // switch, panel unmount) — a lifecycle event, not a verdict
-                  // about the codec. Reporting it painted false alarms.
-                  const code = v.error?.code ?? 0
-                  if (code === 1) return
-                  setMediaIssue({
-                    key: 'ov.player.mediaErrSrc',
-                    params: { name: nameForSrc(active.el.src), code },
-                  })
-                }}
-                onLoadedMetadata={(e) => {
-                  // Paint the first frame even while paused (some browsers keep
-                  // a fresh element black until something seeks it), and clear
-                  // any stale decode complaint once metadata actually arrives.
-                  setMediaIssue(null)
-                  const v = e.currentTarget
-                  if (v.paused && v.duration > 0) {
-                    v.currentTime = Math.min((active.el.trimStart ?? 0) + 0.01, Math.max(0, v.duration - 0.02))
-                  }
-                }}
-              />
-            )}
-            {active !== undefined && active.el.type === 'image' && active.dur > 0 && (
-              <img
-                key={active.el.src}
-                className="ov-stage-fill"
-                style={{ objectFit: active.el.fit === 'cover' ? 'cover' : 'contain' }}
-                src={resolveSrc(active.el.src) ?? undefined}
-                alt=""
-              />
-            )}
-            {overlays.map((el) => {
-              if (el.type === 'text') {
-                return (
-                  <TextOnStage
-                    key={el.id}
-                    element={el as OverlayTextElement}
-                    frame={draft.output}
-                    scale={fit.scale}
-                    selected={state.sel?.kind === 'overlay' && (draft.overlays ?? [])[state.sel.track]?.elements[state.sel.index]?.id === el.id}
-                    onPointerDown={() => {
-                      const track = trackOf(draft, el.id)
-                      const index = (draft.overlays ?? [])[track]?.elements.findIndex((x) => x.id === el.id) ?? -1
-                      store.select({ kind: 'overlay', track, index: Math.max(0, index) })
-                    }}
-                  />
-                )
-              }
-              const url = resolveSrc(el.src)
-              const style = {
-                position: 'absolute' as const,
-                left: `${el.x * 100}%`,
-                top: `${el.y * 100}%`,
-                width: `${el.width * 100}%`,
-                opacity: el.opacity ?? 1,
-              }
-              return el.type === 'video' ? (
-                <video
-                  key={el.id}
-                  ref={(v) => {
-                    if (v === null) overlayVideos.current.delete(el.id)
-                    else overlayVideos.current.set(el.id, v)
-                  }}
-                  style={style}
-                  playsInline
-                  preload="auto"
-                  muted
-                  src={url ?? undefined}
-                />
-              ) : (
-                <img key={el.id} style={style} src={url ?? undefined} alt="" />
-              )
-            })}
-            {captionNow.map((cap) => (
-              <TextOnStage key={cap.id} element={{ ...cap, fontFamily: 'sans' }} frame={draft.output} scale={fit.scale} />
-            ))}
-            {sounds.map((el) => (
-              <audio
-                key={el.id}
-                ref={(a) => {
-                  if (a === null) audioEls.current.delete(el.id)
-                  else audioEls.current.set(el.id, a)
-                }}
-                preload="auto"
-                src={resolveSrc(el.src) ?? undefined}
-              />
-            ))}
-            {draft.main.elements.length === 0 && (
-              <div className="ov-stage-hint">{t('ov.player.empty')}</div>
-            )}
-            {mediaIssue !== null && (
-              <div className="ov-stage-hint ov-error">{t(mediaIssue.key, mediaIssue.params)}</div>
-            )}
+            <StageLayers
+              draft={draft}
+              scale={fit.scale}
+              active={active}
+              overlays={overlays}
+              sounds={sounds}
+              captions={captionNow}
+              resolveSrc={resolveSrc}
+              videoRef={videoRef}
+              overlayVideos={overlayVideos}
+              audioEls={audioEls}
+              sel={state.sel}
+              onSelectOverlay={selectOverlay}
+              onMediaError={(code, src) => {
+                // MEDIA_ERR_ABORTED (1): the element was torn down (segment
+                // switch, panel unmount) — a lifecycle event, not a verdict
+                // about the codec. Reporting it painted false alarms.
+                if (code === 1) return
+                setMediaIssue({ key: 'ov.player.mediaErrSrc', params: { name: nameForSrc(src), code } })
+              }}
+              onMediaMetadata={(v, trimStart) => {
+                // Paint the first frame even while paused (some browsers keep a
+                // fresh element black until something seeks it), and clear any
+                // stale decode complaint once metadata actually arrives.
+                setMediaIssue(null)
+                if (v.paused && v.duration > 0) {
+                  v.currentTime = Math.min(trimStart + 0.01, Math.max(0, v.duration - 0.02))
+                }
+              }}
+              emptyText={t('ov.player.empty')}
+              issueText={mediaIssue !== null ? t(mediaIssue.key, mediaIssue.params) : null}
+            />
           </div>
         )}
       </div>
 
       {draft !== null && (
-        <div className="ov-transport">
-          <button onClick={() => store.setPlaying(!state.playing)} disabled={total <= 0}>
-            {state.playing ? <IconPause size={13} /> : <IconPlay size={13} />}
-            {state.playing ? t('ov.player.pause') : t('ov.player.play')}
-          </button>
-          <span className="ov-time">
-            {t('ov.player.time', { cur: fmtTime(playhead), total: fmtTime(total) })}
-          </span>
-          <button
-            className="secondary ov-mini"
-            title="readyState/networkState/error/currentTime/videoWidth + store verdicts"
-            onClick={() => {
-              const v = videoRef.current
-              setDiag(JSON.stringify({
-                activeSrc: active?.el.src ?? null,
-                activeDur: active?.dur ?? null,
-                assetUrl: active !== undefined ? resolveSrc(active.el.src) : null,
-                video: v === null
-                  ? null
-                  : {
-                    readyState: v.readyState,
-                    networkState: v.networkState,
-                    error: v.error === null ? null : { code: v.error.code, message: v.error.message },
-                    paused: v.paused,
-                    currentTime: v.currentTime,
-                    videoWidth: v.videoWidth,
-                    videoHeight: v.videoHeight,
-                    currentSrc: v.currentSrc,
-                  },
-                playhead: state.playhead,
-                playing: state.playing,
-                durations: state.durations,
-                decodeState: state.decodeState,
-                mediaIssue,
-              }, null, 2))
-            }}
-          >
-            <IconActivity size={13} />{t('ov.player.diag')}
-          </button>
-          <input
-            className="ov-seek"
-            type="range"
-            min={0}
-            max={Math.max(0.01, total)}
-            step={0.01}
-            value={Math.min(playhead, total)}
-            onChange={(e) => store.setPlayhead(parseFloat(e.target.value))}
-          />
-        </div>
+        <TransportBar
+          playing={state.playing}
+          onTogglePlay={() => store.setPlaying(!state.playing)}
+          playhead={playhead}
+          total={total}
+          onSeek={(tt) => store.setPlayhead(tt)}
+          diagTitle="readyState/networkState/error/currentTime/videoWidth + store verdicts"
+          onDiag={() => {
+            const v = videoRef.current
+            setDiag(JSON.stringify({
+              activeSrc: active?.el.src ?? null,
+              activeDur: active?.dur ?? null,
+              assetUrl: active !== undefined ? resolveSrc(active.el.src) : null,
+              video: v === null
+                ? null
+                : {
+                  readyState: v.readyState,
+                  networkState: v.networkState,
+                  error: v.error === null ? null : { code: v.error.code, message: v.error.message },
+                  paused: v.paused,
+                  currentTime: v.currentTime,
+                  videoWidth: v.videoWidth,
+                  videoHeight: v.videoHeight,
+                  currentSrc: v.currentSrc,
+                },
+              playhead: state.playhead,
+              playing: state.playing,
+              durations: state.durations,
+              decodeState: state.decodeState,
+              mediaIssue,
+            }, null, 2))
+          }}
+          labels={{
+            play: t('ov.player.play'),
+            pause: t('ov.player.pause'),
+            time: (cur, tot) => t('ov.player.time', { cur, total: tot }),
+            diag: t('ov.player.diag'),
+          }}
+        />
       )}
 
       {diag !== null && <pre className="ov-json">{diag}</pre>}
 
       {draft !== null && (
-        <div className="ov-export">
-          <button onClick={() => void runExport()} disabled={exportState.phase === 'recording' || total <= 0}>
-            <IconDownload size={13} />{t('ov.player.export')}
-          </button>
-          {exportState.phase === 'recording' && (
-            <span className="status">{t('ov.player.exporting', { pct: Math.round(exportState.fraction * 100) })}</span>
-          )}
-          {exportState.phase === 'done' && exportState.url !== undefined && (
-            <span className="ov-export-done">
-              <span className="status">
-                {t('ov.player.exportDone', { size: `${((exportState.size ?? 0) / 1e6).toFixed(1)} MB` })}
-              </span>
-              <a href={exportState.url} download={`${projectName || 'openvideo'}-export.${exportState.ext ?? 'webm'}`}>
-                <button className="secondary"><IconDownload size={13} />{t('ov.player.exportDownload')}</button>
-              </a>
-              {!savedExport && (
-                <button
-                  className="secondary"
-                  onClick={() => {
-                    const blob = exportBlob.current
-                    if (blob === null) return
-                    void store
-                      .uploadBlob(blob, `${projectName || 'openvideo'}-export.${exportState.ext ?? 'webm'}`)
-                      .then(() => setSavedExport(true))
-                      .catch(() => {})
-                  }}
-                >
-                  {t('ov.player.exportSaveToLibrary')}
-                </button>
-              )}
-            </span>
-          )}
-          {exportState.phase === 'error' && (
-            <span className="status ov-error">{exportState.error ?? t('ov.player.exportFailed', { error: '' })}</span>
-          )}
-        </div>
+        <ExportBar
+          exportState={exportState}
+          disabled={total <= 0}
+          onExport={() => void runExport()}
+          onCancel={() => exportAbort.current?.abort()}
+          onSaveToLibrary={() => {
+            const blob = exportBlob.current
+            if (blob === null) return
+            void store
+              .uploadBlob(blob, `${projectName || 'openvideo'}-export.${exportState.ext ?? 'webm'}`)
+              .then(() => setSavedExport(true))
+              .catch(() => {})
+          }}
+          saved={savedExport}
+          downloadName={`${projectName || 'openvideo'}-export.${exportState.ext ?? 'webm'}`}
+          labels={{
+            export: t('ov.player.export'),
+            exporting: (pct) => t('ov.player.exporting', { pct }),
+            cancel: t('ov.player.exportCancel'),
+            done: (size) => t('ov.player.exportDone', { size }),
+            download: t('ov.player.exportDownload'),
+            saveToLibrary: t('ov.player.exportSaveToLibrary'),
+            failedFallback: t('ov.player.exportFailed', { error: '' }),
+          }}
+        />
       )}
     </div>
   )
-}
-
-/** Which overlay track holds element `id` (selection needs track+index). */
-function trackOf(draft: { overlays?: { elements: { id: string }[] }[] }, id: string): number {
-  return (draft.overlays ?? []).findIndex((track) => track.elements.some((el) => el.id === id))
 }

@@ -35,6 +35,11 @@ export interface ExportOptions {
   durations: Record<string, number>
   /** Transcript cues per src, for the project's captions. */
   cuesBySrc: Map<string, Cue[]>
+  /** Abort the recording (the player's cancel button). */
+  signal?: AbortSignal
+  /** Longest output edge in pixels (default 1920): a real-time recorder on a
+    * 4K canvas drops frames on most machines — cap it, honestly. */
+  maxEdge?: number
   onProgress: (fraction: number) => void
 }
 
@@ -59,6 +64,18 @@ export function exportSupported(): boolean {
     && typeof document !== 'undefined'
     && typeof HTMLCanvasElement !== 'undefined'
     && typeof HTMLCanvasElement.prototype.captureStream === 'function'
+}
+
+/**
+ * Backend seam (documented, deliberately NOT wired yet): a frame-accurate
+ * WebCodecs export (VideoDecoder → canvas → VideoEncoder) needs a demuxer and
+ * a muxer — either a dependency (mediabunny / mp4box) or a hand-written
+ * Matroska writer — and Firefox still ships no VideoEncoder. Until that call
+ * is made, the MediaRecorder backend below is the only one; this probe tells
+ * a UI (or an agent) whether an upgrade could even run in THIS browser.
+ */
+export function webcodecsAvailable(): boolean {
+  return typeof VideoEncoder !== 'undefined' && typeof VideoDecoder !== 'undefined'
 }
 
 export class ExportError extends Error {}
@@ -131,11 +148,17 @@ export async function exportProject(opts: ExportOptions): Promise<ExportResult> 
   if (total <= 0) throw new ExportError('export.empty')
 
   const frame = { width: edl.output.width, height: edl.output.height }
+  const maxEdge = opts.maxEdge ?? 1920
+  const longEdge = Math.max(frame.width, frame.height)
+  const k = longEdge > maxEdge ? maxEdge / longEdge : 1
   const canvas = document.createElement('canvas')
-  canvas.width = frame.width
-  canvas.height = frame.height
+  canvas.width = Math.max(2, Math.round(frame.width * k))
+  canvas.height = Math.max(2, Math.round(frame.height * k))
   const g = canvas.getContext('2d')
   if (g === null) throw new ExportError('export.noCanvas')
+  // Scale once, then every draw below keeps using LOGICAL frame coordinates —
+  // one transform instead of threading a factor through each recipe.
+  if (k !== 1) g.setTransform(k, 0, 0, k, 0, 0)
 
   // ---- media elements + the audio graph ------------------------------------
   const videos = new Map<string, HTMLVideoElement>()
@@ -321,6 +344,21 @@ export async function exportProject(opts: ExportOptions): Promise<ExportResult> 
     if (audio !== null) void audio.close()
   }
 
+  let aborted = false
+  const stopAll = (): void => {
+    for (const v of videos.values()) v.pause()
+    for (const a of audios.values()) a.pause()
+    try {
+      recorder.stop()
+    } catch {
+      /* already stopped */
+    }
+  }
+  opts.signal?.addEventListener('abort', () => {
+    aborted = true
+    stopAll()
+  }, { once: true })
+
   recorder.start(1000)
   const wallStart = performance.now()
   let clockOffset = 0
@@ -343,6 +381,10 @@ export async function exportProject(opts: ExportOptions): Promise<ExportResult> 
   await new Promise<void>((resolve, reject) => {
     const tick = (): void => {
       try {
+        if (aborted) {
+          resolve()
+          return
+        }
         const wall = (performance.now() - wallStart) / 1000
         const seg = activeSegment(segments, wall)
         // The playing main video is the clock when it can be (drift-corrected),
@@ -420,9 +462,7 @@ export async function exportProject(opts: ExportOptions): Promise<ExportResult> 
         if (t >= total) {
           // Let the last frames flush before stopping the recorder.
           setTimeout(() => {
-            for (const v of videos.values()) v.pause()
-            for (const a of audios.values()) a.pause()
-            recorder.stop()
+            stopAll()
             resolve()
           }, 250)
           return
@@ -472,6 +512,7 @@ export async function exportProject(opts: ExportOptions): Promise<ExportResult> 
   }).finally(cleanup)
 
   await stopped
+  if (aborted) throw new ExportError('export.aborted')
   const blob = new Blob(chunks, { type: mime })
   return { blob, ext: mime.includes('mp4') ? 'mp4' : 'webm', seconds: total }
 }

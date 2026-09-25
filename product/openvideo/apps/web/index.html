@@ -5,61 +5,12 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>OpenVideo</title>
     <style>
-      /* Page chrome consumes the design TOKENS (@mediabase/theme injects the
-         values per skin; the literals are fallbacks). Component recipes follow
-         the warm-neutral grammar derived from clawnify/OpenVideo ui.tsx (MIT):
-         ink primary buttons, ring-edged secondary, ghost row actions,
-         inset-ring fields with a tinted focus glow, cards edged — never
-         drop-shadowed. Editor component styles: @openvideo/ui-editor (.ov-*). */
+      /* LAYOUT ONLY — and this page owns almost none: the product shell
+         (@openvideo/ui-shell) brings its own full-bleed grid (.ovs-*), and the
+         shared element recipes come from @mediabase/theme/chrome.css via
+         src/main.tsx. What stays is the color-scheme hint and the root box. */
       :root { color-scheme: dark; }
-      * { box-sizing: border-box; }
-      body { margin: 0;
-             font-family: var(--font, ui-sans-serif, system-ui, -apple-system, "Segoe UI", sans-serif);
-             font-size: 14px; line-height: 1.45;
-             background: var(--bg, #0d1117); color: var(--text, #c9d1d9); }
-      .app { display: grid; grid-template-columns: 380px 1fr; gap: 16px; padding: 16px; min-height: 100vh; }
-      .panel { background: var(--panel, #161b22); border: 1px solid var(--border, #30363d);
-             border-radius: var(--radius, 10px); padding: 16px; box-shadow: var(--shadow, none); }
-      h1 { font-size: 15px; font-weight: 600; letter-spacing: -0.01em; margin: 0 0 4px;
-             display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
-      .sub { color: var(--muted, #8b949e); font-size: 13px; margin-bottom: 14px; }
-      label { display: block; font-size: 12px; color: var(--muted, #8b949e); margin: 10px 0 4px; }
-      input[type=text], input[type=number], select, textarea {
-             width: 100%; background: var(--inset, #0d1117); color: var(--text, #c9d1d9);
-             border: none; box-shadow: inset 0 0 0 1px var(--border, #30363d);
-             border-radius: calc(var(--radius, 10px) * 0.66); padding: 7px 10px; font-size: 13px;
-             font-family: inherit; }
-      input:focus-visible, select:focus-visible, textarea:focus-visible {
-             outline: none;
-             box-shadow: inset 0 0 0 1px var(--accent, #58a6ff), 0 0 0 3px var(--accent-tint, rgba(88, 166, 255, 0.25)); }
-      button:focus-visible { outline: 2px solid var(--accent, #58a6ff); outline-offset: 1px; }
-      button { display: inline-flex; align-items: center; justify-content: center; gap: 6px;
-             height: 30px; padding: 0 12px; border: none; cursor: pointer;
-             background: var(--primary, #238636); color: var(--primary-text, #fff);
-             border-radius: calc(var(--radius, 10px) * 0.66);
-             font-size: 13.5px; font-weight: 500; font-family: inherit; white-space: nowrap;
-             margin-right: 6px; margin-top: 6px; transition: filter .12s ease, background .12s ease; }
-      button:hover:not(:disabled) { filter: brightness(1.08); }
-      button.secondary { background: var(--panel, #21262d); color: var(--text, #c9d1d9);
-             box-shadow: inset 0 0 0 1px var(--border, #30363d); }
-      button.secondary:hover:not(:disabled) { filter: none; background: var(--inset, #1c2128); }
-      button:disabled { opacity: .5; cursor: not-allowed; }
-      .row { display: flex; gap: 8px; }
-      .row > * { flex: 1; }
-      /* The monitor column stacks the player above the timeline. */
-      .monitor { display: flex; flex-direction: column; align-items: stretch; justify-content: flex-start; gap: 4px; }
-      canvas { background: #000; border: none; box-shadow: inset 0 0 0 1px var(--border, #30363d);
-             border-radius: calc(var(--radius, 10px) * 0.8); max-width: 100%; }
-      .badge { display: inline-block; font-size: 11px; font-weight: 500; padding: 2px 9px;
-             border-radius: 999px; margin-left: 8px;
-             background: var(--accent-tint, #1f6f3c); color: var(--accent, #fff); }
-      .status { font-size: 13px; color: var(--muted, #8b949e); margin-top: 10px; min-height: 16px; }
-      code { background: var(--inset, #0d1117); padding: 1px 5px; border-radius: 4px; font-size: 12px; }
-      .theme-picker { width: auto !important; font-size: 12px; height: 24px; padding: 0 8px; margin: 0;
-             background: var(--inset, #0d1117); color: var(--text, #c9d1d9);
-             border: none; box-shadow: inset 0 0 0 1px var(--border, #30363d);
-             border-radius: 999px; cursor: pointer; }
-      * { scrollbar-color: var(--border, #30363d) transparent; }
+      #root { min-height: 100vh; }
     </style>
   </head>
   <body>

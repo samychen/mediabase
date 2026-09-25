@@ -12,6 +12,10 @@
 // Drop ui-media/ui-panels from the roster and you get an empty but working shell; registration
 // is reactive, so a panel package composed AFTER the shell mounted still renders.
 import { Context } from '@deepseek-ai/cordis'
+// Shared element recipes (buttons/fields/badges/…), tokenized with literal
+// fallbacks — imported unconditionally so the page renders correctly with or
+// without the theme PLUGIN composed; layout lives in index.html below.
+import '@mediabase/theme/chrome.css'
 import { CLIENT_ROSTER } from './roster.generated.ts'
 
 const ctx = new Context()

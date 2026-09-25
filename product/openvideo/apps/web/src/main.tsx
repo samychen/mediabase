@@ -6,6 +6,9 @@
 // copy of the roster generator (the base generator resolves the base bundle —
 // a product needs its own, as docs/HANDOFF.zh.md says).
 import { Context } from '@deepseek-ai/cordis'
+// Shared element recipes from the base theme package (tokenized, with literal
+// fallbacks); the product shell's layout lives in @openvideo/ui-shell.
+import '@mediabase/theme/chrome.css'
 import { CLIENT_ROSTER } from './roster.generated.ts'
 
 const ctx = new Context()
