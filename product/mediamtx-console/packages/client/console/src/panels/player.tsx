@@ -51,14 +51,29 @@ export function PlayerPanel({ ctx }: { ctx: Context }): ReactElement | null {
         return
       }
       setState('connecting')
+      // A leftover srcObject SHADOWS the src attribute — switching from WHEP
+      // (srcObject) to HLS (src) must clear it first or the element keeps the
+      // dead stream.
+      video.srcObject = null
       video.src = `${hlsBase}/${encodeURIComponent(selected)}/index.m3u8`
+      video.load()
       const onPlaying = (): void => setState('live')
       const onError = (): void => {
         setState('error')
-        setDetail('playback error')
+        // Surface the real cause: MediaError codes (2 = network, 3 = decode,
+        // 4 = src not supported) — guessing cost the user a debug round.
+        const err = video.error
+        setDetail(err !== null ? `media error ${err.code}${err.message ? ` (${err.message})` : ''}` : 'playback error')
       }
       video.addEventListener('playing', onPlaying)
       video.addEventListener('error', onError)
+      // Setting src alone never starts native HLS: without play() even a
+      // perfectly healthy stream sits at "connecting" forever. The video is
+      // muted, so autoplay is allowed.
+      video.play().catch((e: unknown) => {
+        setState('error')
+        setDetail(e instanceof Error ? e.message : String(e))
+      })
       return () => {
         video.removeEventListener('playing', onPlaying)
         video.removeEventListener('error', onError)
