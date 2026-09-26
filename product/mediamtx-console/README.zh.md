@@ -17,7 +17,7 @@ MediaMTX 把摄像头/推流收进来,用 RTSP/RTMP/SRT/HLS/WebRTC 发出去。�
 agent 用的界面**:每个面板动作背后都是一个带 schema 校验的 RPC 方法,同一批
 方法又以工具形式注册给基座 agent("把 3 号摄像头加到服务器上"是一句话的事)。
 
-M1 范围(本里程碑):
+M1 范围:
 
 - **仪表盘**:服务器版本/启动时间、全部监听端口(从服务器配置推导)、指标摘要
   (就绪/待流路径数、观看者、每路径进出字节——解析 Prometheus `/metrics`);
@@ -29,6 +29,16 @@ M1 范围(本里程碑):
   会话归一化成一张表,可踢;
 - **带码降级**:服务器不可达时每个调用都返回 `UNAVAILABLE + messageKey`,
   面板显示"不可达"而不是一片空白。
+
+M2 范围(本里程碑):
+
+- **录像回放**:右侧新面板按路径浏览录像窗口(天粒度分组、时刻+时长),点播放
+  即上主舞台;播放走 MSE 吃 playback 服务器的 fMP4 流(浏览器直连 :9996,媒体
+  字节依旧不过宿主),init 段 codec 解析内置(avc1/hvc1/mp4a),**零新依赖**
+  (无 hls.js/mse.js/mp4box);
+- **回放链的控制面**:新 RPC 方法 `mediamtx.playback.list` 归一化 `/list` 的
+  窗口数组,并把 `/get` URL 的 origin 改写成浏览器可达地址(上游回显的是它自己
+  看到的 Host);playback 未开启/不可达都是带码错误+配置提示,不是白屏。
 
 ## 快速开始
 
@@ -46,6 +56,17 @@ MTXCONSOLE_USERNAME=admin MTXCONSOLE_PASSWORD=… \
 pnpm run host:mtxconsole
 ```
 
+录像回放需要 MediaMTX 侧两处配置(`mediamtx.yml`):
+
+```yaml
+pathDefaults:
+  record: yes        # 或给单个路径开 record
+playback: yes        # 回放服务器(:9996);CORS 默认全开(playbackAllowOrigins ["*"])
+```
+
+改完重启 mediamtx。浏览器**直连** playback 服务器取媒体,所以它的端口要能被
+你的浏览器访问到(与 WHEP/HLS 同理);控制面(`/list` 归一化)走宿主桥。
+
 门禁:
 
 ```sh
@@ -61,10 +82,11 @@ pnpm run verify:mtxconsole:compose  # 组合文件门禁
 浏览器面板(@mtxconsole/ui-console)          ← 像素/播放/表单
    │  WS JSON-RPC(控制面,命令与行,不搬字节)
 宿主桥(@mtxconsole/host-bridge)             ← 凭据/跨域/归一化/工具
-   │  HTTP(MediaMTX v3 API + /metrics)
+   │  HTTP(MediaMTX v3 API + /metrics + playback /list)
 MediaMTX 服务器(第三方,MIT,操作者自备)
    ▲
-   └── 浏览器直连:WHEP(:8889)/ HLS(:8888)  ← 媒体字节走这里,不过宿主
+   └── 浏览器直连:WHEP(:8889)/ HLS(:8888)/ 回放 fMP4(:9996)
+       ← 媒体字节走这里,不过宿主
 ```
 
 - `@mtxconsole/protocol`(双面纯逻辑):归一化 wire 形状 + 上游形状适配器
@@ -99,13 +121,13 @@ MediaMTX 服务器(第三方,MIT,操作者自备)
 product/mediamtx-console/
 ├── packages/
 │   ├── protocol/            @mtxconsole/protocol   双面纯逻辑:schemas/适配器/解析
-│   ├── host/bridge/         @mtxconsole/host-bridge 宿主能力:14 个 RPC 方法 + 6 个工具
-│   ├── client/console/      @mtxconsole/ui-console  5 个面板 + WHEP 客户端 + store
+│   ├── host/bridge/         @mtxconsole/host-bridge 宿主能力:15 个 RPC 方法 + 6 个工具
+│   ├── client/console/      @mtxconsole/ui-console  6 个面板 + WHEP 客户端 + MSE 回放 + store
 │   └── bundle/{app,ui}/     组合层(宿主 patch / 浏览器名册)
 ├── apps/cli/                宿主入口(身份:mtxconsole)
 ├── apps/web/                页面(Vite)
 ├── scripts/                 名册生成 + verify 冒烟
-└── tests/                   protocol 单元 / host 集成(LIVE+DEGRADED)/ roster / i18n
+└── tests/                   protocol 单元 / host 集成(LIVE+DEGRADED+mock)/ mse / format / roster / i18n
 ```
 
 ## 与 OpenVideo 产品并存
@@ -114,11 +136,15 @@ product/mediamtx-console/
 :3091(各自 bundle 层挪默认端口),身份目录分别为 `~/.mediabase` /
 `~/.openvideo` / `~/.mtxconsole`。
 
-## 已知边界(M1)
+## 已知边界(M2)
 
-- 录像回放面板未做(桥已备 `mediamtx.recordings.*` 方法与 playback 端点推导,
-  M2 接 UI);
-- 全局配置只提供只读审阅 + 子集补丁方法,未做表单 UI;
+- 回放窗口按段播放,未做跨段时间轴(拖到下一段需再点一次;playback 服务器
+  的 `/get` 不支持 Range,浏览器进度条只在当前窗口内有效);
+- 回放要求浏览器支持 MSE(现代桌面浏览器与 iOS 17.1+ 均可;更老的 Safari 会
+  得到明确的"不支持"提示而非黑屏);HEVC 录像的 codec 串按标准公式构造,但未
+  在真实 HEVC 设备上验证过;
+- 全局配置只提供只读审阅 + 子集补丁方法,未做表单 UI(M3 候选);
+- 单服务器(一个宿主对一个 MediaMTX;多服务器切换是 M3 候选);
 - WHEP 播放依赖浏览器原生 `RTCPeerConnection`(全平台现代浏览器可用);HLS
   回退仅原生支持的浏览器(不引入 hls.js,零新依赖是本产品的硬约束);
 - MediaMTX 认证仅实现 basic-auth(API 侧);JWT 等上游新认证方式未接。

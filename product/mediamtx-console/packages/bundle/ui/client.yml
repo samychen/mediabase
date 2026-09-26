@@ -3,8 +3,9 @@
 # The base rows first (the registries everything registers into), the console
 # panels next, and the SHELL LAST — it mounts React and renders whatever
 # ctx.ui holds by then. This product does NOT need a custom shell: the base
-# web shell (@mediabase/ui-web) already renders header/sidebar/monitor/bottom
-# areas and takes its branding from the roster row (branding is data).
+# web shell (@mediabase/ui-web) already renders header/sidebar/monitor/right/
+# bottom areas (right/bottom grow the grid only when a product fills them)
+# and takes its branding from the roster row (branding is data).
 #
 # The roster is data: `product/mediamtx-console/scripts/gen-client-roster.mjs`
 # turns it into apps/web/src/roster.generated.ts.

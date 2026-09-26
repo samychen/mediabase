@@ -11,7 +11,7 @@
 // openvideo editor uses. All five panels share ONE store instance provided on
 // the context, so they poll the server once, not five times.
 
-import type { Endpoints, MetricsSummary, PathRow, ServerInfo, SessionKind, SessionRow } from '@mtxconsole/protocol'
+import type { Endpoints, MetricsSummary, PathRow, PlaybackEntry, ServerInfo, SessionKind, SessionRow } from '@mtxconsole/protocol'
 import type { RpcService } from '@mediabase/connection'
 
 export const POLL_MS = 3000
@@ -28,6 +28,14 @@ export interface ConsoleSnapshot {
   /** The path the player panel should render (null = none selected). */
   selected: string | null
   playMode: 'whep' | 'hls'
+  /** A recording window on the player stage (mutually exclusive with `selected`). */
+  recording: { url: string; label: string } | null
+  /** Recording-browser state (on-demand; NOT part of the polling loop). */
+  recPaths: string[]
+  recPath: string | null
+  recEntries: PlaybackEntry[]
+  recLoading: boolean
+  recError: string | null
   /** Bumped after every successful cycle — panels key transitions off it. */
   generation: number
 }
@@ -42,6 +50,13 @@ export interface ConsoleStore {
   addPath(name: string, source: string | undefined, record: boolean): Promise<void>
   deletePath(name: string): Promise<void>
   kickSession(kind: SessionKind, id: string): Promise<void>
+  /** Put a recording window on the stage (clears any live selection). */
+  playRecording(url: string, label: string): void
+  stopRecording(): void
+  /** Refresh the list of paths that have recordings. */
+  loadRecordingPaths(): Promise<void>
+  /** Pick a recorded path and fetch its playable windows. */
+  selectRecordingPath(name: string | null): Promise<void>
   refresh(): Promise<void>
 }
 
@@ -55,6 +70,12 @@ export const EMPTY_FALLBACK: ConsoleSnapshot = {
   metrics: null,
   selected: null,
   playMode: 'whep',
+  recording: null,
+  recPaths: [],
+  recPath: null,
+  recEntries: [],
+  recLoading: false,
+  recError: null,
   generation: 0,
 }
 
@@ -131,9 +152,41 @@ export function createConsoleStore(rpc: RpcService): ConsoleStore {
         timer = null
       }
     },
-    select: (name) => emit({ selected: name }),
+    select: (name) => emit({ selected: name, recording: null }),
     setPlayMode: (mode) => emit({ playMode: mode }),
     refresh,
+    playRecording: (url, label) => emit({ recording: { url, label }, selected: null }),
+    stopRecording: () => emit({ recording: null }),
+    loadRecordingPaths: async () => {
+      try {
+        const res = await rpc.call<{ recordings: Array<{ name: string }> }>('mediamtx.recordings.list', {})
+        const names = res.recordings.map((r) => r.name)
+        emit({ recPaths: names })
+        // Nothing selected yet and exactly one recorded path — open it
+        // straight away; single-camera setups are the common case.
+        if (snapshot.recPath === null && names.length === 1) await store.selectRecordingPath(names[0]!)
+      } catch {
+        // The recordings index is a convenience list — a failed fetch leaves
+        // the previous list in place; the entry fetch surfaces real errors.
+      }
+    },
+    selectRecordingPath: async (name) => {
+      if (name === null) {
+        emit({ recPath: null, recEntries: [], recLoading: false, recError: null })
+        return
+      }
+      emit({ recPath: name, recEntries: [], recLoading: true, recError: null })
+      try {
+        const res = await rpc.call<{ entries: PlaybackEntry[] }>('mediamtx.playback.list', { name })
+        // A late answer for a previously selected path must not overwrite the
+        // current selection (the user clicked another path meanwhile).
+        if (snapshot.recPath === name) emit({ recEntries: res.entries, recLoading: false })
+      } catch (e) {
+        if (snapshot.recPath === name) {
+          emit({ recLoading: false, recError: e instanceof Error ? e.message : String(e) })
+        }
+      }
+    },
     addPath: async (name, source, record) => {
       await rpc.call('mediamtx.config.paths.add', {
         name,

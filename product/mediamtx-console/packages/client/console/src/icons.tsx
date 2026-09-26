@@ -17,3 +17,4 @@ export const IconPlus = (p: SVGProps<SVGSVGElement>): ReactElement => svg(p, <><
 export const IconTrash = (p: SVGProps<SVGSVGElement>): ReactElement => svg(p, <><polyline points="3 6 5 6 21 6" /><path d="M19 6l-1 14a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2L5 6" /><line x1="10" y1="11" x2="10" y2="17" /><line x1="14" y1="11" x2="14" y2="17" /></>)
 export const IconKick = (p: SVGProps<SVGSVGElement>): ReactElement => svg(p, <><circle cx="12" cy="12" r="9" /><line x1="9" y1="9" x2="15" y2="15" /><line x1="15" y1="9" x2="9" y2="15" /></>)
 export const IconTv = (p: SVGProps<SVGSVGElement>): ReactElement => svg(p, <><rect x="2" y="7" width="20" height="13" rx="2" /><polyline points="8 3 12 7 16 3" /></>)
+export const IconHistory = (p: SVGProps<SVGSVGElement>): ReactElement => svg(p, <><circle cx="12" cy="12" r="9" /><polyline points="12 7 12 12 15 14" /></>)

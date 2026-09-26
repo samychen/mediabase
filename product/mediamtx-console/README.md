@@ -22,7 +22,7 @@ and it is an **agent-facing** UI: every panel action is a schema-checked RPC
 method, and the same methods are registered as base-agent tools ("put camera 3
 on the server" is one sentence away).
 
-M1 scope (this milestone):
+M1 scope:
 
 - **Dashboard**: server version/uptime, the listener map (derived from the
   server's own config), and a metrics summary parsed from Prometheus
@@ -37,6 +37,20 @@ M1 scope (this milestone):
   normalized into one table, with kick where upstream supports it;
 - **Coded degradation**: with the server unreachable every call answers
   `UNAVAILABLE + messageKey` — panels say "unreachable" instead of going blank.
+
+M2 scope (this milestone):
+
+- **Recording playback**: a right-column panel browses playback windows per
+  path (day-grouped, start time + duration); Play puts the window on the main
+  stage, fed to MSE straight from the playback server's fMP4 stream (browser
+  **direct** to :9996 — media bytes still never traverse the host). The init
+  segment codec parser (avc1/hvc1/mp4a) is built in: **zero new dependencies**
+  (no hls.js/mse.js/mp4box);
+- **Control plane for the chain**: the new RPC method `mediamtx.playback.list`
+  normalizes the `/list` window array and rewrites each `/get` URL's origin to
+  the browser-reachable base (upstream echoes the Host *it* saw); playback
+  disabled/unreachable are coded errors carrying the config hint, never a
+  blank panel.
 
 ## Quick start
 
@@ -54,6 +68,19 @@ MTXCONSOLE_USERNAME=admin MTXCONSOLE_PASSWORD=… \
 pnpm run host:mtxconsole
 ```
 
+Recording playback needs two settings on the MediaMTX side (`mediamtx.yml`):
+
+```yaml
+pathDefaults:
+  record: yes        # or record: yes per path
+playback: yes        # the playback server (:9996); CORS is open by default (playbackAllowOrigins ["*"])
+```
+
+Restart mediamtx afterwards. The browser talks to the playback server
+**directly** for media, so its port must be reachable from your browser (same
+rule as WHEP/HLS); the control plane (`/list` normalization) goes through the
+host bridge.
+
 Gates:
 
 ```sh
@@ -69,10 +96,11 @@ pnpm run verify:mtxconsole:compose  # composition-file gate
 browser panels (@mtxconsole/ui-console)       ← pixels/playback/forms
    │  WS JSON-RPC (control plane: commands & rows, never bytes)
 host bridge (@mtxconsole/host-bridge)         ← credentials/CORS/normalization/tools
-   │  HTTP (MediaMTX v3 API + /metrics)
+   │  HTTP (MediaMTX v3 API + /metrics + playback /list)
 MediaMTX server (third-party, MIT, operator-run)
    ▲
-   └── browser-direct: WHEP (:8889) / HLS (:8888)   ← media bytes go here
+   └── browser-direct: WHEP (:8889) / HLS (:8888) / recording fMP4 (:9996)
+       ← media bytes go here
 ```
 
 - `@mtxconsole/protocol` (pure, both planes): normalized wire shapes + the
@@ -106,11 +134,18 @@ them through `agent.run`):
 
 See [AGENT.md](./AGENT.md).
 
-## Known edges (M1)
+## Known edges (M2)
 
-- recording playback UI not built (the bridge already exposes
-  `mediamtx.recordings.*` and derives the playback endpoint — M2 wires UI);
-- global config: read-only review + subset patch method, no form UI yet;
+- playback windows play segment-by-segment: no cross-window timeline yet
+  (dragging past the window end needs another click; the playback server's
+  `/get` has no Range support, so the scrubber only spans the current window);
+- recording playback requires browser MSE (all modern desktop browsers and
+  iOS 17.1+; older Safari gets an explicit "unsupported" message instead of a
+  black screen). HEVC codec strings follow the standard formula but have not
+  been verified against real HEVC hardware;
+- global config: read-only review + subset patch method, no form UI yet (M3
+  candidate);
+- single server per host (multi-server switching is an M3 candidate);
 - WHEP relies on the browser's native `RTCPeerConnection`; the HLS fallback
   only exists where native (no hls.js — zero new runtime deps is a hard
   constraint of this product);

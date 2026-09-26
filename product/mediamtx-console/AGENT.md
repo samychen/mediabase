@@ -27,6 +27,7 @@ You reach the host two ways:
 | RPC `mediamtx.sessions.list` `{kind?}` | one row per viewer/publisher across all 8 protocols (omit `kind` for everything) |
 | RPC `mediamtx.metrics` | `{ pathsReady, pathsNotReady, totalReaders, perPath[] }` parsed from Prometheus |
 | RPC `mediamtx.recordings.list` / `.get {name}` | recorded paths and their day/segment summaries |
+| RPC `mediamtx.playback.list` `{name, start?, end?}` | playable windows `[{ startIso, durationSeconds, url }]` — `url` is a browser-fetchable fMP4 stream (origin already rewritten to the reachable playback base) |
 | RPC `mediamtx.config.global.get` | the server's flat config (122 keys) for review |
 
 `ready: false` is not an error — it means no publisher is connected yet.
@@ -51,6 +52,8 @@ waits for a live push).
 | upstream refused (duplicate path, bad value…) | code by status: 400→`-32602`, 404→`-32001`, 401/403→`-32002`, else `-32004`; `messageKey: mediamtx.upstream`, `messageParams.detail` carries MediaMTX's own words |
 | protocol cannot be kicked (rtmp) | `-32602`, `messageKey: mediamtx.notKickable` |
 | metrics disabled upstream | `-32002`, `messageKey: mediamtx.noMetrics` |
+| playback server disabled upstream | `-32002`, `messageKey: mediamtx.playbackDisabled` (needs `playback: yes` in mediamtx.yml) |
+| playback server unreachable | `-32002`, `messageKey: mediamtx.playbackUnreachable`, `messageParams.url` |
 
 ## Recipes
 
@@ -58,3 +61,5 @@ waits for a live push).
 - **"Who's watching cam1?"**: `mediamtx.sessions.list` (or paths.list `readers`), filter `path==="cam1"`.
 - **"Kick the stale WebRTC viewer"**: find the row (`kind:"webrtc"`), then `mediamtx.sessions.kick {kind, id}`.
 - **"Is the server healthy?"**: `mediamtx.info` + `mediamtx.metrics`; report version, ready/idle counts, total viewers.
+- **"What did cam1 record yesterday?"**: `mediamtx.playback.list {name:"cam1", start:"…T00:00:00Z", end:"…T23:59:59Z"}` → report windows as start + duration; an empty array means nothing was recorded (not an error).
+- **"Give me a link to that recording"**: hand over the window's `url` — it streams fMP4 (`format` defaults to fmp4; append `&format=mp4` for a download-style MP4). A path that never recorded answers 400 upstream, which the bridge maps to `[]`; a path that does not exist is `-32602`.

@@ -14,6 +14,8 @@
 // CI without MediaMTX still runs everything that does not need a server.
 
 import { afterAll, beforeAll, describe, expect, it } from 'vitest'
+import { createServer as createHttpServer, type Server } from 'node:http'
+import type { AddressInfo } from 'node:net'
 import {
   bootMtxconsole,
   expectError,
@@ -93,6 +95,12 @@ describe('the console host without a MediaMTX server', () => {
     expect(err.code).toBe(INVALID_PARAMS)
     expect(err.messageKey).toBe('mediamtx.notKickable')
   })
+
+  it('fails playback.list with the same coded UNAVAILABLE (endpoint derivation hits the dead server first)', async () => {
+    const err = await expectError(host!.rpc, 'mediamtx.playback.list', { name: 'cam1' })
+    expect(err.code).toBe(UNAVAILABLE)
+    expect(err.messageKey).toBe('mediamtx.unreachable')
+  })
 })
 
 // ---- world 2: live -----------------------------------------------------------
@@ -131,6 +139,18 @@ describe.skipIf(bin === null)('the console host against a REAL MediaMTX', () => 
     expect(endpoints.webrtc).toBeNull()
     expect(endpoints.hls).toBeNull()
     expect(endpoints.metrics).toMatch(/^http:\/\/127\.0\.0\.1:\d+$/)
+    expect(endpoints.playback).toBe(mtx!.playbackUrl)
+  })
+
+  it('answers playback.list with an empty window list for a path that never recorded', async () => {
+    // Upstream answers 400 "lstat …: no such file or directory" for a path
+    // without a recordings directory — the bridge maps that NORMAL state to
+    // an empty list, not an error (verified against live v1.21.1).
+    const { entries } = await host!.rpc.call<{ entries: unknown[] }>('mediamtx.playback.list', { name: 'seeded' })
+    expect(entries).toEqual([])
+    // A path that is not CONFIGURED at all is a real parameter error, though.
+    const missing = await expectError(host!.rpc, 'mediamtx.playback.list', { name: 'never-existed' })
+    expect(missing.code).toBe(INVALID_PARAMS)
   })
 
   it('walks the path lifecycle with the upstream error contract mapped onto RPC codes', async () => {
@@ -199,5 +219,118 @@ describe.skipIf(bin === null)('the console host against a REAL MediaMTX', () => 
     const after = await host!.rpc.call<{ name: string }[]>('tools.run', { name: 'mediamtx.paths.list', args: {} })
     expect(after.map((p) => p.name)).toContain('agent-cam')
     await host!.rpc.call('tools.run', { name: 'mediamtx.path.delete', args: { name: 'agent-cam' } })
+  })
+})
+
+// ---- world 3: mocked upstream pair --------------------------------------------
+//
+// The success path of playback.list needs a playback server WITH recordings —
+// a real one needs a publisher (ffmpeg), which CI does not have. So: a tiny
+// node:http pair (API mock + playback mock) pins the bridge's normalization —
+// entry shape, origin rewrite to the browser-reachable base, window params,
+// and the coded error when the playback server is disabled upstream.
+
+describe('the playback bridge against a mocked API+playback pair', () => {
+  let api: Server | null = null
+  let pb: Server | null = null
+  let host: BootedHost | null = null
+  let pbPort = 0
+  let playbackEnabled = true
+  let lastListQuery: string | null = null
+
+  beforeAll(async () => {
+    pb = createHttpServer((req, res) => {
+      const u = new URL(req.url ?? '/', 'http://localhost')
+      if (u.pathname === '/list') {
+        lastListQuery = u.search
+        res.setHeader('content-type', 'application/json')
+        // The upstream builds the /get URL from the request Host IT saw — the
+        // mock claims a foreign origin so the rewrite is provable.
+        res.end(JSON.stringify([{
+          start: '2026-09-26T04:49:51.370862Z',
+          duration: 9.978,
+          url: `http://10.9.8.7:9996/get?duration=9.978&path=${encodeURIComponent(u.searchParams.get('path') ?? '')}&start=2026-09-26T04%3A49%3A51.370862Z`,
+        }]))
+        return
+      }
+      res.statusCode = 404
+      res.end('{}')
+    })
+    await new Promise<void>((r) => pb!.listen(0, '127.0.0.1', r))
+    pbPort = (pb.address() as AddressInfo).port
+
+    api = createHttpServer((req, res) => {
+      const u = new URL(req.url ?? '/', 'http://localhost')
+      res.setHeader('content-type', 'application/json')
+      if (u.pathname === '/v3/info') {
+        res.end(JSON.stringify({ version: 'v1.21.1-mock', started: '2026-09-26T00:00:00Z' }))
+        return
+      }
+      if (u.pathname === '/v3/config/global/get') {
+        res.end(JSON.stringify({
+          playback: playbackEnabled,
+          playbackAddress: `:${pbPort}`,
+          webrtc: false,
+          hls: false,
+          rtsp: false,
+          rtmp: false,
+          srt: false,
+          metrics: false,
+        }))
+        return
+      }
+      res.statusCode = 404
+      res.end('{}')
+    })
+    await new Promise<void>((r) => api!.listen(0, '127.0.0.1', r))
+    const apiPort = (api.address() as AddressInfo).port
+
+    host = await bootMtxconsole({
+      MTXCONSOLE_STRICT_CAPABILITIES: '1',
+      MTXCONSOLE_SERVER_URL: `http://127.0.0.1:${apiPort}`,
+    })
+  }, 120_000)
+
+  afterAll(async () => {
+    await host?.stop()
+    host = null
+    api?.close()
+    pb?.close()
+    api = null
+    pb = null
+  })
+
+  it('normalizes entries and rewrites the /get origin to the browser-reachable playback base', async () => {
+    const { entries } = await host!.rpc.call<{ entries: Array<{ startIso: string; durationSeconds: number; url: string }> }>(
+      'mediamtx.playback.list',
+      { name: 'cam1' },
+    )
+    expect(entries).toHaveLength(1)
+    expect(entries[0]!.startIso).toBe('2026-09-26T04:49:51.370862Z')
+    expect(entries[0]!.durationSeconds).toBe(9.978)
+    // Origin swapped (10.9.8.7:9996 → the derived base), path+query untouched.
+    expect(entries[0]!.url).toBe(
+      `http://127.0.0.1:${pbPort}/get?duration=9.978&path=cam1&start=2026-09-26T04%3A49%3A51.370862Z`,
+    )
+  })
+
+  it('passes the optional start/end window through to the upstream query', async () => {
+    await host!.rpc.call('mediamtx.playback.list', {
+      name: 'cam1',
+      start: '2026-09-26T00:00:00Z',
+      end: '2026-09-27T00:00:00Z',
+    })
+    expect(lastListQuery).toContain('path=cam1')
+    expect(lastListQuery).toContain(`start=${encodeURIComponent('2026-09-26T00:00:00Z')}`)
+    expect(lastListQuery).toContain(`end=${encodeURIComponent('2026-09-27T00:00:00Z')}`)
+  })
+
+  it('reports a coded UNAVAILABLE when the playback server is disabled upstream', async () => {
+    playbackEnabled = false
+    const err = await expectError(host!.rpc, 'mediamtx.playback.list', { name: 'cam1' })
+    expect(err.code).toBe(UNAVAILABLE)
+    expect(err.messageKey).toBe('mediamtx.playbackDisabled')
+    expect(err.message).toContain('playback: yes')
+    playbackEnabled = true
   })
 })

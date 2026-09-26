@@ -25,6 +25,17 @@ This product layer (`product/mediamtx-console/`, scope `@mtxconsole/*`) is a
      captures, trimmed), and
   2. MediaMTX's **published route table** (`internal/api/api.go` in
      [bluenviron/mediamtx], read for endpoint names/methods only).
+- For the M2 recording-playback chain, the playback server's **API contract**
+  was additionally confirmed by reading `internal/playback/{server,on_list,
+  on_get,muxer_mp4}.go` in [bluenviron/mediamtx] (MIT) — for facts only:
+  query parameter names, the top-level-array `/list` response shape, durations
+  as float seconds, `format=fmp4|mp4`, `Accept-Ranges: none`, and the
+  `ftyp+moov+(moof mdat)*` stream layout (verified again against a live server
+  with a real recording). **No Go code was translated or copied**; the
+  TypeScript here (box walking, codec-string construction, the MSE append
+  loop) implements ISO-BMFF/RFC 6381/W3C MSE standards from scratch. The init
+  segment fixture in `tests/mse.test.ts` was captured from a synthetic
+  ffmpeg test-pattern recording made during development.
 - [bluenviron/mediamtx] itself is **MIT-licensed**; this product does not
   vendor or redistribute it. The console talks to a MediaMTX server the
   operator runs themselves (the test harness spawns one only when a binary is

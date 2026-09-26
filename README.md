@@ -62,7 +62,7 @@ pnpm run verify:openvideo  # 端到端冒烟
 服务器管理台，**净室实现**：不含第三方派生代码，接口知识来自对真实 MediaMTX
 v1.21 的实测与其公开路由表，见其 `NOTICE.md`）：`@mtxconsole/*` scope、自己的
 bundle 层与身份（`MTXCONSOLE_` / `~/.mtxconsole` / 端口 3091），基座零改动。
-浏览器经 WHEP/HLS 直连 MediaMTX 取流（媒体字节不过宿主），宿主桥只管命令与行。
+浏览器经 WHEP/HLS/录像回放(fMP4) 直连 MediaMTX 取流（媒体字节不过宿主），宿主桥只管命令与行。
 
 ```sh
 pnpm run build:mtxconsole   # 名册 + 页面

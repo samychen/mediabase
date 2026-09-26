@@ -1,7 +1,9 @@
 // Preview player: WHEP first (low latency, zero dependencies — MediaMTX
 // serves it natively), HLS as the compatibility fallback but ONLY where the
 // browser can play a playlist natively (Safari/iOS); elsewhere that toggle is
-// disabled with an explanation instead of pulling in hls.js.
+// disabled with an explanation instead of pulling in hls.js. Recording
+// windows get the same stage through MSE (mse.ts) — one <video>, three
+// pipelines, mutually exclusive.
 //
 // The WHEP session lifecycle is one effect keyed on (selected, mode,
 // endpoints): switching streams tears the old PeerConnection down before the
@@ -13,6 +15,7 @@ import type { Context } from '@deepseek-ai/cordis'
 import { useI18n } from '@mediabase/i18n'
 import { useConsole } from '../use-console.ts'
 import { isWhepError, nativeHlsSupported, startWhep, type WhepHandle } from '../whep.ts'
+import { MsePlayer } from '../mse.ts'
 import { IconStop, IconTv } from '../icons.tsx'
 
 type PlayerState = 'idle' | 'connecting' | 'live' | 'error'
@@ -28,17 +31,50 @@ export function PlayerPanel({ ctx }: { ctx: Context }): ReactElement | null {
 
   const store = cons?.store ?? null
   const snap = cons?.snap ?? null
-  const selected = snap?.selected ?? null
+  const recording = snap?.recording ?? null
+  const recUrl = recording?.url ?? null
+  // A recording owns the stage: the live pipeline stands down while one plays.
+  const selected = recording === null ? snap?.selected ?? null : null
   const mode = snap?.playMode ?? 'whep'
   const webrtcBase = snap?.endpoints?.webrtc ?? null
   const hlsBase = snap?.endpoints?.hls ?? null
   const hlsOk = nativeHlsSupported()
 
+  // Recording playback (MSE ⇄ the playback server; see mse.ts). Declared
+  // after the live effect would double-run cleanups in the wrong order, so
+  // it lives FIRST: React runs effects top-down, live stands down before the
+  // recording pipeline takes the element over.
+  useEffect(() => {
+    const video = videoRef.current
+    if (video === null || recUrl === null) return
+    const player = new MsePlayer(video, (mseState, mseDetail) => {
+      if (mseState === 'opening') {
+        setState('connecting')
+        setDetail(null)
+      } else if (mseState === 'playing') {
+        setState('live')
+      } else if (mseState === 'ended') {
+        setState('idle')
+      } else {
+        setState('error')
+        setDetail(mseDetail === 'mse-unsupported' ? t('player.mseUnsupported') : mseDetail ?? 'playback error')
+      }
+    })
+    void player.play(recUrl)
+    return () => player.dispose()
+    // t is stable per locale; re-running on locale change is harmless.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [recUrl])
+
   useEffect(() => {
     const video = videoRef.current
     if (video === null || selected === null) {
-      setState('idle')
-      setDetail(null)
+      // While a recording owns the stage, the recording effect drives the
+      // state — standing down must not stomp it back to idle.
+      if (recUrl === null) {
+        setState('idle')
+        setDetail(null)
+      }
       return
     }
     let handle: WhepHandle | null = null
@@ -110,7 +146,7 @@ export function PlayerPanel({ ctx }: { ctx: Context }): ReactElement | null {
     }
     // t is stable per locale; re-running on locale change is harmless.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [selected, mode, webrtcBase, hlsBase, hlsOk])
+  }, [selected, mode, webrtcBase, hlsBase, hlsOk, recUrl])
 
   if (cons === null || snap === null || store === null) return null
 
@@ -125,31 +161,35 @@ export function PlayerPanel({ ctx }: { ctx: Context }): ReactElement | null {
   return (
     <section className="mx-player">
       <header className="mx-player__bar">
-        <span className="mx-player__title"><IconTv /> {selected ?? t('panel.player.title')}</span>
-        <span className="mx-player__modes">
-          <label className="mx-check mx-check--inline">
-            <input
-              type="radio"
-              name="mx-play-mode"
-              checked={mode === 'whep'}
-              onChange={() => store.setPlayMode('whep')}
-            />
-            <span>{t('player.mode.whep')}</span>
-          </label>
-          <label className="mx-check mx-check--inline" title={hlsOk ? undefined : t('player.hlsUnsupported')}>
-            <input
-              type="radio"
-              name="mx-play-mode"
-              checked={mode === 'hls'}
-              disabled={!hlsOk}
-              onChange={() => store.setPlayMode('hls')}
-            />
-            <span>{t('player.mode.hls')}</span>
-          </label>
+        <span className="mx-player__title">
+          <IconTv /> {recording !== null ? recording.label : selected ?? t('panel.player.title')}
         </span>
+        {recording === null && (
+          <span className="mx-player__modes">
+            <label className="mx-check mx-check--inline">
+              <input
+                type="radio"
+                name="mx-play-mode"
+                checked={mode === 'whep'}
+                onChange={() => store.setPlayMode('whep')}
+              />
+              <span>{t('player.mode.whep')}</span>
+            </label>
+            <label className="mx-check mx-check--inline" title={hlsOk ? undefined : t('player.hlsUnsupported')}>
+              <input
+                type="radio"
+                name="mx-play-mode"
+                checked={mode === 'hls'}
+                disabled={!hlsOk}
+                onChange={() => store.setPlayMode('hls')}
+              />
+              <span>{t('player.mode.hls')}</span>
+            </label>
+          </span>
+        )}
       </header>
       <div className="mx-player__stage" data-state={state}>
-        {selected === null
+        {selected === null && recording === null
           ? <p className="mx-dim mx-player__placeholder">{t('player.none')}</p>
           : <video ref={videoRef} controls playsInline muted />}
       </div>
@@ -157,8 +197,15 @@ export function PlayerPanel({ ctx }: { ctx: Context }): ReactElement | null {
         <span className="mx-badge" data-state={state === 'live' ? 'ready' : state === 'error' ? 'err' : 'idle'}>
           {stateText}
         </span>
-        {selected !== null && state !== 'idle' && (
-          <button type="button" className="mx-btn" onClick={() => store.select(null)}>
+        {(selected !== null || recording !== null) && state !== 'idle' && (
+          <button
+            type="button"
+            className="mx-btn"
+            onClick={() => {
+              if (recording !== null) store.stopRecording()
+              else store.select(null)
+            }}
+          >
             <IconStop /> {t('player.stop')}
           </button>
         )}

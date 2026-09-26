@@ -10,6 +10,8 @@ import {
   addressToUrl,
   classifyUpstream,
   parseMetrics,
+  parsePlaybackList,
+  rewriteOrigin,
   toPathRow,
   toRecordingRow,
   toSessionRow,
@@ -176,5 +178,49 @@ describe('session routes', () => {
     for (const kind of Object.keys(SESSION_LIST_ROUTE)) {
       expect(SESSION_LIST_ROUTE[kind as keyof typeof SESSION_LIST_ROUTE]).toMatch(/^\/v3\//)
     }
+  })
+})
+
+describe('parsePlaybackList', () => {
+  // Verbatim from a live v1.21.1 playback server: a TOP-LEVEL array whose
+  // durations are float seconds and whose URLs carry the server's own Host.
+  const LIVE_LIST = [
+    {
+      start: '2026-09-26T04:49:51.370862Z',
+      duration: 9.978,
+      url: 'http://127.0.0.1:9996/get?duration=9.978&path=cam1&start=2026-09-26T04%3A49%3A51.370862Z',
+    },
+  ]
+
+  it('parses the live top-level-array shape', () => {
+    expect(parsePlaybackList(LIVE_LIST)).toEqual([
+      {
+        startIso: '2026-09-26T04:49:51.370862Z',
+        durationSeconds: 9.978,
+        url: LIVE_LIST[0]!.url,
+      },
+    ])
+  })
+
+  it('tolerates a wrapped list, skips malformed entries, defaults odd durations', () => {
+    expect(parsePlaybackList({ items: LIVE_LIST })).toHaveLength(1)
+    expect(parsePlaybackList([null, 7, { duration: 1 }, { start: 'x' }])).toEqual([
+      { startIso: 'x', durationSeconds: 0, url: '' },
+    ])
+    expect(parsePlaybackList('nope')).toEqual([])
+    expect(parsePlaybackList(null)).toEqual([])
+  })
+})
+
+describe('rewriteOrigin', () => {
+  it('swaps scheme+host and keeps path and query', () => {
+    expect(rewriteOrigin('http://10.9.8.7:9996/get?a=1&b=2', 'https://cam.example:9443')).toBe(
+      'https://cam.example:9443/get?a=1&b=2',
+    )
+  })
+
+  it('returns null on unparseable input instead of throwing', () => {
+    expect(rewriteOrigin('not a url', 'http://x')).toBeNull()
+    expect(rewriteOrigin('http://x/y', 'also not a url')).toBeNull()
   })
 })

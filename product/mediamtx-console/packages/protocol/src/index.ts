@@ -345,6 +345,67 @@ export function toRecordingRow(raw: unknown): RecordingRow | null {
   return { name: r.name, days }
 }
 
+// ---- playback (the recording server's own HTTP API, v1.21 observed) ----------
+
+/** One playable recording window, as the playback server's `/list` reports it. */
+export interface PlaybackEntry {
+  /** Window start, RFC3339 (nanosecond precision upstream). */
+  startIso: string
+  /** Window length in SECONDS (upstream marshals durations as float seconds). */
+  durationSeconds: number
+  /** Ready-to-fetch `/get` URL. The origin is rewritten to the playback base
+   * the browser can actually reach (upstream echoes its own request Host). */
+  url: string
+}
+
+export const PlaybackEntryS = z.object({
+  startIso: z.string().required(),
+  durationSeconds: z.number().required(),
+  url: z.string().required(),
+})
+
+/**
+ * Parse the playback server's `/list` body. It is a TOP-LEVEL JSON array of
+ * `{start, duration, url}` (duration = float seconds) — verified against a
+ * live v1.21.1 server. Malformed entries are skipped, not fatal: one odd
+ * segment should not blank the whole recording list.
+ */
+export function parsePlaybackList(json: unknown): PlaybackEntry[] {
+  const raw = Array.isArray(json)
+    ? json
+    : json !== null && typeof json === 'object' && Array.isArray((json as { items?: unknown }).items)
+      ? (json as { items: unknown[] }).items
+      : null
+  if (raw === null) return []
+  const out: PlaybackEntry[] = []
+  for (const item of raw) {
+    if (item === null || typeof item !== 'object') continue
+    const e = item as Record<string, unknown>
+    if (typeof e.start !== 'string') continue
+    const durationSeconds = typeof e.duration === 'number' && Number.isFinite(e.duration) ? e.duration : 0
+    out.push({ startIso: e.start, durationSeconds, url: typeof e.url === 'string' ? e.url : '' })
+  }
+  return out
+}
+
+/**
+ * Swap a URL's origin for another one's, keeping path+query. The playback
+ * server builds `/get` URLs from the request Host it saw — that is the HOST's
+ * view (often 127.0.0.1), while the browser needs the console's view.
+ * Returns null when either side is not a parseable absolute URL.
+ */
+export function rewriteOrigin(url: string, originBase: string): string | null {
+  try {
+    const target = new URL(url)
+    const base = new URL(originBase)
+    target.protocol = base.protocol
+    target.host = base.host
+    return target.toString()
+  } catch {
+    return null
+  }
+}
+
 // ---- path config (the writable subset the console exposes) --------------------
 
 export interface PathConfPatch {

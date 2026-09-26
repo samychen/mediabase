@@ -330,3 +330,46 @@
   align-items: center;
   gap: 10px;
 }
+
+/* Recordings (right column): path picker + day-grouped playback windows. */
+.mx-recordings {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  min-height: 0;
+  overflow: auto;
+}
+.mx-recordings__bar {
+  display: flex;
+  gap: 6px;
+  align-items: center;
+}
+.mx-select {
+  flex: 1;
+  min-width: 0;
+  padding: 6px 8px;
+  border: 1px solid var(--mb-border, #2a3140);
+  border-radius: 6px;
+  background: var(--mb-bg, #0f1319);
+  color: var(--mb-text, #e6edf3);
+  font-size: 12px;
+}
+.mx-recordings__days {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+.mx-recordings__day-title {
+  margin: 0 0 4px;
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.04em;
+  color: var(--mb-text-dim, #9aa4b2);
+}
+.mx-recordings .mx-row {
+  padding: 4px 8px;
+  border-color: var(--mb-border, #2a3140);
+}
+.mx-recordings .mx-row .mx-btn {
+  margin-left: auto;
+}

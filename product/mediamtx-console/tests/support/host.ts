@@ -201,16 +201,21 @@ export function mtxBin(): string | null {
 
 export interface MtxServer {
   apiUrl: string
+  /** The playback server base (the config enables it on a free port). */
+  playbackUrl: string
   stop(): Promise<void>
 }
 
-/** Start a throwaway MediaMTX: API + metrics on free ports, media servers off
- * (tests exercise the control plane; WHEP playback is a browser concern). */
+/** Start a throwaway MediaMTX: API + metrics + playback on free ports, media
+ * servers off (tests exercise the control plane; WHEP playback is a browser
+ * concern, and the recording chain needs a publisher — covered by verify.mjs
+ * against a real setup instead). */
 export async function spawnMtx(): Promise<MtxServer> {
   const bin = mtxBin()
   if (bin === null) throw new Error('no mediamtx binary')
   const apiPort = await freePort()
   const metricsPort = await freePort()
+  const playbackPort = await freePort()
   const dir = mkdtempSync(join(tmpdir(), 'mtxconsole-mtx-'))
   const conf = join(dir, 'mediamtx.yml')
   writeFileSync(conf, [
@@ -225,7 +230,8 @@ export async function spawnMtx(): Promise<MtxServer> {
     'rtmp: no',
     'srt: no',
     'moq: no',
-    'playback: no',
+    'playback: yes',
+    `playbackAddress: 127.0.0.1:${playbackPort}`,
     'paths:',
     '  seeded:',
     '',
@@ -251,6 +257,7 @@ export async function spawnMtx(): Promise<MtxServer> {
   }
   return {
     apiUrl,
+    playbackUrl: `http://127.0.0.1:${playbackPort}`,
     async stop() {
       child.kill('SIGTERM')
       await new Promise((r) => setTimeout(r, 300))

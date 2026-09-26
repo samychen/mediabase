@@ -21,6 +21,7 @@ import {
   EndpointsS,
   MetricsSummary,
   PathRowS,
+  PlaybackEntryS,
   SESSION_KINDS,
   SESSION_KICK_ROUTE,
   SESSION_LIST_ROUTE,
@@ -29,11 +30,14 @@ import {
   addressToUrl,
   classifyUpstream,
   parseMetrics,
+  parsePlaybackList,
+  rewriteOrigin,
   toPathRow,
   toRecordingRow,
   toSessionRow,
   type Endpoints,
   type PathRow,
+  type PlaybackEntry,
   type SessionKind,
   type SessionRow,
 } from '@mtxconsole/protocol'
@@ -74,6 +78,7 @@ const API_METHODS = [
   'mediamtx.metrics',
   'mediamtx.recordings.list',
   'mediamtx.recordings.get',
+  'mediamtx.playback.list',
 ] as const
 
 const TOOL_NAMES = [
@@ -409,6 +414,69 @@ export function apply(ctx: Context, rawConfig: BridgeConfig): void {
       const row = toRecordingRow(raw)
       if (row === null) throw new RpcError(RpcCode.INTERNAL, 'unexpected recording shape from MediaMTX')
       return { recording: row }
+    },
+  })
+
+  ctx.api.register({
+    name: 'mediamtx.playback.list',
+    description: '一个路径的可回放窗口(playback 服务器 /list,origin 已改写为浏览器可达地址)',
+    params: z.object({
+      name: z.string().min(1).required(),
+      start: z.string().description('RFC3339 下界(可选)'),
+      end: z.string().description('RFC3339 上界(可选)'),
+    }),
+    result: z.object({ entries: z.array(PlaybackEntryS).required() }),
+    handler: async (p): Promise<{ entries: PlaybackEntry[] }> => {
+      const eps = await deriveEndpoints()
+      if (eps.playback === null) {
+        throw new RpcError(
+          RpcCode.UNAVAILABLE,
+          'playback server disabled upstream — set `playback: yes` in mediamtx.yml',
+          undefined,
+          { messageKey: 'mediamtx.playbackDisabled' },
+        )
+      }
+      const query = new URLSearchParams({ path: p.name })
+      if (p.start !== undefined) query.set('start', p.start)
+      if (p.end !== undefined) query.set('end', p.end)
+      let res: Response
+      try {
+        res = await fetch(`${eps.playback}/list?${query.toString()}`, {
+          signal: AbortSignal.timeout(timeoutMs),
+          ...(authHeader !== null ? { headers: { authorization: authHeader } } : {}),
+        })
+      } catch (e) {
+        throw new RpcError(
+          RpcCode.UNAVAILABLE,
+          `playback server unreachable at ${eps.playback} — set \`playback: yes\` in mediamtx.yml (${(e as Error).message})`,
+          undefined,
+          { messageKey: 'mediamtx.playbackUnreachable', messageParams: { url: eps.playback } },
+        )
+      }
+      const text = await res.text()
+      const parsed: unknown = text === '' ? null : JSON.parse(text) as unknown
+      if (!res.ok) {
+        const failure = classifyUpstream(res.status, parsed)
+        // An empty range is a NORMAL state, not an error: upstream answers 404
+        // "no segments found", and 400 "lstat …: no such file or directory"
+        // for a path that has never recorded. Both mean: nothing to play yet.
+        if (failure.kind === 'not_found' || /no such file|no segments/i.test(failure.detail)) {
+          return { entries: [] }
+        }
+        throw new RpcError(
+          failure.kind === 'invalid' ? RpcCode.INVALID_PARAMS : RpcCode.CONFLICT,
+          `MediaMTX playback: ${failure.detail}`,
+          { status: res.status, detail: failure.detail },
+          { messageKey: 'mediamtx.upstream', messageParams: { status: String(res.status), detail: failure.detail } },
+        )
+      }
+      const entries = parsePlaybackList(parsed)
+      for (const entry of entries) {
+        // Upstream builds the /get URL from the request Host IT saw (the
+        // host's view, often 127.0.0.1) — swap in the origin the browser uses.
+        if (entry.url !== '') entry.url = rewriteOrigin(entry.url, eps.playback) ?? entry.url
+      }
+      return { entries }
     },
   })
 

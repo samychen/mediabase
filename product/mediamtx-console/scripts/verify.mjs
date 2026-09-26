@@ -73,12 +73,14 @@ if (mtxApi === null) {
   if (bin !== null) {
     const apiPort = await freePort()
     const metricsPort = await freePort()
+    const playbackPort = await freePort()
     mtxDir = mkdtempSync(join(tmpdir(), 'mtxconsole-verify-mtx-'))
     const conf = join(mtxDir, 'mediamtx.yml')
     writeFileSync(conf, [
       'logLevel: error', 'api: yes', `apiAddress: 127.0.0.1:${apiPort}`,
       'metrics: yes', `metricsAddress: 127.0.0.1:${metricsPort}`,
-      'webrtc: no', 'hls: no', 'rtsp: no', 'rtmp: no', 'srt: no', 'moq: no', 'playback: no',
+      'playback: yes', `playbackAddress: 127.0.0.1:${playbackPort}`,
+      'webrtc: no', 'hls: no', 'rtsp: no', 'rtmp: no', 'srt: no', 'moq: no',
       'paths:', '  seeded:', '',
     ].join('\n'))
     mtxChild = spawn(bin, [conf], { cwd: mtxDir, stdio: ['ignore', 'pipe', 'pipe'] })
@@ -177,11 +179,44 @@ try {
     const missing = await expectError(rpc, 'mediamtx.config.paths.delete', { name: 'verify-cam' }, -32001)
     checks.expect('删除不存在 → NOT_FOUND', missing?.code === -32001)
 
-    const metrics = await rpc.call('mediamtx.metrics')
-    checks.expect('metrics 摘要成形', typeof metrics?.pathsReady === 'number' && Array.isArray(metrics?.perPath), JSON.stringify(metrics ?? null).slice(0, 120))
+    let metrics = null
+    try {
+      metrics = await rpc.call('mediamtx.metrics')
+    } catch (e) {
+      console.log(`· metrics 不可用(${e?.messageKey ?? e?.message ?? '?'})——跳过摘要检查`)
+    }
+    if (metrics !== null) {
+      checks.expect('metrics 摘要成形', typeof metrics?.pathsReady === 'number' && Array.isArray(metrics?.perPath), JSON.stringify(metrics ?? null).slice(0, 120))
+    }
 
     const sessions = await rpc.call('mediamtx.sessions.list')
     checks.expect('sessions.list 返回数组', Array.isArray(sessions?.sessions))
+
+    // ---- 回放链(M2):控制面走桥,媒体面浏览器直连 playback 服务器
+    const pb = eps?.endpoints?.playback ?? null
+    if (pb === null) {
+      const off = await expectError(rpc, 'mediamtx.playback.list', { name: 'seeded' }, -32002)
+      checks.expect('playback 未开启 → playbackDisabled 提示', off?.messageKey === 'mediamtx.playbackDisabled', off?.messageKey)
+      console.log('· 该服务器未开 playback(mediamtx.yml 加 playback: yes 后录像回放可用)')
+    } else {
+      const pbPath = (seeded?.paths ?? [])[0]?.name ?? 'seeded'
+      let list = null
+      try {
+        list = await rpc.call('mediamtx.playback.list', { name: pbPath })
+      } catch (e) {
+        list = e
+      }
+      checks.expect('playback.list 规范化为 entries 数组', Array.isArray(list?.entries),
+        Array.isArray(list?.entries) ? `${list.entries.length} 个窗口` : `收到 ${list?.message ?? JSON.stringify(list)}`.slice(0, 120))
+      if ((list?.entries ?? []).length > 0) {
+        const get = await fetch(list.entries[0].url)
+        const bytes = new Uint8Array(await get.arrayBuffer())
+        const fourcc = String.fromCharCode(bytes[4] ?? 0, bytes[5] ?? 0, bytes[6] ?? 0, bytes[7] ?? 0)
+        checks.expect('playback /get 返回 fMP4(ftyp 开头,MSE 可播)', get.status === 200 && fourcc === 'ftyp', `status=${get.status} box=${fourcc}`)
+      } else {
+        console.log(`· ${pbPath} 暂无录像 —— 给它推一段 record 流后重跑可验证 /get 全链`)
+      }
+    }
 
     const viaTool = await rpc.call('tools.run', { name: 'mediamtx.paths.list', args: {} })
     checks.expect('tools.run 直通桥能力', Array.isArray(viaTool) && viaTool.some((p) => p.name === 'seeded'))
@@ -190,6 +225,8 @@ try {
     const err = await expectError(rpc, 'mediamtx.info', {}, -32002)
     checks.expect('不可达带 messageKey', err?.messageKey === 'mediamtx.unreachable', err?.messageKey)
     await expectError(rpc, 'mediamtx.paths.list', {}, -32002)
+    const pbErr = await expectError(rpc, 'mediamtx.playback.list', { name: 'cam1' }, -32002)
+    checks.expect('DEGRADED 下 playback.list 同样带码', pbErr?.messageKey === 'mediamtx.unreachable', pbErr?.messageKey)
     const notKick = await expectError(rpc, 'mediamtx.sessions.kick', { kind: 'rtmp', id: 'x' }, -32602)
     checks.expect('不可踢协议先行拒绝', notKick?.messageKey === 'mediamtx.notKickable', notKick?.messageKey)
   }

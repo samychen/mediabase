@@ -7,6 +7,7 @@ export type MessageKey =
   | 'panel.streams.title'
   | 'panel.player.title'
   | 'panel.sessions.title'
+  | 'panel.recordings.title'
   | 'server.unreachable'
   | 'server.version'
   | 'server.started'
@@ -37,7 +38,11 @@ export type MessageKey =
   | 'player.live'
   | 'player.stopped'
   | 'player.hlsUnsupported'
+  | 'player.mseUnsupported'
   | 'player.stop'
+  | 'recordings.pick'
+  | 'recordings.noPaths'
+  | 'recordings.empty'
   | 'sessions.empty'
   | 'sessions.kick'
   | 'sessions.kicked'
@@ -49,6 +54,8 @@ export type MessageKey =
   | 'mediamtx.upstream'
   | 'mediamtx.noMetrics'
   | 'mediamtx.notKickable'
+  | 'mediamtx.playbackDisabled'
+  | 'mediamtx.playbackUnreachable'
 
 const zhCN: Record<MessageKey, string> = {
   'console.ready': 'MediaMTX 控制台就绪',
@@ -57,6 +64,7 @@ const zhCN: Record<MessageKey, string> = {
   'panel.streams.title': '流路径',
   'panel.player.title': '预览播放',
   'panel.sessions.title': '会话',
+  'panel.recordings.title': '录像回放',
   'server.unreachable': 'MediaMTX 不可达',
   'server.version': '版本',
   'server.started': '启动于',
@@ -87,7 +95,11 @@ const zhCN: Record<MessageKey, string> = {
   'player.live': '播放中',
   'player.stopped': '已停止',
   'player.hlsUnsupported': '此浏览器不支持原生 HLS,请用 WebRTC 模式。',
+  'player.mseUnsupported': '此浏览器不支持 MediaSource(MSE),无法回放录像。',
   'player.stop': '停止',
+  'recordings.pick': '选择路径…',
+  'recordings.noPaths': '还没有录像 —— 给路径开启「录制」,推流之后这里会出现可回放的窗口。',
+  'recordings.empty': '该路径暂无可回放窗口。',
   'sessions.empty': '当前没有会话。',
   'sessions.kick': '踢出',
   'sessions.kicked': '已踢出 {id}',
@@ -99,6 +111,8 @@ const zhCN: Record<MessageKey, string> = {
   'mediamtx.upstream': 'MediaMTX 拒绝(HTTP {status}):{detail}',
   'mediamtx.noMetrics': '该 MediaMTX 未开启 metrics',
   'mediamtx.notKickable': '{kind} 会话不支持踢出',
+  'mediamtx.playbackDisabled': '该 MediaMTX 未开启回放服务(mediamtx.yml 加 playback: yes)',
+  'mediamtx.playbackUnreachable': '回放服务不可达({url})',
 }
 
 const en: Record<MessageKey, string> = {
@@ -108,6 +122,7 @@ const en: Record<MessageKey, string> = {
   'panel.streams.title': 'Streams',
   'panel.player.title': 'Preview player',
   'panel.sessions.title': 'Sessions',
+  'panel.recordings.title': 'Recordings',
   'server.unreachable': 'MediaMTX unreachable',
   'server.version': 'Version',
   'server.started': 'Started',
@@ -138,7 +153,11 @@ const en: Record<MessageKey, string> = {
   'player.live': 'Playing',
   'player.stopped': 'Stopped',
   'player.hlsUnsupported': 'This browser cannot play HLS natively — use WebRTC mode.',
+  'player.mseUnsupported': 'This browser lacks MediaSource (MSE) — recording playback unavailable.',
   'player.stop': 'Stop',
+  'recordings.pick': 'Select a path…',
+  'recordings.noPaths': 'No recordings yet — enable Record on a path, publish to it, and playable windows will show up here.',
+  'recordings.empty': 'No playable windows for this path yet.',
   'sessions.empty': 'No sessions right now.',
   'sessions.kick': 'Kick',
   'sessions.kicked': 'Kicked {id}',
@@ -150,6 +169,8 @@ const en: Record<MessageKey, string> = {
   'mediamtx.upstream': 'MediaMTX refused (HTTP {status}): {detail}',
   'mediamtx.noMetrics': 'Metrics are disabled on this MediaMTX server',
   'mediamtx.notKickable': '{kind} sessions cannot be kicked',
+  'mediamtx.playbackDisabled': 'The playback server is disabled on this MediaMTX (set playback: yes in mediamtx.yml)',
+  'mediamtx.playbackUnreachable': 'Playback server unreachable ({url})',
 }
 
 export const messages: Record<'zh-CN' | 'en', Record<MessageKey, string>> = { 'zh-CN': zhCN, en }
