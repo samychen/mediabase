@@ -182,6 +182,12 @@ export class ProxyManager {
       '-vf', 'scale=trunc(iw/2)*2:trunc(ih/2)*2',
       ...RECIPES[target],
       '-progress', 'pipe:1', '-nostats',
+      // The output is written as `<name>.part` and renamed on success (a killed
+      // job must not leave a file that looks ready), and ffmpeg picks its muxer
+      // from the extension — which `.part` does not name. Without this it dies
+      // with "Unable to choose an output format ... Invalid argument" and the
+      // proxy never becomes ready on any machine that HAS ffmpeg.
+      '-f', target,
       '-y', out,
     ]
     const child = spawn(ffmpeg, args, { stdio: ['ignore', 'pipe', 'pipe'] })
