@@ -47,7 +47,7 @@ M3 范围:
   时间轴** —— 面板内的 rAF 主时钟把全局时刻映射到每格自己的秒数,多路录像
   对齐同播、联动拖动。宫格的声明式状态在共享 store 里(录像面板与回放墙走
   同一条面板间接缝),60fps 的时钟刻意**不**进 store —— 一次 tick 绝不能重发
-  其余六个面板赖以渲染的快照。零新依赖,媒体字节依旧浏览器 ⇄ :9996 直连。
+  其余七个面板赖以渲染的快照。零新依赖,媒体字节依旧浏览器 ⇄ :9996 直连。
 - **跨窗口连播**:录像行的「播放」语义升级为「从此窗口连播」——该窗口与其后
   所有窗口组成播放链,主舞台在窗口边界自动续接(位置徽标 i/N),不再一段一点。
 - **多服务器切换**:宿主维护一份持久化的服务器注册表(env 种子 + 配置面板
@@ -164,7 +164,7 @@ product/mediamtx-console/
 ├── packages/
 │   ├── protocol/            @mtxconsole/protocol   双面纯逻辑:schemas/适配器/解析
 │   ├── host/bridge/         @mtxconsole/host-bridge 宿主能力:15 个 RPC 方法 + 6 个工具
-│   ├── client/console/      @mtxconsole/ui-console  7 个面板 + WHEP 客户端 + MSE 回放/同步墙 + store
+│   ├── client/console/      @mtxconsole/ui-console  8 个面板 + WHEP 客户端 + MSE 回放/同步墙 + store
 │   └── bundle/{app,ui}/     组合层(宿主 patch / 浏览器名册)
 ├── apps/cli/                宿主入口(身份:mtxconsole)
 ├── apps/web/                页面(Vite)

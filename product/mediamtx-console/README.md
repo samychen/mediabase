@@ -62,7 +62,7 @@ M3 scope:
   side by side. The declarative grid state lives in the shared store (the
   recordings panel and the wall talk through the same seam as everything
   else); the 60fps clock deliberately does NOT — a tick must never re-emit
-  the snapshot six other panels render from. Zero new dependencies; media
+  the snapshot seven other panels render from. Zero new dependencies; media
   bytes still flow browser ⇄ :9996 directly.
 - **Cross-window chaining**: Play on a recordings row now means "from here" —
   the clicked window plus every window after it form a chain the main stage
