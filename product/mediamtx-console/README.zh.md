@@ -84,6 +84,11 @@ M5 范围(本里程碑):
   (省略的字段保持、空字符串清除对应凭据);轮换快过期的 JWT 从「切走-移除-
   重登记」三步变成一次调用,活动服务器也可更新(配置面板的 ✎ 会预填表单,
   凭据留空 = 保持不变)。
+- **墙的 DOM 半被钉住**:`tests/sync-panel.test.tsx` 在 jsdom 里真渲染同步墙
+  与「录像→墙」接缝(真 cordis Context + i18n 插件 + 假 rpc):格子数随布局、
+  入链点亮标签与 transport、jsdom 缺失的 MediaSource 以带码的 mse-unsupported
+  徽标浮现(降级路径本身就是测试)、v2 拖放落地而 M3 旧载荷在元素级被拒、
+  ⊞ 把「从此窗口」的链停进第一个空格。
 
 ## 快速开始
 
@@ -199,9 +204,11 @@ product/mediamtx-console/
 - operator 登记的服务器凭据以明文持久化在宿主 home 下
   (`mtxconsole-servers.json` —— 与基座 settings.json 同一模式;凭据永不
   过线),env 种子的同名服务器永远优先;
-- 同步墙的时钟/DOM 一半没有测试覆盖 —— `sync.ts`(时间轴数学与拖放载荷契约)
-  和 store 的宫格动作由 `tests/sync.test.ts` 钉住,但 rAF 主时钟与每格 MSE 的
-  接线需要真浏览器才能验(本仓库其余浏览器腿同样如此:由 `verify.mjs` 走 LIVE);
+- 墙在真实解码负载下的帧精度仍需真机人眼验收 —— `tests/sync-panel.test.tsx`
+  (jsdom)已把 DOM 半钉到无头 DOM 能钉的极限:渲染、store 接缝、元素级 v2
+  拖放契约、单格移除/清空/布局接线,以及带码的「MSE 不支持」降级(jsdom 没有
+  MediaSource —— 诚实徽标本身就是断言);rAF 时钟对真实媒体的行为在 LIVE
+  清单里;
 - WHEP 播放依赖浏览器原生 `RTCPeerConnection`(全平台现代浏览器可用);HLS
   回退仅原生支持的浏览器(不引入 hls.js,零新依赖是本产品的硬约束);
 - 上游认证:basic 或静态 bearer token(`MTXCONSOLE_SERVER_TOKEN` / 每服务器

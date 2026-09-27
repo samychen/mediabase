@@ -113,6 +113,13 @@ M5 scope (this milestone):
   clears that credential); rotating a dying JWT is now one call — no
   switch-away/remove/add dance, and the ACTIVE server is updatable too (the
   config panel's ✎ prefills the form; blank credential fields keep).
+- **The wall's DOM half, pinned**: `tests/sync-panel.test.tsx` renders the
+  sync wall AND the recordings→wall seam under jsdom (real cordis Context +
+  i18n plugin + stubbed rpc): cell counts follow the layout, a parked chain
+  lights its label and the transport, jsdom's MISSING MediaSource surfaces
+  as the coded mse-unsupported badge (the degradation path IS the test), v2
+  drops land while M3-era payloads are refused at element level, and ⊞
+  parks the chain-from-here into the first free cell.
 
 ## Quick start
 
@@ -219,11 +226,13 @@ See [AGENT.md](./AGENT.md).
 - operator-registered server credentials persist in PLAINTEXT under the host
   home (`mtxconsole-servers.json` — the base settings.json pattern; they
   never cross the wire), and the env-seeded server always wins its name;
-- the sync wall has no test coverage for its clock/DOM half — `sync.ts` (the
-  timeline math and the drop payload contract) and the store actions are
-  pinned by `tests/sync.test.ts`, but the rAF loop and the per-cell MSE
-  wiring need a browser to exercise (the repo's other browser-bound legs are
-  covered the same way: `verify.mjs` walks them LIVE);
+- the wall's frame accuracy under real decode load still needs eyes on real
+  hardware — `tests/sync-panel.test.tsx` (jsdom) pins the DOM half as far as
+  a headless DOM can: rendering, the store seam, the v2 drop contract at
+  element level, per-cell remove/clear/layout wiring, and the CODED
+  mse-unsupported degradation (jsdom has no MediaSource — the honest badge
+  is the assertion); the rAF clock against real media is on the LIVE
+  checklist;
 - WHEP relies on the browser's native `RTCPeerConnection`; the HLS fallback
   only exists where native (no hls.js — zero new runtime deps is a hard
   constraint of this product);
