@@ -147,7 +147,7 @@ try {
   checks.expect('server.info 握手', typeof info === 'object' && info !== null)
   const tools = await rpc.call('tools.list')
   const toolNames = (Array.isArray(tools) ? tools : tools?.tools ?? []).map((t) => t.name)
-  for (const wanted of ['mediamtx.info', 'mediamtx.endpoints', 'mediamtx.paths.list', 'mediamtx.path.add', 'mediamtx.path.delete', 'mediamtx.sessions.kick']) {
+  for (const wanted of ['mediamtx.info', 'mediamtx.endpoints', 'mediamtx.paths.list', 'mediamtx.path.add', 'mediamtx.path.delete', 'mediamtx.sessions.kick', 'mediamtx.servers.list', 'mediamtx.servers.switch']) {
     checks.expect(`工具注册表含 ${wanted}`, toolNames.includes(wanted))
   }
 

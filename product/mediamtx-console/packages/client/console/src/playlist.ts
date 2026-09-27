@@ -7,13 +7,10 @@
 // float seconds; anything non-finite or negative counts as zero (a junk
 // window must not poison the whole transport).
 
-import type { PlaybackEntry } from '@mtxconsole/protocol'
+import { entryDurationMs, type PlaybackEntry } from '@mtxconsole/protocol'
 
 function durationMs(entry: PlaybackEntry | undefined): number {
-  if (entry === undefined) return 0
-  return Number.isFinite(entry.durationSeconds) && entry.durationSeconds > 0
-    ? entry.durationSeconds * 1000
-    : 0
+  return entry === undefined ? 0 : entryDurationMs(entry)
 }
 
 /** Total playing time of the chain, in milliseconds (gaps do not exist here:

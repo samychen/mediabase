@@ -14,7 +14,7 @@
 // playhead (mse.ts keeps ~30s) is gone for good.
 
 import { parse, z } from '@mediabase/schema'
-import { PlaybackEntryS, type PlaybackEntry } from '@mtxconsole/protocol'
+import { entryDurationMs, PlaybackEntryS, type PlaybackEntry } from '@mtxconsole/protocol'
 
 /** Grid layouts the panel offers (cells rendered = layout). */
 export type SyncLayout = 1 | 4 | 9
@@ -56,10 +56,7 @@ interface EntryWindow {
 function entryWindow(entry: PlaybackEntry): EntryWindow | null {
   const startMs = Date.parse(entry.startIso)
   if (Number.isNaN(startMs)) return null
-  const durationMs = Number.isFinite(entry.durationSeconds)
-    ? Math.max(0, entry.durationSeconds * 1000)
-    : 0
-  return { startMs, endMs: startMs + durationMs }
+  return { startMs, endMs: startMs + entryDurationMs(entry) }
 }
 
 /** The parseable windows of a chain, in order, with their chain index. */
@@ -143,10 +140,8 @@ export function locateInSlot(globalMs: number, slot: SyncSlot): SlotPosition | n
 /** Total media seconds of a chain (gaps excluded — it is what plays). */
 export function chainSeconds(slot: SyncSlot): number {
   let total = 0
-  for (const entry of slot.entries) {
-    if (Number.isFinite(entry.durationSeconds) && entry.durationSeconds > 0) total += entry.durationSeconds
-  }
-  return total
+  for (const entry of slot.entries) total += entryDurationMs(entry)
+  return total / 1000
 }
 
 /** The drag-and-drop wire shape (versioned — a stale tab must not inject junk). */

@@ -1,9 +1,12 @@
-// Recordings (right area): browse what the server recorded and put a window
-// on the player stage. Data flow: `mediamtx.recordings.list` (API server)
-// yields the recorded paths; `mediamtx.playback.list` (playback server, via
-// the host bridge) yields the playable windows with browser-reachable URLs;
-// playback itself is browser ⇄ playback server directly (MSE, see mse.ts) —
-// media bytes never touch the host, exactly like WHEP/HLS.
+// Recordings (right area): browse what the server recorded and put it on the
+// stage or the wall. Play = "from here": the clicked window plus every window
+// after it become a CHAIN the stage auto-advances through (M3); ⊞ / drag park
+// the same chain in a sync-wall cell (M4). Data flow: `mediamtx.recordings.list`
+// (API server) yields the recorded paths; `mediamtx.playback.list` (playback
+// server, via the host bridge) yields the playable windows with
+// browser-reachable URLs; playback itself is browser ⇄ playback server
+// directly (MSE, see mse.ts) — media bytes never touch the host, exactly
+// like WHEP/HLS.
 
 import { useEffect, type DragEvent as ReactDragEvent, type ReactElement } from 'react'
 import type { Context } from '@deepseek-ai/cordis'

@@ -60,8 +60,8 @@ export function apply(ctx: Context): void {
 
   // Areas: identity in the header, server overview + preview + the sync wall
   // on the monitor (dashboard, player, sync playback top to bottom), the
-  // roster in the sidebar, recordings in the right column, sessions in the
-  // bottom drawer.
+  // roster in the sidebar, recordings in the right column, sessions and the
+  // servers/global-config drawer at the bottom.
   ctx.ui.register({ id: 'mtx.status', title: '', area: 'header', order: 10, component: asPanel(StatusPanel) })
   ctx.ui.register({ id: 'mtx.dashboard', title: 'Dashboard', titleKey: 'panel.dashboard.title', area: 'monitor', order: 10, component: asPanel(DashboardPanel) })
   ctx.ui.register({ id: 'mtx.player', title: 'Player', titleKey: 'panel.player.title', area: 'monitor', order: 20, component: asPanel(PlayerPanel) })

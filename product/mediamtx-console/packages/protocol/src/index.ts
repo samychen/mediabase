@@ -365,6 +365,17 @@ export const PlaybackEntryS = z.object({
 })
 
 /**
+ * A window's duration in milliseconds, normalized: upstream marshals float
+ * seconds, and junk/negative values count as zero. ONE place — the wall
+ * (sync.ts) and the stage chain (playlist.ts) used to each carry a copy.
+ */
+export function entryDurationMs(entry: PlaybackEntry): number {
+  return Number.isFinite(entry.durationSeconds) && entry.durationSeconds > 0
+    ? entry.durationSeconds * 1000
+    : 0
+}
+
+/**
  * Parse the playback server's `/list` body. It is a TOP-LEVEL JSON array of
  * `{start, duration, url}` (duration = float seconds) — verified against a
  * live v1.21.1 server. Malformed entries are skipped, not fatal: one odd
@@ -406,20 +417,6 @@ export function rewriteOrigin(url: string, originBase: string): string | null {
   }
 }
 
-// ---- path config (the writable subset the console exposes) --------------------
-
-export interface PathConfPatch {
-  /** Static source to pull ("rtsp://user:pass@host/stream"); empty/'publisher'
-   * means the path waits for a live publisher. */
-  source?: string
-  record?: boolean
-}
-
-export const PathConfPatchS = z.object({
-  source: z.string().max(2000),
-  record: z.boolean(),
-})
-
 /** Error mapping for the upstream `{status:"error",error:"…"}` contract. */
 export interface UpstreamFailure {
   /** Suggested RPC bucket. */
@@ -442,8 +439,6 @@ export function classifyUpstream(httpStatus: number, body: unknown): UpstreamFai
 /** How a registered server authenticates upstream. Credentials NEVER cross
  * the wire — panels and agents see only the kind. */
 export type ServerAuth = 'none' | 'basic' | 'bearer'
-
-export const SERVER_AUTHS: readonly ServerAuth[] = ['none', 'basic', 'bearer']
 
 /** One registered MediaMTX server, as the control plane exposes it. */
 export interface ManagedServer {

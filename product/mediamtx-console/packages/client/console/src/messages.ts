@@ -1,7 +1,6 @@
 // Every operator-facing string, both locales. Panels never hold UI copy.
 
 export type MessageKey =
-  | 'console.ready'
   | 'panel.status.title'
   | 'panel.dashboard.title'
   | 'panel.streams.title'
@@ -31,7 +30,6 @@ export type MessageKey =
   | 'stream.record'
   | 'stream.added'
   | 'stream.empty'
-  | 'stream.tracks'
   | 'stream.viewers'
   | 'player.none'
   | 'player.mode.whep'
@@ -86,7 +84,6 @@ export type MessageKey =
   | 'sessions.empty'
   | 'sessions.kick'
   | 'sessions.kicked'
-  | 'common.close'
   | 'common.refresh'
   | 'common.loading'
   | 'common.error'
@@ -103,7 +100,6 @@ export type MessageKey =
   | 'mediamtx.serverBadName'
 
 const zhCN: Record<MessageKey, string> = {
-  'console.ready': 'MediaMTX 控制台就绪',
   'panel.status.title': 'MediaMTX 服务器',
   'panel.dashboard.title': '仪表盘',
   'panel.streams.title': '流路径',
@@ -133,7 +129,6 @@ const zhCN: Record<MessageKey, string> = {
   'stream.record': '录制',
   'stream.added': '已添加 {name}',
   'stream.empty': '没有流路径 —— 添加一个摄像头源试试。',
-  'stream.tracks': '轨道',
   'stream.viewers': '观看',
   'player.none': '在左侧选择一个流路径开始预览。',
   'player.mode.whep': 'WebRTC(WHEP,低延迟)',
@@ -188,7 +183,6 @@ const zhCN: Record<MessageKey, string> = {
   'sessions.empty': '当前没有会话。',
   'sessions.kick': '踢出',
   'sessions.kicked': '已踢出 {id}',
-  'common.close': '关闭',
   'common.refresh': '刷新',
   'common.loading': '加载中…',
   'common.error': '出错了:{detail}',
@@ -206,7 +200,6 @@ const zhCN: Record<MessageKey, string> = {
 }
 
 const en: Record<MessageKey, string> = {
-  'console.ready': 'MediaMTX console ready',
   'panel.status.title': 'MediaMTX server',
   'panel.dashboard.title': 'Dashboard',
   'panel.streams.title': 'Streams',
@@ -236,7 +229,6 @@ const en: Record<MessageKey, string> = {
   'stream.record': 'Record',
   'stream.added': 'Added {name}',
   'stream.empty': 'No stream paths — add a camera source to get going.',
-  'stream.tracks': 'Tracks',
   'stream.viewers': 'Viewers',
   'player.none': 'Pick a stream on the left to preview it.',
   'player.mode.whep': 'WebRTC (WHEP, low latency)',
@@ -291,7 +283,6 @@ const en: Record<MessageKey, string> = {
   'sessions.empty': 'No sessions right now.',
   'sessions.kick': 'Kick',
   'sessions.kicked': 'Kicked {id}',
-  'common.close': 'Close',
   'common.refresh': 'Refresh',
   'common.loading': 'Loading…',
   'common.error': 'Something went wrong: {detail}',

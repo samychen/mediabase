@@ -8,9 +8,11 @@ below was derived clean-room from MediaMTX v1.21's own API (see NOTICE.md).
 You reach the host two ways:
 
 1. **As tools** (the normal way): the host's AI capability (`agent.run`) plans
-   over `ctx.tools`; every operation below is a registered tool.
+   over `ctx.tools`. Rows below WITHOUT the `RPC` prefix are registered tools;
+   `RPC`-prefixed rows are control-plane only (deliberately not model input —
+   credentials and the global-config patch live there).
 2. **As RPC methods** (direct): WS JSON-RPC on `/rpc` (JSON-RPC 2.0). Every
-   method below is `mediamtx.*`. Upstream auth: basic (`MTXCONSOLE_USERNAME`/`PASSWORD`) or a static bearer
+   method below is `mediamtx.*`, tool rows included. Upstream auth: basic (`MTXCONSOLE_USERNAME`/`PASSWORD`) or a static bearer
 token (`MTXCONSOLE_SERVER_TOKEN`, or per-server `token` — bearer wins when
 both are set). Smoke the whole surface from a shell:
 

@@ -1,4 +1,6 @@
-// Console state — one polled snapshot of the server plus the player target.
+// Console state — one polled snapshot of the server plus the panels' local
+// targets (player chain, sync wall, recording browser, server registry,
+// config review).
 //
 // The reference project (analyzed at feature level only) polls every 3s; same
 // here. Fast data (paths/sessions/metrics) refreshes every cycle; slow data
