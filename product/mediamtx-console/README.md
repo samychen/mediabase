@@ -106,6 +106,14 @@ M4 scope (this milestone):
   verified: checking signatures is the streaming server's job; the console's
   job is making a dying token a visible warning instead of a mysterious 401.
 
+M5 scope (this milestone):
+
+- **Credential rotation in place**: `mediamtx.servers.update` patches a
+  registered server's url/credentials (omitted field = keep, empty string =
+  clears that credential); rotating a dying JWT is now one call — no
+  switch-away/remove/add dance, and the ACTIVE server is updatable too (the
+  config panel's ✎ prefills the form; blank credential fields keep).
+
 ## Quick start
 
 ```sh
@@ -222,6 +230,5 @@ See [AGENT.md](./AGENT.md).
 - upstream auth: basic or a STATIC bearer token (`MTXCONSOLE_SERVER_TOKEN`,
   or per-server `token`). A token's `exp` is decoded and badged
   (expired/expiring-soon), but there is no refresh flow — once it truly
-  expires, calls surface the coded upstream 401 (`UNAVAILABLE`), and
-  rotating a token means re-registering the server (switch away, remove,
-  add again).
+  expires, calls surface the coded upstream 401 (`UNAVAILABLE`); rotation
+  is an in-place `mediamtx.servers.update`.

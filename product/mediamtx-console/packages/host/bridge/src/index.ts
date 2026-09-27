@@ -96,6 +96,7 @@ const API_METHODS = [
   'mediamtx.playback.list',
   'mediamtx.servers.list',
   'mediamtx.servers.add',
+  'mediamtx.servers.update',
   'mediamtx.servers.remove',
   'mediamtx.servers.switch',
 ] as const
@@ -708,6 +709,69 @@ export function apply(ctx: Context, rawConfig: BridgeConfig): void {
       servers.push(...next)
       log.info(`server registered: ${nm} → ${url}`)
       return { server: publicView(entry) }
+    },
+  })
+
+  ctx.api.register({
+    name: 'mediamtx.servers.update',
+    description: '就地更新一个已登记的服务器(轮换 token/改地址,免「切走-移除-重登记」):给出的字段替换、省略的字段保持、空字符串凭据=清除;活动服务器也可更新',
+    mutates: true,
+    params: z.object({
+      name: z.string().min(1).required().description('which registered server to update'),
+      url: z.string().max(2000).description('new API base; omit to keep'),
+      username: z.string().max(200).description('basic-auth user; empty string clears basic auth'),
+      password: z.string().max(200),
+      token: z.string().max(4000).description('new bearer/JWT; empty string clears the token'),
+    }),
+    result: ManagedServerS1,
+    handler: async (p) => {
+      const idx = servers.findIndex((srv) => srv.name === p.name)
+      if (idx < 0) {
+        throw new RpcError(RpcCode.NOT_FOUND, `no such server: ${p.name}`, undefined, {
+          messageKey: 'mediamtx.serverUnknown',
+          messageParams: { name: p.name },
+        })
+      }
+      const cur = servers[idx]!
+      let url = cur.url
+      if (p.url !== undefined) {
+        const normalized = normalizeUrl(p.url)
+        if (normalized === null) {
+          throw new RpcError(RpcCode.INVALID_PARAMS, `not an absolute http(s) URL: ${p.url}`, undefined, {
+            messageKey: 'mediamtx.serverBadUrl',
+            messageParams: { url: p.url },
+          })
+        }
+        url = normalized
+      }
+      // Field rules: OMITTED keeps, '' clears a credential, anything else sets.
+      const nextEntry: ServerEntry = { name: cur.name, url }
+      if (p.username !== undefined) {
+        if (p.username !== '') {
+          nextEntry.username = p.username
+          nextEntry.password = p.password ?? cur.password ?? ''
+        }
+      } else if (cur.username !== undefined) {
+        nextEntry.username = cur.username
+        if (cur.password !== undefined) nextEntry.password = cur.password
+      }
+      if (p.password !== undefined && p.password !== '' && nextEntry.username !== undefined) {
+        nextEntry.password = p.password
+      }
+      if (p.token !== undefined) {
+        if (p.token !== '') nextEntry.token = p.token
+      } else if (cur.token !== undefined) {
+        nextEntry.token = cur.token
+      }
+      const next = [...servers]
+      next[idx] = nextEntry
+      await persistRegistry(next, activeName) // write first, commit after
+      servers.length = 0
+      servers.push(...next)
+      // A new url on the ACTIVE server means a new identity: forget its version.
+      if (url !== cur.url && p.name === activeName) lastVersion = null
+      log.info(`server updated: ${p.name}${url !== cur.url ? ` → ${url}` : ''}`)
+      return { server: publicView(nextEntry) }
     },
   })
 

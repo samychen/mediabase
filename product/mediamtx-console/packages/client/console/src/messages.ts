@@ -58,6 +58,11 @@ export type MessageKey =
   | 'config.srvPass'
   | 'config.srvToken'
   | 'config.serverActive'
+  | 'config.serverUpdate'
+  | 'config.serverUpdated'
+  | 'config.srvEdit'
+  | 'config.srvEditCancel'
+  | 'config.srvKeep'
   | 'config.tokenExpired'
   | 'config.tokenExpiring'
   | 'config.save'
@@ -155,6 +160,11 @@ const zhCN: Record<MessageKey, string> = {
   'config.srvPass': '密码',
   'config.srvToken': 'Bearer/JWT(优先)',
   'config.serverActive': '活动',
+  'config.serverUpdate': '更新',
+  'config.serverUpdated': '已更新 {name}',
+  'config.srvEdit': '编辑(轮换凭据/改地址)',
+  'config.srvEditCancel': '取消编辑',
+  'config.srvKeep': '留空 = 保持不变',
   'config.tokenExpired': 'token 已过期({time})',
   'config.tokenExpiring': 'token {time} 过期',
   'config.save': '保存改动',
@@ -253,6 +263,11 @@ const en: Record<MessageKey, string> = {
   'config.srvPass': 'Password',
   'config.srvToken': 'Bearer/JWT (wins)',
   'config.serverActive': 'active',
+  'config.serverUpdate': 'Update',
+  'config.serverUpdated': 'Updated {name}',
+  'config.srvEdit': 'Edit (rotate credentials / change URL)',
+  'config.srvEditCancel': 'Cancel edit',
+  'config.srvKeep': 'blank = keep',
   'config.tokenExpired': 'token EXPIRED ({time})',
   'config.tokenExpiring': 'token expires {time}',
   'config.save': 'Save changes',

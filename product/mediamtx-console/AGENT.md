@@ -49,6 +49,7 @@ waits for a live push).
 | RPC `mediamtx.config.global.patch` `{values}` | subset-patch the global config — **handle with care**; changing listener addresses takes effect immediately |
 | `mediamtx.servers.switch` `{name}` | route EVERY method to another registered server (panels drop their stale views) |
 | RPC `mediamtx.servers.add` `{name,url,username?,password?,token?}` | register another MediaMTX server; credentials persist host-side only — **operator RPC, not a tool** |
+| RPC `mediamtx.servers.update` `{name,url?,username?,password?,token?}` | update a registered server IN PLACE (omitted field = keep, empty string = clear that credential) — the token-rotation gesture; works on the active server |
 | RPC `mediamtx.servers.remove` `{name}` | unregister a server (never the active one — switch away first) |
 
 ## Error contract (branch on `code`, not prose)

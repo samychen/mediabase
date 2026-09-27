@@ -14,7 +14,7 @@
 // CI without MediaMTX still runs everything that does not need a server.
 
 import { afterAll, beforeAll, describe, expect, it } from 'vitest'
-import { existsSync } from 'node:fs'
+import { existsSync, readFileSync } from 'node:fs'
 import { createServer as createHttpServer, type Server } from 'node:http'
 import type { AddressInfo } from 'node:net'
 import { join } from 'node:path'
@@ -455,5 +455,56 @@ describe('the playback bridge against a mocked API+playback pair', () => {
 
     await host!.rpc.call('mediamtx.servers.remove', { name: 'jwtcam' })
     await host!.rpc.call('mediamtx.servers.remove', { name: 'noexp' })
+  }, 120_000)
+
+  it('updates a registered server IN PLACE — omitted fields keep, empty string clears', async () => {
+    await host!.rpc.call('mediamtx.servers.add', { name: 'rot', url: apiUrl, username: 'u3', password: 'p3' })
+
+    // url normalized, basic kept from the add
+    const upd = await host!.rpc.call<{ server: { name: string; url: string; auth: string; expiresAt: number | null } }>(
+      'mediamtx.servers.update', { name: 'rot', url: `${apiUrl}/` },
+    )
+    expect(upd.server).toEqual({ name: 'rot', url: apiUrl, auth: 'basic', expiresAt: null })
+
+    // rotate in a token: bearer wins over the retained basic
+    const exp = 1234
+    const tok = `h.${Buffer.from(JSON.stringify({ exp })).toString('base64url')}.s`
+    const withTok = await host!.rpc.call<{ server: { auth: string; expiresAt: number | null } }>(
+      'mediamtx.servers.update', { name: 'rot', token: tok },
+    )
+    expect(withTok.server.auth).toBe('bearer')
+    expect(withTok.server.expiresAt).toBe(exp)
+
+    // clear the token with an empty string: basic is still underneath
+    const cleared = await host!.rpc.call<{ server: { auth: string; expiresAt: number | null } }>(
+      'mediamtx.servers.update', { name: 'rot', token: '' },
+    )
+    expect(cleared.server.auth).toBe('basic')
+    expect(cleared.server.expiresAt).toBeNull()
+
+    // clearing basic too leaves an unauthenticated entry
+    const noAuth = await host!.rpc.call<{ server: { auth: string } }>(
+      'mediamtx.servers.update', { name: 'rot', username: '' },
+    )
+    expect(noAuth.server.auth).toBe('none')
+
+    // coded local failures
+    const ghost = await expectError(host!.rpc, 'mediamtx.servers.update', { name: 'ghost', url: apiUrl })
+    expect(ghost.code).toBe(NOT_FOUND)
+    expect(ghost.messageKey).toBe('mediamtx.serverUnknown')
+    const badUrl = await expectError(host!.rpc, 'mediamtx.servers.update', { name: 'rot', url: 'ftp://x' })
+    expect(badUrl.code).toBe(INVALID_PARAMS)
+    expect(badUrl.messageKey).toBe('mediamtx.serverBadUrl')
+
+    // persisted: the registry file carries the updated entry
+    const reg = JSON.parse(readFileSync(join(host!.home, 'mtxconsole-servers.json'), 'utf8')) as {
+      servers: Array<{ name: string; url: string; username?: string; token?: string }>
+    }
+    const saved = reg.servers.find((s) => s.name === 'rot')
+    expect(saved?.url).toBe(apiUrl)
+    expect(saved?.username).toBeUndefined()
+    expect(saved?.token).toBeUndefined()
+
+    await host!.rpc.call('mediamtx.servers.remove', { name: 'rot' })
   }, 120_000)
 })

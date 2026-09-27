@@ -84,6 +84,8 @@ export interface ConsoleStore {
   /** Route everything to another registered server and drop stale views. */
   switchServer(name: string): Promise<void>
   addServer(entry: { name: string; url: string; username?: string; password?: string; token?: string }): Promise<void>
+  /** In-place credential/url rotation (blank credential fields keep). */
+  updateServer(entry: { name: string; url?: string; username?: string; password?: string; token?: string }): Promise<void>
   removeServer(name: string): Promise<void>
   /** Fetch the flat global config for review (config panel). */
   loadGlobalConfig(): Promise<void>
@@ -285,6 +287,10 @@ export function createConsoleStore(rpc: RpcService): ConsoleStore {
     },
     addServer: async (entry) => {
       await rpc.call('mediamtx.servers.add', entry)
+      await store.loadServers()
+    },
+    updateServer: async (entry) => {
+      await rpc.call('mediamtx.servers.update', entry)
       await store.loadServers()
     },
     removeServer: async (name) => {

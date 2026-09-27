@@ -617,6 +617,11 @@
 .mx-config__srvform .mx-btn {
   margin-bottom: 1px;
 }
+.mx-config__rowbtns {
+  display: flex;
+  gap: 4px;
+  justify-content: flex-end;
+}
 .mx-config__exp {
   margin-left: 6px;
 }

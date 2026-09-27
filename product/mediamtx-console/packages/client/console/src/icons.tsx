@@ -21,3 +21,4 @@ export const IconTv = (p: SVGProps<SVGSVGElement>): ReactElement => svg(p, <><re
 export const IconHistory = (p: SVGProps<SVGSVGElement>): ReactElement => svg(p, <><circle cx="12" cy="12" r="9" /><polyline points="12 7 12 12 15 14" /></>)
 export const IconGrid = (p: SVGProps<SVGSVGElement>): ReactElement => svg(p, <><rect x="3" y="3" width="8" height="8" rx="1" /><rect x="13" y="3" width="8" height="8" rx="1" /><rect x="3" y="13" width="8" height="8" rx="1" /><rect x="13" y="13" width="8" height="8" rx="1" /></>)
 export const IconClose = (p: SVGProps<SVGSVGElement>): ReactElement => svg(p, <><line x1="6" y1="6" x2="18" y2="18" /><line x1="18" y1="6" x2="6" y2="18" /></>)
+export const IconEdit = (p: SVGProps<SVGSVGElement>): ReactElement => svg(p, <><path d="M17 3a2.85 2.85 0 1 1 4 4L7.5 20.5 2 22l1.5-5.5Z" /></>)

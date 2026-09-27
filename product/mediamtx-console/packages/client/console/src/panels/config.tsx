@@ -14,7 +14,7 @@ import { useI18n } from '@mediabase/i18n'
 import { useConsole } from '../use-console.ts'
 import { configDiff, groupConfig, seedDraft, type ConfigDraft } from '../conf.ts'
 import { fmtClock, fmtDay } from '../format.ts'
-import { IconPlus, IconTrash } from '../icons.tsx'
+import { IconClose, IconEdit, IconPlus, IconTrash } from '../icons.tsx'
 
 const msg = (e: unknown): string => (e instanceof Error ? e.message : String(e))
 
@@ -47,6 +47,8 @@ export function ConfigPanel({ ctx }: { ctx: Context }): ReactElement | null {
 
   const [draft, setDraft] = useState<ConfigDraft>({})
   const [srvForm, setSrvForm] = useState<ServerForm>(EMPTY_SERVER_FORM)
+  /** The server name being edited, or null while the form registers a new one. */
+  const [editing, setEditing] = useState<string | null>(null)
   const [feedback, setFeedback] = useState<{ kind: 'ok' | 'err'; text: string } | null>(null)
 
   // Load once per store (the panel opens with the drawer; refresh re-pulls).
@@ -80,23 +82,35 @@ export function ConfigPanel({ ctx }: { ctx: Context }): ReactElement | null {
       .catch((e: unknown) => setFeedback({ kind: 'err', text: msg(e) }))
   }
 
-  const onAddServer = (event: FormEvent): void => {
+  // One form, two verbs: registering a new server, or rotating an existing
+  // one in place (blank credential fields KEEP — the wire clears only on an
+  // explicit empty string, which this form never sends).
+  const onSubmitServer = (event: FormEvent): void => {
     event.preventDefault()
     const name = srvForm.name.trim()
     const url = srvForm.url.trim()
     if (name === '' || url === '') return
     setFeedback(null)
-    void store.addServer({
+    const payload = {
       name,
       url,
       ...(srvForm.username.trim() !== '' ? { username: srvForm.username.trim(), password: srvForm.password } : {}),
       ...(srvForm.token.trim() !== '' ? { token: srvForm.token.trim() } : {}),
-    })
+    }
+    const run = editing === null ? store.addServer(payload) : store.updateServer(payload)
+    void run
       .then(() => {
-        setFeedback({ kind: 'ok', text: t('config.serverAdded', { name }) })
+        setFeedback({ kind: 'ok', text: t(editing === null ? 'config.serverAdded' : 'config.serverUpdated', { name }) })
         setSrvForm(EMPTY_SERVER_FORM)
+        setEditing(null)
       })
       .catch((e: unknown) => setFeedback({ kind: 'err', text: msg(e) }))
+  }
+
+  const onEditServer = (name: string, url: string): void => {
+    setFeedback(null)
+    setEditing(name)
+    setSrvForm({ name, url, username: '', password: '', token: '' })
   }
 
   const onRemoveServer = (name: string): void => {
@@ -159,7 +173,15 @@ export function ConfigPanel({ ctx }: { ctx: Context }): ReactElement | null {
                     return <span className="mx-badge mx-config__exp" data-state={b.state}>{b.text}</span>
                   })()}
                 </td>
-                <td>
+                <td className="mx-config__rowbtns">
+                  <button
+                    type="button"
+                    className="mx-btn mx-btn--icon"
+                    title={t('config.srvEdit')}
+                    onClick={() => onEditServer(s.name, s.url)}
+                  >
+                    <IconEdit />
+                  </button>
                   <button
                     type="button"
                     className="mx-btn mx-btn--icon mx-btn--danger"
@@ -175,10 +197,16 @@ export function ConfigPanel({ ctx }: { ctx: Context }): ReactElement | null {
           </tbody>
         </table>
       )}
-      <form className="mx-form mx-config__srvform" onSubmit={onAddServer}>
+      <form className="mx-form mx-config__srvform" onSubmit={onSubmitServer}>
         <label className="mx-field">
           <span>{t('config.srvName')}</span>
-          <input value={srvForm.name} onChange={(e) => setSrvForm({ ...srvForm, name: e.target.value })} placeholder="office" required />
+          <input
+            value={srvForm.name}
+            onChange={(e) => setSrvForm({ ...srvForm, name: e.target.value })}
+            placeholder="office"
+            disabled={editing !== null}
+            required
+          />
         </label>
         <label className="mx-field">
           <span>{t('config.srvUrl')}</span>
@@ -186,17 +214,31 @@ export function ConfigPanel({ ctx }: { ctx: Context }): ReactElement | null {
         </label>
         <label className="mx-field">
           <span>{t('config.srvUser')}</span>
-          <input value={srvForm.username} onChange={(e) => setSrvForm({ ...srvForm, username: e.target.value })} autoComplete="off" />
+          <input value={srvForm.username} onChange={(e) => setSrvForm({ ...srvForm, username: e.target.value })} placeholder={editing === null ? undefined : t('config.srvKeep')} autoComplete="off" />
         </label>
         <label className="mx-field">
           <span>{t('config.srvPass')}</span>
-          <input type="password" value={srvForm.password} onChange={(e) => setSrvForm({ ...srvForm, password: e.target.value })} autoComplete="new-password" />
+          <input type="password" value={srvForm.password} onChange={(e) => setSrvForm({ ...srvForm, password: e.target.value })} placeholder={editing === null ? undefined : t('config.srvKeep')} autoComplete="new-password" />
         </label>
         <label className="mx-field">
           <span>{t('config.srvToken')}</span>
-          <input type="password" value={srvForm.token} onChange={(e) => setSrvForm({ ...srvForm, token: e.target.value })} autoComplete="off" />
+          <input type="password" value={srvForm.token} onChange={(e) => setSrvForm({ ...srvForm, token: e.target.value })} placeholder={editing === null ? undefined : t('config.srvKeep')} autoComplete="off" />
         </label>
-        <button type="submit" className="mx-btn"><IconPlus /> {t('config.serverAdd')}</button>
+        {editing === null
+          ? <button type="submit" className="mx-btn"><IconPlus /> {t('config.serverAdd')}</button>
+          : (
+              <>
+                <button type="submit" className="mx-btn mx-btn--primary"><IconEdit /> {t('config.serverUpdate')}</button>
+                <button
+                  type="button"
+                  className="mx-btn mx-btn--icon"
+                  title={t('config.srvEditCancel')}
+                  onClick={() => { setEditing(null); setSrvForm(EMPTY_SERVER_FORM) }}
+                >
+                  <IconClose />
+                </button>
+              </>
+            )}
       </form>
       {snap.serversError !== null && <p className="mx-error">{t('common.error', { detail: snap.serversError })}</p>}
 
