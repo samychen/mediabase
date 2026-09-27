@@ -130,6 +130,24 @@ pnpm run verify:mtxconsole          # 端到端冒烟(LIVE/DEGRADED 双模式)
 pnpm run verify:mtxconsole:compose  # 组合文件门禁
 ```
 
+## LIVE 实测清单(需要真机)
+
+沙箱与 CI 都证明不了的——对着真实 MediaMTX(`MTX_BIN=… pnpm run test:mtxconsole`
+会把套件切到 LIVE)与真实摄像头走一遍:
+
+1. **HEVC 回放**:录一路 hvc1 → 主舞台与墙各播一个窗口 → devtools 里
+   `addSourceBuffer` 的 MIME 应为 `hvc1.…`(codec 串按 RFC 6381 公式构造,
+   但从未见过真实 HEVC 硬件);
+2. **多机位同步**:两路以上录同一场景 → 入墙同播 → 秒级边界对齐应保持,
+   漂移超过 0.4s 应看到吸附回位;
+3. **链的跳窗**:多窗口的路径 → 从中间窗口连播 → 每个边界只有一次短缓冲,
+   `i/N` 徽标递增;整链进度条跨窗拖动 = 从目标窗口第一个字节重新取流;
+4. **GAP 停走**:留一段录制空档 → 对应格子暂停原地,时钟走到下一窗口自动续播;
+5. **真 JWT**:配一个短 `exp` 的 token → 徽标 灰 → 黄(<10 分钟)→ 红,
+   过期后调用浮现带码 401;
+6. **两台真服务器**:都登记 → 切换 → 仪表盘/流/录像/墙整体换血、无旧数据残留,
+   且 `~/.mtxconsole/mtxconsole-servers.json` 在宿主重启后保住注册表。
+
 ## 架构:三层,一条分层规则
 
 ```

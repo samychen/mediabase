@@ -163,6 +163,31 @@ pnpm run verify:mtxconsole          # end-to-end smoke (LIVE/DEGRADED modes)
 pnpm run verify:mtxconsole:compose  # composition-file gate
 ```
 
+## LIVE checklist (needs real hardware)
+
+What no sandbox or CI runner can prove — walk this against a real MediaMTX
+(`MTX_BIN=… pnpm run test:mtxconsole` flips the suites to LIVE) and real
+cameras:
+
+1. **HEVC playback**: record one hvc1 path → play a window on the stage and
+   on the wall → devtools must show the `addSourceBuffer` MIME as
+   `hvc1.…` (the codec string is built per RFC 6381 but has never met real
+   HEVC hardware);
+2. **Multi-camera sync**: two+ paths recording the same scene → park them in
+   wall cells → play: second-boundary alignment should hold, and a drift
+   >0.4s should visibly snap back;
+3. **Chain hops**: a path with several windows → Play from a middle window →
+   each boundary costs one short rebuffer, the `i/N` badge advances, and the
+   chain scrubber jumping across windows re-streams the target from its
+   first byte;
+4. **GAP hold**: leave a recording gap → the cell parks (paused) and resumes
+   by itself when the clock reaches the next window;
+5. **Real JWT**: configure a short-`exp` token → the badge goes dim → amber
+   (<10min) → red, and calls after expiry surface the coded 401;
+6. **Two real servers**: register both → switch → dashboard/streams/
+   recordings/wall all swap with no stale rows, and `~/.mtxconsole/
+   mtxconsole-servers.json` holds the registry across a host restart.
+
 ## Architecture: three layers, one layering rule
 
 ```

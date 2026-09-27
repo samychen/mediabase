@@ -3,7 +3,7 @@
   "version": "0.1.6",
   "private": true,
   "type": "module",
-  "description": "MediaMTX console panels (client plane): dashboard, streams, WHEP/HLS player, sessions — registers its own PanelDescriptors",
+  "description": "MediaMTX console panels (client plane): dashboard, streams, WHEP/HLS player, recordings + sync wall, sessions, servers & global config — registers its own PanelDescriptors",
   "main": "src/index.tsx",
   "types": "src/index.tsx",
   "exports": {
