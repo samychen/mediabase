@@ -208,7 +208,7 @@ product/mediamtx-console/
 :3091(各自 bundle 层挪默认端口),身份目录分别为 `~/.mediabase` /
 `~/.openvideo` / `~/.mtxconsole`。
 
-## 已知边界(M3)
+## 已知边界(M5)
 
 - 链播放按窗口逐段推进——主舞台与每个墙格皆然:每跳一次重新缓冲一次
   (playback 服务器的 `/get` 不支持 Range,窗口只能从第一个字节起流);主舞台

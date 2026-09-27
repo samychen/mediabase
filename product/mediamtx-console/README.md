@@ -232,7 +232,7 @@ them through `agent.run`):
 
 See [AGENT.md](./AGENT.md).
 
-## Known edges (M3)
+## Known edges (M5)
 
 - chains play window-by-window — on the main stage AND in every wall cell:
   one rebuffer per hop (the playback server's `/get` has no Range support, so
