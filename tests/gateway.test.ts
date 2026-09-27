@@ -10,7 +10,7 @@ import { mkdtempSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { afterEach, describe, expect, it } from 'vitest'
-import { createGateway, type Gateway } from '../packages/base/gateway/src/index.ts'
+import { createGateway, type Gateway, type RawRouteFn } from '../packages/base/gateway/src/index.ts'
 
 const cleanups: Array<() => void> = []
 afterEach(async () => {
@@ -160,6 +160,86 @@ describe('gateway: data plane', () => {
     expect((await fetch(url(g, '/api/nope'))).status).toBe(200)
 
     expect(await fetch(url(g, '/api/health')).then((r) => r.json())).toEqual({ ok: true, extra: true })
+  })
+})
+
+describe('gateway: byte ranges (data plane)', () => {
+  const FULL = new Uint8Array([0, 1, 2, 3, 4, 5, 6, 7, 8, 9])
+
+  /** A producer that honours the window and hands back only those bytes. */
+  const slicing = (): Record<string, RawRouteFn> => ({
+    'slice.bin': (range) => {
+      if (!range) return { body: FULL, totalSize: FULL.byteLength }
+      const start = Math.min(range.start, FULL.byteLength - 1)
+      const end = Math.min(range.end, FULL.byteLength - 1)
+      return { body: FULL.subarray(start, end + 1), totalSize: FULL.byteLength }
+    },
+  })
+
+  it('answers 206 + Content-Range when the producer slices', async () => {
+    const g = await gateway({ rawRoutes: slicing() })
+    const r = await fetch(url(g, '/api/slice.bin'), { headers: { Range: 'bytes=3-5' } })
+    expect(r.status).toBe(206)
+    expect(r.headers.get('content-range')).toBe('bytes 3-5/10')
+    expect(r.headers.get('accept-ranges')).toBe('bytes')
+    expect([...new Uint8Array(await r.arrayBuffer())]).toEqual([3, 4, 5])
+  })
+
+  it('advertises ranges on the plain 200 too — a client probes before it seeks', async () => {
+    const g = await gateway({ rawRoutes: slicing() })
+    const r = await fetch(url(g, '/api/slice.bin'))
+    expect(r.status).toBe(200)
+    expect(r.headers.get('accept-ranges')).toBe('bytes')
+    expect([...new Uint8Array(await r.arrayBuffer())].length).toBe(10)
+  })
+
+  it('slices on the gateway when a route declares a total but ignores the window', async () => {
+    const g = await gateway({ rawRoutes: { 'lazy.bin': () => ({ body: FULL, totalSize: FULL.byteLength }) } })
+    const r = await fetch(url(g, '/api/lazy.bin'), { headers: { Range: 'bytes=8-9' } })
+    expect(r.status).toBe(206)
+    expect(r.headers.get('content-range')).toBe('bytes 8-9/10')
+    expect([...new Uint8Array(await r.arrayBuffer())]).toEqual([8, 9])
+  })
+
+  it('never range-serves a route that declares no total (a live frame is not seekable)', async () => {
+    const g = await gateway({ rawRoutes: { 'frame.rgb': () => ({ body: FULL }) } })
+    const r = await fetch(url(g, '/api/frame.rgb'), { headers: { Range: 'bytes=2-4' } })
+    expect(r.status).toBe(200)
+    expect(r.headers.get('accept-ranges')).toBeNull()
+    expect([...new Uint8Array(await r.arrayBuffer())].length).toBe(10)
+  })
+
+  it('answers 416 with the real size when the window starts past the end', async () => {
+    const g = await gateway({ rawRoutes: slicing() })
+    const r = await fetch(url(g, '/api/slice.bin'), { headers: { Range: 'bytes=99-120' } })
+    expect(r.status).toBe(416)
+    expect(r.headers.get('content-range')).toBe('bytes */10')
+  })
+
+  it('clamps an open-ended tail to the resource instead of overflowing', async () => {
+    const g = await gateway({ rawRoutes: slicing() })
+    const r = await fetch(url(g, '/api/slice.bin'), { headers: { Range: 'bytes=7-' } })
+    expect(r.status).toBe(206)
+    expect(r.headers.get('content-range')).toBe('bytes 7-9/10')
+    expect([...new Uint8Array(await r.arrayBuffer())]).toEqual([7, 8, 9])
+  })
+
+  // Degrading to the whole representation is legal (RFC 9110 §14.2 ranges are a
+  // MAY) and is the only sane answer for a spec this gateway does not slice.
+  it('degrades to 200 for a multi-range or suffix spec', async () => {
+    const g = await gateway({ rawRoutes: slicing() })
+    for (const spec of ['bytes=0-1,4-5', 'bytes=-3', 'bytes=9-2', 'items=0-1']) {
+      const r = await fetch(url(g, '/api/slice.bin'), { headers: { Range: spec } })
+      expect(r.status, spec).toBe(200)
+      expect([...new Uint8Array(await r.arrayBuffer())].length, spec).toBe(10)
+    }
+  })
+
+  it('keeps a range-aware route behind the token gate', async () => {
+    const g = await gateway({ rawRoutes: slicing(), auth: { token: 's3cret' } })
+    expect((await fetch(url(g, '/api/slice.bin'), { headers: { Range: 'bytes=0-1' } })).status).toBe(401)
+    const ok = await fetch(`${url(g, '/api/slice.bin')}?token=s3cret`, { headers: { Range: 'bytes=0-1' } })
+    expect(ok.status).toBe(206)
   })
 })
 

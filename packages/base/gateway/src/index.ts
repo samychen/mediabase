@@ -20,10 +20,43 @@ import { dirname, extname, join, normalize, resolve, sep } from 'node:path'
 import { WebSocketServer } from 'ws'
 import { makeServer, RpcCode, type RpcMethods } from '@mediabase/rpc'
 
+/**
+ * An inclusive byte window, as it appears in `Range: bytes=start-end` (RFC 9110
+ * §14.1.1). `end` is INCLUSIVE and may run past the end of the resource — a
+ * producer clamps it to what the resource actually holds.
+ */
+export interface RawRange {
+  start: number
+  end: number
+}
+
 export interface RawRoute {
   body: Uint8Array | null
   headers?: Record<string, string>
+  /**
+   * Length of the FULL resource in bytes, when `body` may be only part of it.
+   *
+   * Declaring it is how a route opts into byte-range serving: the gateway then
+   * advertises `Accept-Ranges: bytes` and answers a satisfiable `Range` request
+   * with `206` + `Content-Range`. Leave it out for one-shot or volatile
+   * payloads (a live frame, a snapshot that changes between requests) — those
+   * stay on the plain `200` path, because "bytes 100..200 of the latest frame"
+   * is not a meaningful question.
+   *
+   * Contract when it IS declared: with no `Range` header the producer returns
+   * the whole resource; with one it returns the requested window (or fewer
+   * bytes, if it prefers to serve in chunks — the window in the response is
+   * derived from the bytes handed back, never from the request).
+   */
+  totalSize?: number
 }
+
+/**
+ * A raw route producer. It MAY accept the byte window the client asked for;
+ * ignoring it (the shape every route used before ranges existed) is still
+ * valid and simply means "always the whole thing".
+ */
+export type RawRouteFn = (range?: RawRange) => RawRoute
 
 /**
  * A transport sink bound to one subscriber. `send` returns false when the frame
@@ -53,8 +86,12 @@ export interface GatewayOptions {
    * then resolved per request instead of frozen at construction.
    */
   methods: RpcMethods | (() => RpcMethods)
-  /** Raw byte routes served at /api/<name> (data plane); same lazy rule. */
-  rawRoutes?: Record<string, () => RawRoute> | (() => Record<string, () => RawRoute>)
+  /**
+   * Raw byte routes served at /api/<name> (data plane); same lazy rule.
+   * A producer receives the requested byte window (see `RawRoute.totalSize`)
+   * and may answer with a slice.
+   */
+  rawRoutes?: Record<string, RawRouteFn> | (() => Record<string, RawRouteFn>)
   /**
    * Optional shared-secret gate. When set, the data plane (`/api/*`), the WS
    * endpoints and `/api/health` require `?token=` (or `Authorization: Bearer`).
@@ -159,6 +196,31 @@ async function serveStatic(pathname: string, res: http.ServerResponse, distRoot:
   }
 }
 
+/**
+ * Parse a single `Range: bytes=start-end` header into an inclusive window.
+ *
+ * Returns null for every shape this gateway will not slice — no header, a unit
+ * other than `bytes`, a multi-range list, `bytes=-500` (a suffix range needs the
+ * total length up front, and only the producer knows that), or a spec that is
+ * unsatisfiable on its face. A null result means "answer the whole
+ * representation", which RFC 9110 §14.2 explicitly allows: ranges are a
+ * MAY, so an unparseable one degrades instead of failing the request.
+ */
+function parseRange(header: string | undefined): RawRange | null {
+  if (header === undefined) return null
+  const m = /^bytes=(\d*)-(\d*)$/.exec(header.trim())
+  if (!m) return null
+  const first = m[1]!
+  const last = m[2]!
+  // `bytes=-` and `bytes=-500`: nothing (or only a suffix) was named.
+  if (first === '') return null
+  const start = Number(first)
+  // An open-ended tail (`bytes=500-`) runs to EOF; the producer clamps it.
+  const end = last === '' ? Number.MAX_SAFE_INTEGER : Number(last)
+  if (start > end) return null
+  return { start, end }
+}
+
 /** Constant-time comparison so a token cannot be guessed byte by byte. */
 function tokenMatches(expected: string, provided: string | null): boolean {
   if (provided === null) return false
@@ -184,7 +246,7 @@ export function createGateway(opts: GatewayOptions): Gateway {
   const maxPayload = opts.maxPayload ?? 1024 * 1024
   const maxConnections = opts.maxConnections ?? 64
   const drainTimeoutMs = opts.drainTimeoutMs ?? 2000
-  const resolveRaw = (): Record<string, () => RawRoute> =>
+  const resolveRaw = (): Record<string, RawRouteFn> =>
     typeof opts.rawRoutes === 'function' ? opts.rawRoutes() : opts.rawRoutes ?? {}
 
   // In-flight HTTP responses. close() waits for this to reach 0 (bounded) so a
@@ -232,18 +294,68 @@ export function createGateway(opts: GatewayOptions): Gateway {
     const rawMatch = pathname.startsWith('/api/') ? pathname.slice('/api/'.length) : ''
     const rawRoutes = resolveRaw()
     if (rawMatch && rawMatch in rawRoutes) {
-      const route = rawRoutes[rawMatch]!()
-      if (!route.body) {
+      const range = parseRange(req.headers.range)
+      const route = rawRoutes[rawMatch]!(range ?? undefined)
+      const body = route.body
+      // No bytes is a 404 (unchanged). A range request that produced nothing is
+      // one too: a 206 with an empty window would be nonsense.
+      if (!body || (range !== null && body.byteLength === 0)) {
         res.writeHead(404)
         res.end('no data yet')
         return
       }
-      res.writeHead(200, {
+      const headers: Record<string, string> = {
         'content-type': 'application/octet-stream',
         'cache-control': 'no-store',
         ...(route.headers ?? {}),
-      })
-      res.end(route.body)
+      }
+      // Only a route that declared a total can be sliced, so only it advertises
+      // ranges — on the 200 as well, otherwise a client would never learn that
+      // it may come back with a Range (browsers probe with a plain GET first).
+      const seekable = route.totalSize !== undefined
+      if (seekable) headers['accept-ranges'] = 'bytes'
+
+      if (range !== null && seekable) {
+        const total = route.totalSize!
+        if (range.start >= total) {
+          // Unsatisfiable: the client is told the real size so it can retry
+          // sanely instead of guessing.
+          res.writeHead(416, { ...headers, 'content-range': `bytes */${total}` })
+          res.end()
+          return
+        }
+        // Two producer shapes, told apart by length: a body shorter than the
+        // declared total IS the requested window (already offset, possibly
+        // clamped), while a full-length body means the producer ignored the
+        // window — slice it here rather than resend bytes the client has.
+        if (body.byteLength < total) {
+          const end = range.start + body.byteLength - 1
+          res.writeHead(206, {
+            ...headers,
+            'content-range': `bytes ${range.start}-${end}/${total}`,
+            'content-length': String(body.byteLength),
+          })
+          res.end(body)
+          return
+        }
+        const last = Math.min(range.end, total - 1)
+        if (range.start === 0 && last === total - 1) {
+          res.writeHead(200, headers)
+          res.end(body)
+          return
+        }
+        const slice = body.subarray(range.start, last + 1)
+        res.writeHead(206, {
+          ...headers,
+          'content-range': `bytes ${range.start}-${last}/${total}`,
+          'content-length': String(slice.byteLength),
+        })
+        res.end(slice)
+        return
+      }
+
+      res.writeHead(200, headers)
+      res.end(body)
       return
     }
     if (pathname === '/api/health') {

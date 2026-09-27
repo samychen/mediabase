@@ -30,7 +30,39 @@
 
 实现注意:两个 WS 端点都跑在 `noServer` 模式 + 单一 `upgrade` 路由 —— `ws` 对路径不匹配的
 升级请求会直接 400 拒绝,若各自带 `path` 建服,第二个端点会打断第一个端点的握手。
-- `/api/<name>` 原始字节路由(数据面,例如 `preview.rgb`)
+- `/api/<name>` 原始字节路由(数据面,例如 `preview.rgb`)**支持 Range**
+- `/api/health` + 事件通知广播(`broadcast(method, params)` 推给所有客户端)
+
+## 字节范围(Range)
+
+路由生产者**可选**接收客户端请求的字窗口 `{start, end}`(闭区间,来自 `Range: bytes=`),
+并在回包里带上 `totalSize`(完整资源长度)——带上它就是声明"这段字节可以被切片":
+
+```ts
+rawRoutes: {
+  'asset.42': (range) => {
+    const size = statSync(file).size
+    if (!range) return { body: readWhole(file), totalSize: size }   // 200 整块
+    const start = range.start                                        // 已按 size 夹取
+    const end = Math.min(range.end, start + CHUNK - 1, size - 1)     // 生产者自行封顶
+    return { body: readWindow(file, start, end), totalSize: size }   // 206
+  },
+}
+```
+
+- 声明了 `totalSize` → 网关回 `Accept-Ranges: bytes`;窗口可满足时回 `206` +
+  `Content-Range: bytes start-end/total`;窗口起点越界回 `416` + `bytes */total`。
+  响应里的窗口由**实际交回的字节**推导(所以生产者可以少给,分块下发),不是照抄请求。
+- 生产者忽略窗口(仍返回整块 + `totalSize`)时,网关自己切片 —— 不会重发客户端已有的字节。
+- **不声明** `totalSize` → 走原来的 200 整块路径,不参与 Range。一次性/易变负载
+  (最新一帧、每次请求都变的快照)就属于这类:"最新一帧的第 100~200 字节"没有意义。
+- 多段区间、`bytes=-500` 后缀区间、非 `bytes` 单位、畸形 spec:一律降级为 200 整块
+  (RFC 9110 §14.2 允许服务端忽略 Range),不会报错。
+- 开放式尾部(`bytes=500-`)会夹到资源末尾。**建议生产者自己封顶**:否则 `bytes=0-`
+  就等于"把整个文件读进内存",多大的素材都不会压垮 RSS 的前提是这里封了顶。
+
+`ctx.api.route()` 的 `handler` 签名同步放宽(接收 `ApiByteRange`),两边结构一致由
+`@mediabase/server` 的赋值处做类型校验 —— 一侧改动另一侧会编译报错。
 - `/api/health` + 事件通知广播(`broadcast(method, params)` 推给所有客户端)
 
 `@mediabase/server` 已改成纯组合层:`methods`/`rawRoutes`/`health` 全部来自 `ctx.api`

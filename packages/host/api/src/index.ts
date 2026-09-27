@@ -56,12 +56,35 @@ export interface ApiMethod<S = Schema<any, any>, R = Schema<any, any>> {
   handler: (params: S extends Schema<any, infer P> ? P : Record<string, unknown>) => R extends Schema<any, infer O> ? O | Promise<O> : unknown
 }
 
+/**
+ * An inclusive byte window. Structurally identical to `RawRange` in
+ * @mediabase/gateway (this host package deliberately does not depend on the
+ * transport: the gateway fills the window from the HTTP `Range` header). The
+ * two are kept compatible by assignment at the server glue, so a change on
+ * either side is a typecheck error, not a runtime surprise.
+ */
+export interface ApiByteRange {
+  start: number
+  end: number
+}
+
 /** A data-plane byte route, served at `/api/<name>` by the gateway. */
 export interface ApiRoute {
   name: string
   description?: string
-  /** Same shape @mediabase/gateway serves: bytes plus optional headers. */
-  handler: () => { body: Uint8Array | null; headers?: Record<string, string> }
+  /**
+   * Same shape @mediabase/gateway serves: bytes plus optional headers.
+   *
+   * `range` is the window the client asked for, or undefined when it asked for
+   * the whole thing. Ignore it for one-shot payloads (a live frame); honour it
+   * and report `totalSize` for a resource that can be sliced (a file), so a
+   * seek never has to transfer the bytes before the seek target.
+   */
+  handler: (range?: ApiByteRange) => {
+    body: Uint8Array | null
+    headers?: Record<string, string>
+    totalSize?: number
+  }
 }
 
 export interface ApiService {
@@ -96,7 +119,7 @@ export interface ApiService {
   list(): ApiMethodView[]
   routes(): ApiRoute[]
   /** Route map for `createGateway({ rawRoutes })`. */
-  routeMap(): Record<string, () => { body: Uint8Array | null; headers?: Record<string, string> }>
+  routeMap(): Record<string, ApiRoute['handler']>
   healthPayload(): Record<string, unknown>
   /** Validate + invoke one method (the same path the RPC server takes). */
   call(name: string, params?: unknown): Promise<unknown>
@@ -270,8 +293,8 @@ export function apply(ctx: Context): void {
         })
     },
     routes: () => [...routes.values()],
-    routeMap(): Record<string, () => { body: Uint8Array | null; headers?: Record<string, string> }> {
-      const map: Record<string, () => { body: Uint8Array | null; headers?: Record<string, string> }> = {}
+    routeMap(): Record<string, ApiRoute['handler']> {
+      const map: Record<string, ApiRoute['handler']> = {}
       for (const [routeName, route] of routes) map[routeName] = route.handler
       return map
     },
