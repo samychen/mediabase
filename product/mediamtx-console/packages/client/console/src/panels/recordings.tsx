@@ -39,12 +39,20 @@ export function RecordingsPanel({ ctx }: { ctx: Context }): ReactElement | null 
     store.playRecording(playlist, 0, label)
   }
 
-  // Park a window on the sync wall: first empty cell, and a full wall cycles
-  // back to cell 0 — a review wall replaces, it does not grow.
+  // Park a CHAIN on the sync wall (M4): the clicked window plus every window
+  // after it — same "from here" semantics as the main stage. First empty
+  // cell; a full wall cycles back to cell 0 (a review wall replaces).
+  const chainFrom = (entry: PlaybackEntry): PlaybackEntry[] => {
+    const at = snap.recEntries.indexOf(entry)
+    return snap.recEntries.slice(at < 0 ? 0 : at).filter((e) => e.url !== '')
+  }
+
   const onAddSync = (entry: PlaybackEntry): void => {
     if (entry.url === '' || snap.recPath === null) return
+    const entries = chainFrom(entry)
+    if (entries.length === 0) return
     const free = firstFreeSlot(snap.syncSlots, snap.syncLayout)
-    store.syncAssign(free >= 0 ? free : 0, { path: snap.recPath, entry })
+    store.syncAssign(free >= 0 ? free : 0, { path: snap.recPath, entries })
   }
 
   const onDragStart = (e: ReactDragEvent, entry: PlaybackEntry): void => {
@@ -52,7 +60,12 @@ export function RecordingsPanel({ ctx }: { ctx: Context }): ReactElement | null 
       e.preventDefault()
       return
     }
-    e.dataTransfer.setData('text/plain', encodeSyncPayload({ path: snap.recPath, entry }))
+    const entries = chainFrom(entry)
+    if (entries.length === 0) {
+      e.preventDefault()
+      return
+    }
+    e.dataTransfer.setData('text/plain', encodeSyncPayload({ path: snap.recPath, entries }))
     e.dataTransfer.effectAllowed = 'copy'
   }
 

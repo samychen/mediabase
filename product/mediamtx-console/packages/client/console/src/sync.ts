@@ -1,19 +1,19 @@
-// sync.ts — the pure half of synchronized playback (M3).
+// sync.ts — the pure half of synchronized playback (M3 wall, M4 chaining).
 //
-// Several recording windows on ONE shared timeline: the global clock is
-// wall-clock milliseconds (windows carry real timestamps), and every slot
-// maps that to its own local seconds. Everything here is pure so vitest can
-// pin it without a browser; the panel (panels/sync.tsx) owns the rAF clock,
-// the <video> elements and one MsePlayer per slot.
+// Several recording CHAINS on ONE shared timeline: a cell holds a path's
+// consecutive windows (M4 — the wall used to hold one window each), the
+// global clock is wall-clock milliseconds, and every tick maps that time to
+// (which window of the chain, which media second inside it). Everything here
+// is pure so vitest can pin it without a browser; the panel (panels/sync.tsx)
+// owns the rAF clock, the <video> elements and one MsePlayer per cell.
 //
-// Upstream fact kept honest: the playback server's `/get` answers
-// `Accept-Ranges: none` — a window can only be streamed from its first byte.
-// Seeking inside the buffered range is instant; seeking forward stalls until
-// the sequential fetch catches up; content evicted behind the playhead
-// (mse.ts keeps ~30s) is gone for good. No cross-window CHAINING of one
-// path's consecutive windows yet — this aligns windows in PARALLEL.
+// Upstream facts kept honest: the playback server's `/get` answers
+// `Accept-Ranges: none` — a window can only be streamed from its first byte,
+// so a cross-window hop re-streams the target window from its start, seeking
+// inside the buffered range is instant, and content evicted behind the
+// playhead (mse.ts keeps ~30s) is gone for good.
 
-import { parse } from '@mediabase/schema'
+import { parse, z } from '@mediabase/schema'
 import { PlaybackEntryS, type PlaybackEntry } from '@mtxconsole/protocol'
 
 /** Grid layouts the panel offers (cells rendered = layout). */
@@ -22,10 +22,13 @@ export type SyncLayout = 1 | 4 | 9
 /** The widest layout — also the fixed length of the slot array in the store. */
 export const SYNC_MAX_SLOTS = 9
 
-/** One recording window parked in a grid cell, with the path it came from. */
+/**
+ * One cell's content: consecutive windows of ONE path, in timeline order.
+ * A single-window cell is just a chain of length 1.
+ */
 export interface SyncSlot {
   path: string
-  entry: PlaybackEntry
+  entries: PlaybackEntry[]
 }
 
 /** The shared timeline's span, in wall-clock milliseconds. */
@@ -34,18 +37,58 @@ export interface SyncRange {
   endMs: number
 }
 
-/** A slot's own span on the wall clock, or null when its timestamp is junk. */
-export function slotWindow(slot: SyncSlot): SyncRange | null {
-  const startMs = Date.parse(slot.entry.startIso)
+/** Where the global clock sits inside a cell's chain. */
+export interface SlotPosition {
+  /** The chain window that owns this instant. */
+  entryIndex: number
+  /** Media seconds inside that window, or null when the clock sits in a GAP
+   * between windows (recordings pause — the cell holds, paused, until the
+   * next window starts). */
+  rel: number | null
+}
+
+interface EntryWindow {
+  startMs: number
+  endMs: number
+}
+
+/** One entry's wall-clock span, or null when its timestamp is junk. */
+function entryWindow(entry: PlaybackEntry): EntryWindow | null {
+  const startMs = Date.parse(entry.startIso)
   if (Number.isNaN(startMs)) return null
-  const durationMs = Number.isFinite(slot.entry.durationSeconds)
-    ? Math.max(0, slot.entry.durationSeconds * 1000)
+  const durationMs = Number.isFinite(entry.durationSeconds)
+    ? Math.max(0, entry.durationSeconds * 1000)
     : 0
   return { startMs, endMs: startMs + durationMs }
 }
 
+/** The parseable windows of a chain, in order, with their chain index. */
+function chainWindows(slot: SyncSlot): Array<EntryWindow & { index: number }> {
+  const out: Array<EntryWindow & { index: number }> = []
+  for (let i = 0; i < slot.entries.length; i++) {
+    const entry = slot.entries[i]
+    if (entry === undefined) continue
+    const w = entryWindow(entry)
+    if (w !== null) out.push({ ...w, index: i })
+  }
+  return out
+}
+
+/** A chain's own span on the wall clock, or null when nothing parses. */
+export function slotWindow(slot: SyncSlot): SyncRange | null {
+  const windows = chainWindows(slot)
+  if (windows.length === 0) return null
+  let startMs = Infinity
+  let endMs = -Infinity
+  for (const w of windows) {
+    if (w.startMs < startMs) startMs = w.startMs
+    if (w.endMs > endMs) endMs = w.endMs
+  }
+  return { startMs, endMs }
+}
+
 /**
- * The timeline spanned by the VISIBLE slots (index < layout): earliest start
+ * The timeline spanned by the VISIBLE cells (index < layout): earliest start
  * to latest end. null when nothing visible has a parseable window.
  */
 export function syncRange(
@@ -66,29 +109,63 @@ export function syncRange(
 }
 
 /**
- * Where the global clock (wall-clock ms) sits inside one slot, in the slot's
- * own media seconds — or null when outside its window / unparseable. This is
- * the mapping the master clock applies to every <video> each tick.
+ * Map the global clock (wall-clock ms) into one cell's chain: which window
+ * owns the instant, and the media second inside it. Returns:
+ *   { entryIndex, rel }    — inside a window (play/pause/seek target)
+ *   { entryIndex, rel: null } — inside a GAP: hold at the named window
+ *       (its end), paused, until the clock reaches the next one
+ *   null                   — outside the chain entirely (before its first
+ *       window / after its last): the cell stands down
  */
-export function slotRelSeconds(globalMs: number, slot: SyncSlot): number | null {
-  const w = slotWindow(slot)
-  if (w === null) return null
-  const rel = (globalMs - w.startMs) / 1000
-  if (rel < 0 || rel > (w.endMs - w.startMs) / 1000) return null
-  return rel
+export function locateInSlot(globalMs: number, slot: SyncSlot): SlotPosition | null {
+  const windows = chainWindows(slot)
+  if (windows.length === 0) return null
+  const first = windows[0]!
+  const last = windows[windows.length - 1]!
+  if (globalMs < first.startMs || globalMs > last.endMs) return null
+  for (let i = 0; i < windows.length; i++) {
+    const w = windows[i]!
+    if (globalMs >= w.startMs && globalMs <= w.endMs) {
+      return { entryIndex: w.index, rel: (globalMs - w.startMs) / 1000 }
+    }
+    // A gap: between this window's end and the next parseable start.
+    const next = windows[i + 1]
+    if (next !== undefined && globalMs > w.endMs && globalMs < next.startMs) {
+      return { entryIndex: w.index, rel: null }
+    }
+  }
+  // Unreachable for parseable chains (the span is covered), but overlapping
+  // upstream windows could land here — hold at the last window rather than
+  // inventing a position.
+  return { entryIndex: last.index, rel: null }
+}
+
+/** Total media seconds of a chain (gaps excluded — it is what plays). */
+export function chainSeconds(slot: SyncSlot): number {
+  let total = 0
+  for (const entry of slot.entries) {
+    if (Number.isFinite(entry.durationSeconds) && entry.durationSeconds > 0) total += entry.durationSeconds
+  }
+  return total
 }
 
 /** The drag-and-drop wire shape (versioned — a stale tab must not inject junk). */
-export const SYNC_PAYLOAD_VERSION = 1
+export const SYNC_PAYLOAD_VERSION = 2
+
+const SyncSlotPayloadS = z.object({
+  v: z.const(SYNC_PAYLOAD_VERSION).required(),
+  path: z.string().min(1).required(),
+  entries: z.array(PlaybackEntryS).required(),
+})
 
 export function encodeSyncPayload(slot: SyncSlot): string {
-  return JSON.stringify({ v: SYNC_PAYLOAD_VERSION, path: slot.path, entry: slot.entry })
+  return JSON.stringify({ v: SYNC_PAYLOAD_VERSION, path: slot.path, entries: slot.entries })
 }
 
 /**
  * Parse a dataTransfer payload back into a slot. Anything off-contract
- * (wrong version, failed schema, non-JSON) is null — a drop must never
- * throw into the panel.
+ * (wrong version — e.g. an M3 single-window tab, failed schema, non-JSON)
+ * is null — a drop must never throw into the panel.
  */
 export function parseSyncPayload(json: string): SyncSlot | null {
   let raw: unknown
@@ -97,19 +174,17 @@ export function parseSyncPayload(json: string): SyncSlot | null {
   } catch {
     return null
   }
-  if (raw === null || typeof raw !== 'object') return null
-  const obj = raw as Record<string, unknown>
-  if (obj.v !== SYNC_PAYLOAD_VERSION) return null
-  if (typeof obj.path !== 'string' || obj.path === '') return null
   try {
-    return { path: obj.path, entry: parse(PlaybackEntryS, obj.entry) }
+    const parsed = parse(SyncSlotPayloadS, raw)
+    // An empty chain has nothing to play — refuse it instead of parking it.
+    return parsed.entries.length === 0 ? null : { path: parsed.path, entries: parsed.entries }
   } catch {
     return null
   }
 }
 
 /**
- * Where the recordings panel parks the next window: the first empty visible
+ * Where the recordings panel parks the next chain: the first empty visible
  * cell, or -1 when the grid is full (the caller then cycles back to cell 0 —
  * a review wall replaces, it does not grow).
  */

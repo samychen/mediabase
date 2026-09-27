@@ -52,7 +52,7 @@ M2 scope:
   disabled/unreachable are coded errors carrying the config hint, never a
   blank panel.
 
-M3 scope (this milestone):
+M3 scope:
 
 - **Sync playback wall**: park recording windows into a 1/4/9 video grid (a
   button on every recordings row, or drag-and-drop); each occupied cell
@@ -81,6 +81,19 @@ M3 scope (this milestone):
   `mediamtx.config.global.patch`, then re-reads the config — the server
   normalizes values and listener changes take effect immediately, so the
   panel shows the server's truth, never a stale draft.
+
+M4 scope (this milestone):
+
+- **Wall chaining**: a sync-wall cell now holds a whole CHAIN of a path's
+  consecutive windows ("Add to sync" / drag takes the clicked window plus
+  every window after it — the main stage's "from here" semantics). The master
+  clock locates every tick inside each cell's chain (which window, which
+  media second — `locateInSlot` in sync.ts, pinned by tests); crossing a
+  window boundary re-attaches that cell's MSE stream to the next window, the
+  only honest move against a Range-less `/get`. A recording GAP parks the
+  cell, paused, until the clock reaches the next window. The drag payload is
+  versioned up (v2, schema-checked): an M3 tab cannot drop a single-window
+  payload into an M4 wall.
 
 ## Quick start
 
@@ -170,14 +183,12 @@ See [AGENT.md](./AGENT.md).
 
 ## Known edges (M3)
 
-- recording chains play window-by-window: clicking a window chains it with
-  every window after it and the stage auto-advances at each boundary (one
-  rebuffer per hop — the playback server's `/get` has no Range support, so a
-  window can only start from its first byte); the native scrubber still spans
-  only the CURRENT window, and the sync wall's cells are single windows (the
-  wall aligns paths in PARALLEL; it does not chain them). Seeking stays
-  honest about the missing Range: instant inside the buffered range, forward
-  seeks wait for the sequential stream, evicted tail cannot be recovered;
+- chains play window-by-window — on the main stage AND in every wall cell:
+  one rebuffer per hop (the playback server's `/get` has no Range support, so
+  a window can only start from its first byte); the stage's native scrubber
+  still spans only the CURRENT window. Seeking stays honest about the missing
+  Range: instant inside the buffered range, forward seeks wait for the
+  sequential stream, evicted tail cannot be recovered;
 - recording playback requires browser MSE (all modern desktop browsers and
   iOS 17.1+; older Safari gets an explicit "unsupported" message instead of a
   black screen). HEVC codec strings follow the standard formula but have not

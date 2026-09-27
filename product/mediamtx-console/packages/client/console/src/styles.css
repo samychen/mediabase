@@ -472,6 +472,10 @@
   text-overflow: ellipsis;
   pointer-events: none;
 }
+.mx-sync__pos {
+  margin-left: 6px;
+  color: var(--mb-accent, #4c8dff);
+}
 .mx-sync__badge {
   position: absolute;
   bottom: 6px;
