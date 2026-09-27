@@ -44,6 +44,7 @@ export type MessageKey =
   | 'recordings.pick'
   | 'recordings.noPaths'
   | 'recordings.empty'
+  | 'recordings.playChain'
   | 'sync.addToSync'
   | 'sync.empty'
   | 'sync.dropHint'
@@ -114,6 +115,7 @@ const zhCN: Record<MessageKey, string> = {
   'recordings.pick': '选择路径…',
   'recordings.noPaths': '还没有录像 —— 给路径开启「录制」,推流之后这里会出现可回放的窗口。',
   'recordings.empty': '该路径暂无可回放窗口。',
+  'recordings.playChain': '从此窗口连播(自动接续其后的窗口)',
   'sync.addToSync': '加入同步回放',
   'sync.empty': '还没有画面 —— 点录像窗口行的「加入同步回放」,或把窗口拖进下面的格子;多路录像会在同一条时间轴上对齐播放。',
   'sync.dropHint': '拖入录像窗口',
@@ -185,6 +187,7 @@ const en: Record<MessageKey, string> = {
   'recordings.pick': 'Select a path…',
   'recordings.noPaths': 'No recordings yet — enable Record on a path, publish to it, and playable windows will show up here.',
   'recordings.empty': 'No playable windows for this path yet.',
+  'recordings.playChain': 'Play from here (chains the following windows)',
   'sync.addToSync': 'Add to sync playback',
   'sync.empty': 'Nothing on the wall yet — click “Add to sync playback” on a recording window, or drag one into the grid; several windows then play side by side on ONE shared timeline.',
   'sync.dropHint': 'Drop a recording window',

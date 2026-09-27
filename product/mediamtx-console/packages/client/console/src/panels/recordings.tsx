@@ -28,10 +28,15 @@ export function RecordingsPanel({ ctx }: { ctx: Context }): ReactElement | null 
 
   if (cons === null || store === null || snap === null) return null
 
+  // Play means "from here": the clicked window plus every window after it
+  // form the chain the stage auto-advances through (M3 cross-window playback).
   const onPlay = (entry: PlaybackEntry): void => {
     if (entry.url === '') return
+    const at = snap.recEntries.indexOf(entry)
+    const playlist = snap.recEntries.slice(at < 0 ? 0 : at).filter((e) => e.url !== '')
+    if (playlist.length === 0) return
     const label = `${snap.recPath ?? '?'} · ${fmtClock(entry.startIso)} · ${fmtDur(entry.durationSeconds)}`
-    store.playRecording(entry.url, label)
+    store.playRecording(playlist, 0, label)
   }
 
   // Park a window on the sync wall: first empty cell, and a full wall cycles
@@ -118,7 +123,7 @@ export function RecordingsPanel({ ctx }: { ctx: Context }): ReactElement | null 
                               <button
                                 type="button"
                                 className="mx-btn mx-btn--icon"
-                                title={t('stream.play')}
+                                title={t('recordings.playChain')}
                                 disabled={entry.url === ''}
                                 onClick={() => onPlay(entry)}
                               >

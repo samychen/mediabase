@@ -293,6 +293,10 @@
   font-weight: 600;
   color: var(--mb-text, #e6edf3);
 }
+.mx-player__chain {
+  margin-left: 6px;
+  font-family: var(--mb-font-mono, ui-monospace, monospace);
+}
 .mx-player__modes {
   display: flex;
   gap: 12px;

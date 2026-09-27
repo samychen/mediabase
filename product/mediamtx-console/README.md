@@ -64,6 +64,9 @@ M3 scope (this milestone, in progress):
   else); the 60fps clock deliberately does NOT — a tick must never re-emit
   the snapshot six other panels render from. Zero new dependencies; media
   bytes still flow browser ⇄ :9996 directly.
+- **Cross-window chaining**: Play on a recordings row now means "from here" —
+  the clicked window plus every window after it form a chain the main stage
+  auto-advances through (position badge `i/N`); no more click-per-window.
 
 ## Quick start
 
@@ -149,13 +152,14 @@ See [AGENT.md](./AGENT.md).
 
 ## Known edges (M3)
 
-- the main stage still plays recording windows segment-by-segment: no
-  cross-window CHAINING yet (the M3 sync wall aligns several windows in
-  PARALLEL on one shared timeline; consecutive windows of one path do not
-  splice into a single scrub). The playback server's `/get` has no Range
-  support, so on the wall seeking is instant only inside the buffered range,
-  forward seeks wait for the sequential stream to catch up, and buffer
-  already evicted behind the playhead cannot be recovered;
+- recording chains play window-by-window: clicking a window chains it with
+  every window after it and the stage auto-advances at each boundary (one
+  rebuffer per hop — the playback server's `/get` has no Range support, so a
+  window can only start from its first byte); the native scrubber still spans
+  only the CURRENT window, and the sync wall's cells are single windows (the
+  wall aligns paths in PARALLEL; it does not chain them). Seeking stays
+  honest about the missing Range: instant inside the buffered range, forward
+  seeks wait for the sequential stream, evicted tail cannot be recovered;
 - recording playback requires browser MSE (all modern desktop browsers and
   iOS 17.1+; older Safari gets an explicit "unsupported" message instead of a
   black screen). HEVC codec strings follow the standard formula but have not

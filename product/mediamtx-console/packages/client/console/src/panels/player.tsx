@@ -32,7 +32,10 @@ export function PlayerPanel({ ctx }: { ctx: Context }): ReactElement | null {
   const store = cons?.store ?? null
   const snap = cons?.snap ?? null
   const recording = snap?.recording ?? null
-  const recUrl = recording?.url ?? null
+  const recUrl = recording === null ? null : recording.playlist[recording.index]?.url ?? null
+  const recPos = recording === null || recording.playlist.length < 2
+    ? null
+    : `${recording.index + 1}/${recording.playlist.length}`
   // A recording owns the stage: the live pipeline stands down while one plays.
   const selected = recording === null ? snap?.selected ?? null : null
   const mode = snap?.playMode ?? 'whep'
@@ -43,10 +46,13 @@ export function PlayerPanel({ ctx }: { ctx: Context }): ReactElement | null {
   // Recording playback (MSE ⇄ the playback server; see mse.ts). Declared
   // after the live effect would double-run cleanups in the wrong order, so
   // it lives FIRST: React runs effects top-down, live stands down before the
-  // recording pipeline takes the element over.
+  // recording pipeline takes the element over. The effect is keyed on the
+  // CHAIN'S CURRENT url, so `ended` advancing the index re-runs it: dispose
+  // tears the finished window down and the next one starts on the same
+  // element — cross-window playback without another click.
   useEffect(() => {
     const video = videoRef.current
-    if (video === null || recUrl === null) return
+    if (video === null || recUrl === null || store === null) return
     const player = new MsePlayer(video, (mseState, mseDetail) => {
       if (mseState === 'opening') {
         setState('connecting')
@@ -55,6 +61,9 @@ export function PlayerPanel({ ctx }: { ctx: Context }): ReactElement | null {
         setState('live')
       } else if (mseState === 'ended') {
         setState('idle')
+        // Last window → the store clears the stage; otherwise the snapshot
+        // change re-keys this effect onto the next window.
+        store.advanceRecording()
       } else {
         setState('error')
         setDetail(mseDetail === 'mse-unsupported' ? t('player.mseUnsupported') : mseDetail ?? 'playback error')
@@ -63,8 +72,9 @@ export function PlayerPanel({ ctx }: { ctx: Context }): ReactElement | null {
     void player.play(recUrl)
     return () => player.dispose()
     // t is stable per locale; re-running on locale change is harmless.
+    // store identity is stable for the plugin's lifetime.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [recUrl])
+  }, [recUrl, store])
 
   useEffect(() => {
     const video = videoRef.current
@@ -163,6 +173,7 @@ export function PlayerPanel({ ctx }: { ctx: Context }): ReactElement | null {
       <header className="mx-player__bar">
         <span className="mx-player__title">
           <IconTv /> {recording !== null ? recording.label : selected ?? t('panel.player.title')}
+          {recPos !== null && <span className="mx-badge mx-player__chain" data-state="ready">{recPos}</span>}
         </span>
         {recording === null && (
           <span className="mx-player__modes">

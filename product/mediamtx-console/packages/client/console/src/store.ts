@@ -29,8 +29,11 @@ export interface ConsoleSnapshot {
   /** The path the player panel should render (null = none selected). */
   selected: string | null
   playMode: 'whep' | 'hls'
-  /** A recording window on the player stage (mutually exclusive with `selected`). */
-  recording: { url: string; label: string } | null
+  /** A recording CHAIN on the player stage (mutually exclusive with
+   * `selected`): consecutive windows of one path; when window `index` ends
+   * the player advances to the next — cross-window playback without another
+   * click. `label` identifies where the chain started. */
+  recording: { playlist: PlaybackEntry[]; index: number; label: string } | null
   /** Recording-browser state (on-demand; NOT part of the polling loop). */
   recPaths: string[]
   recPath: string | null
@@ -56,8 +59,10 @@ export interface ConsoleStore {
   addPath(name: string, source: string | undefined, record: boolean): Promise<void>
   deletePath(name: string): Promise<void>
   kickSession(kind: SessionKind, id: string): Promise<void>
-  /** Put a recording window on the stage (clears any live selection). */
-  playRecording(url: string, label: string): void
+  /** Put a recording chain on the stage (clears any live selection). */
+  playRecording(playlist: PlaybackEntry[], index: number, label: string): void
+  /** Advance to the chain's next window; past the last one the stage clears. */
+  advanceRecording(): void
   stopRecording(): void
   /** Refresh the list of paths that have recordings. */
   loadRecordingPaths(): Promise<void>
@@ -172,7 +177,17 @@ export function createConsoleStore(rpc: RpcService): ConsoleStore {
     select: (name) => emit({ selected: name, recording: null }),
     setPlayMode: (mode) => emit({ playMode: mode }),
     refresh,
-    playRecording: (url, label) => emit({ recording: { url, label }, selected: null }),
+    playRecording: (playlist, index, label) => emit({
+      recording: playlist.length === 0 ? null : { playlist, index: Math.max(0, Math.min(index, playlist.length - 1)), label },
+      selected: null,
+    }),
+    advanceRecording: () => {
+      const rec = snapshot.recording
+      if (rec === null) return
+      // Past the last window the stage clears — a chain that loops would
+      // silently re-fetch the same bytes forever.
+      emit({ recording: rec.index + 1 < rec.playlist.length ? { ...rec, index: rec.index + 1 } : null })
+    },
     stopRecording: () => emit({ recording: null }),
     loadRecordingPaths: async () => {
       try {
