@@ -8,11 +8,12 @@
 //
 // React contract: one immutable snapshot object + subscribe(listener),
 // consumed through useSyncExternalStore — the same observable-store shape the
-// openvideo editor uses. All five panels share ONE store instance provided on
-// the context, so they poll the server once, not five times.
+// openvideo editor uses. All panels share ONE store instance provided on the
+// context, so they poll the server once, not once per panel.
 
 import type { Endpoints, MetricsSummary, PathRow, PlaybackEntry, ServerInfo, SessionKind, SessionRow } from '@mtxconsole/protocol'
 import type { RpcService } from '@mediabase/connection'
+import { SYNC_MAX_SLOTS, type SyncLayout, type SyncSlot } from './sync.ts'
 
 export const POLL_MS = 3000
 const SLOW_EVERY = 5
@@ -36,6 +37,11 @@ export interface ConsoleSnapshot {
   recEntries: PlaybackEntry[]
   recLoading: boolean
   recError: string | null
+  /** Synchronized-playback wall (M3): fixed-length grid of recording windows.
+   * Declarative state only — the master clock lives in the panel (60fps ticks
+   * must not re-emit the snapshot every other panel reads). */
+  syncSlots: ReadonlyArray<SyncSlot | null>
+  syncLayout: SyncLayout
   /** Bumped after every successful cycle — panels key transitions off it. */
   generation: number
 }
@@ -57,7 +63,16 @@ export interface ConsoleStore {
   loadRecordingPaths(): Promise<void>
   /** Pick a recorded path and fetch its playable windows. */
   selectRecordingPath(name: string | null): Promise<void>
+  /** Park a recording window in grid cell `index` (null clears the cell). */
+  syncAssign(index: number, slot: SyncSlot | null): void
+  syncSetLayout(layout: SyncLayout): void
+  syncClear(): void
   refresh(): Promise<void>
+}
+
+/** A fresh 9-cell grid — a new array every time (snapshots are immutable). */
+function emptySyncSlots(): Array<SyncSlot | null> {
+  return Array.from({ length: SYNC_MAX_SLOTS }, () => null)
 }
 
 export const EMPTY_FALLBACK: ConsoleSnapshot = {
@@ -76,6 +91,8 @@ export const EMPTY_FALLBACK: ConsoleSnapshot = {
   recEntries: [],
   recLoading: false,
   recError: null,
+  syncSlots: emptySyncSlots(),
+  syncLayout: 4,
   generation: 0,
 }
 
@@ -187,6 +204,16 @@ export function createConsoleStore(rpc: RpcService): ConsoleStore {
         }
       }
     },
+    syncAssign: (index, slot) => {
+      // Out-of-range writes are dropped, not wrapped: a stale drag from an
+      // older tab must not corrupt the grid.
+      if (!Number.isInteger(index) || index < 0 || index >= SYNC_MAX_SLOTS) return
+      const next = [...snapshot.syncSlots]
+      next[index] = slot
+      emit({ syncSlots: next })
+    },
+    syncSetLayout: (layout) => emit({ syncLayout: layout }),
+    syncClear: () => emit({ syncSlots: emptySyncSlots() }),
     addPath: async (name, source, record) => {
       await rpc.call('mediamtx.config.paths.add', {
         name,

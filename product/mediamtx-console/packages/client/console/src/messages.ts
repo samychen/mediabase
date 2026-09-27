@@ -8,6 +8,7 @@ export type MessageKey =
   | 'panel.player.title'
   | 'panel.sessions.title'
   | 'panel.recordings.title'
+  | 'panel.sync.title'
   | 'server.unreachable'
   | 'server.version'
   | 'server.started'
@@ -43,6 +44,18 @@ export type MessageKey =
   | 'recordings.pick'
   | 'recordings.noPaths'
   | 'recordings.empty'
+  | 'sync.addToSync'
+  | 'sync.empty'
+  | 'sync.dropHint'
+  | 'sync.play'
+  | 'sync.pause'
+  | 'sync.clear'
+  | 'sync.layout'
+  | 'sync.layout.1'
+  | 'sync.layout.4'
+  | 'sync.layout.9'
+  | 'sync.removeSlot'
+  | 'sync.seekHint'
   | 'sessions.empty'
   | 'sessions.kick'
   | 'sessions.kicked'
@@ -65,6 +78,7 @@ const zhCN: Record<MessageKey, string> = {
   'panel.player.title': '预览播放',
   'panel.sessions.title': '会话',
   'panel.recordings.title': '录像回放',
+  'panel.sync.title': '同步回放',
   'server.unreachable': 'MediaMTX 不可达',
   'server.version': '版本',
   'server.started': '启动于',
@@ -100,6 +114,18 @@ const zhCN: Record<MessageKey, string> = {
   'recordings.pick': '选择路径…',
   'recordings.noPaths': '还没有录像 —— 给路径开启「录制」,推流之后这里会出现可回放的窗口。',
   'recordings.empty': '该路径暂无可回放窗口。',
+  'sync.addToSync': '加入同步回放',
+  'sync.empty': '还没有画面 —— 点录像窗口行的「加入同步回放」,或把窗口拖进下面的格子;多路录像会在同一条时间轴上对齐播放。',
+  'sync.dropHint': '拖入录像窗口',
+  'sync.play': '播放',
+  'sync.pause': '暂停',
+  'sync.clear': '清空',
+  'sync.layout': '布局',
+  'sync.layout.1': '单画面',
+  'sync.layout.4': '四宫格',
+  'sync.layout.9': '九宫格',
+  'sync.removeSlot': '移出该格',
+  'sync.seekHint': '拖动仅在已缓冲范围内即时生效;向后跳过缓冲只能等流追上(playback 服务的 /get 不支持 Range)。',
   'sessions.empty': '当前没有会话。',
   'sessions.kick': '踢出',
   'sessions.kicked': '已踢出 {id}',
@@ -123,6 +149,7 @@ const en: Record<MessageKey, string> = {
   'panel.player.title': 'Preview player',
   'panel.sessions.title': 'Sessions',
   'panel.recordings.title': 'Recordings',
+  'panel.sync.title': 'Sync playback',
   'server.unreachable': 'MediaMTX unreachable',
   'server.version': 'Version',
   'server.started': 'Started',
@@ -158,6 +185,18 @@ const en: Record<MessageKey, string> = {
   'recordings.pick': 'Select a path…',
   'recordings.noPaths': 'No recordings yet — enable Record on a path, publish to it, and playable windows will show up here.',
   'recordings.empty': 'No playable windows for this path yet.',
+  'sync.addToSync': 'Add to sync playback',
+  'sync.empty': 'Nothing on the wall yet — click “Add to sync playback” on a recording window, or drag one into the grid; several windows then play side by side on ONE shared timeline.',
+  'sync.dropHint': 'Drop a recording window',
+  'sync.play': 'Play',
+  'sync.pause': 'Pause',
+  'sync.clear': 'Clear',
+  'sync.layout': 'Layout',
+  'sync.layout.1': 'Single',
+  'sync.layout.4': 'Quad',
+  'sync.layout.9': 'Nine',
+  'sync.removeSlot': 'Remove from grid',
+  'sync.seekHint': 'Scrubbing is instant only inside the buffered range; forward seeks wait for the stream to catch up (the playback server’s /get has no Range support).',
   'sessions.empty': 'No sessions right now.',
   'sessions.kick': 'Kick',
   'sessions.kicked': 'Kicked {id}',

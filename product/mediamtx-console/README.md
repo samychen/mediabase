@@ -52,6 +52,19 @@ M2 scope (this milestone):
   disabled/unreachable are coded errors carrying the config hint, never a
   blank panel.
 
+M3 scope (this milestone, in progress):
+
+- **Sync playback wall**: park recording windows into a 1/4/9 video grid (a
+  button on every recordings row, or drag-and-drop); each occupied cell
+  streams its own window through MSE and all cells share ONE wall-clock
+  timeline — an rAF master clock in the panel maps global time to each cell's
+  own seconds, so several recordings of the same incident play (and scrub)
+  side by side. The declarative grid state lives in the shared store (the
+  recordings panel and the wall talk through the same seam as everything
+  else); the 60fps clock deliberately does NOT — a tick must never re-emit
+  the snapshot six other panels render from. Zero new dependencies; media
+  bytes still flow browser ⇄ :9996 directly.
+
 ## Quick start
 
 ```sh
@@ -134,18 +147,28 @@ them through `agent.run`):
 
 See [AGENT.md](./AGENT.md).
 
-## Known edges (M2)
+## Known edges (M3)
 
-- playback windows play segment-by-segment: no cross-window timeline yet
-  (dragging past the window end needs another click; the playback server's
-  `/get` has no Range support, so the scrubber only spans the current window);
+- the main stage still plays recording windows segment-by-segment: no
+  cross-window CHAINING yet (the M3 sync wall aligns several windows in
+  PARALLEL on one shared timeline; consecutive windows of one path do not
+  splice into a single scrub). The playback server's `/get` has no Range
+  support, so on the wall seeking is instant only inside the buffered range,
+  forward seeks wait for the sequential stream to catch up, and buffer
+  already evicted behind the playhead cannot be recovered;
 - recording playback requires browser MSE (all modern desktop browsers and
   iOS 17.1+; older Safari gets an explicit "unsupported" message instead of a
   black screen). HEVC codec strings follow the standard formula but have not
   been verified against real HEVC hardware;
-- global config: read-only review + subset patch method, no form UI yet (M3
+- global config: read-only review + subset patch method, no form UI yet (next
+  M3 candidate);
+- single server per host (multi-server switching is the other open M3
   candidate);
-- single server per host (multi-server switching is an M3 candidate);
+- the sync wall has no test coverage for its clock/DOM half — `sync.ts` (the
+  timeline math and the drop payload contract) and the store actions are
+  pinned by `tests/sync.test.ts`, but the rAF loop and the per-cell MSE
+  wiring need a browser to exercise (the repo's other browser-bound legs are
+  covered the same way: `verify.mjs` walks them LIVE);
 - WHEP relies on the browser's native `RTCPeerConnection`; the HLS fallback
   only exists where native (no hls.js — zero new runtime deps is a hard
   constraint of this product);

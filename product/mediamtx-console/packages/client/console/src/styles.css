@@ -373,3 +373,116 @@
 .mx-recordings .mx-row .mx-btn {
   margin-left: auto;
 }
+
+/* ---- sync playback (M3): the recording wall on one shared timeline ---- */
+.mx-sync {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  min-height: 0;
+}
+.mx-sync__bar {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+.mx-sync__scrub {
+  flex: 1;
+  min-width: 120px;
+  accent-color: var(--mb-accent, #4c8dff);
+}
+.mx-sync__clock {
+  min-width: 132px;
+  text-align: right;
+  color: var(--mb-text-dim, #9aa4b2);
+}
+.mx-sync__layout {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+.mx-sync__layout-label {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  white-space: nowrap;
+}
+.mx-sync__layout .mx-select {
+  flex: none;
+  width: auto;
+}
+.mx-sync__empty,
+.mx-sync__hint {
+  margin: 0;
+  font-size: 11px;
+}
+.mx-sync__grid {
+  display: grid;
+  gap: 6px;
+}
+.mx-sync__grid[data-layout='1'] {
+  grid-template-columns: 1fr;
+}
+.mx-sync__grid[data-layout='4'] {
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+}
+.mx-sync__grid[data-layout='9'] {
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+}
+.mx-sync__cell {
+  position: relative;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  aspect-ratio: 16 / 9;
+  max-height: 320px;
+  border: 1px dashed var(--mb-border, #2a3140);
+  border-radius: 8px;
+  background: #000;
+  overflow: hidden;
+}
+.mx-sync__cell video {
+  width: 100%;
+  height: 100%;
+  object-fit: contain;
+}
+.mx-sync__cellhint {
+  padding: 8px;
+  font-size: 11px;
+  text-align: center;
+}
+.mx-sync__label {
+  position: absolute;
+  top: 6px;
+  left: 6px;
+  max-width: calc(100% - 44px);
+  padding: 2px 6px;
+  border-radius: 4px;
+  background: rgba(0, 0, 0, 0.6);
+  color: #fff;
+  font-family: var(--mb-font-mono, ui-monospace, monospace);
+  font-size: 10px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  pointer-events: none;
+}
+.mx-sync__badge {
+  position: absolute;
+  bottom: 6px;
+  left: 6px;
+}
+.mx-sync__remove {
+  position: absolute;
+  top: 4px;
+  right: 4px;
+  opacity: 0.75;
+}
+.mx-sync__remove:hover {
+  opacity: 1;
+}
+/* Two icon buttons per window row now (sync + play): only the first pushes right. */
+.mx-recordings .mx-row .mx-btn + .mx-btn {
+  margin-left: 0;
+}

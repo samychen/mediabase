@@ -5,12 +5,13 @@
 // playback itself is browser ⇄ playback server directly (MSE, see mse.ts) —
 // media bytes never touch the host, exactly like WHEP/HLS.
 
-import { useEffect, type ReactElement } from 'react'
+import { useEffect, type DragEvent as ReactDragEvent, type ReactElement } from 'react'
 import type { Context } from '@deepseek-ai/cordis'
 import { useI18n } from '@mediabase/i18n'
 import { useConsole } from '../use-console.ts'
 import { fmtClock, fmtDay, fmtDur } from '../format.ts'
-import { IconHistory, IconPlay } from '../icons.tsx'
+import { IconGrid, IconHistory, IconPlay } from '../icons.tsx'
+import { encodeSyncPayload, firstFreeSlot } from '../sync.ts'
 import type { PlaybackEntry } from '@mtxconsole/protocol'
 
 export function RecordingsPanel({ ctx }: { ctx: Context }): ReactElement | null {
@@ -31,6 +32,23 @@ export function RecordingsPanel({ ctx }: { ctx: Context }): ReactElement | null 
     if (entry.url === '') return
     const label = `${snap.recPath ?? '?'} · ${fmtClock(entry.startIso)} · ${fmtDur(entry.durationSeconds)}`
     store.playRecording(entry.url, label)
+  }
+
+  // Park a window on the sync wall: first empty cell, and a full wall cycles
+  // back to cell 0 — a review wall replaces, it does not grow.
+  const onAddSync = (entry: PlaybackEntry): void => {
+    if (entry.url === '' || snap.recPath === null) return
+    const free = firstFreeSlot(snap.syncSlots, snap.syncLayout)
+    store.syncAssign(free >= 0 ? free : 0, { path: snap.recPath, entry })
+  }
+
+  const onDragStart = (e: ReactDragEvent, entry: PlaybackEntry): void => {
+    if (entry.url === '' || snap.recPath === null) {
+      e.preventDefault()
+      return
+    }
+    e.dataTransfer.setData('text/plain', encodeSyncPayload({ path: snap.recPath, entry }))
+    e.dataTransfer.effectAllowed = 'copy'
   }
 
   const groups = new Map<string, PlaybackEntry[]>()
@@ -80,9 +98,23 @@ export function RecordingsPanel({ ctx }: { ctx: Context }): ReactElement | null 
                         <h4 className="mx-recordings__day-title">{day}</h4>
                         <ul className="mx-list">
                           {entries.map((entry) => (
-                            <li key={entry.startIso} className="mx-row">
+                            <li
+                              key={entry.startIso}
+                              className="mx-row"
+                              draggable={entry.url !== ''}
+                              onDragStart={(e) => onDragStart(e, entry)}
+                            >
                               <span className="mx-mono">{fmtClock(entry.startIso)}</span>
                               <span className="mx-dim">{fmtDur(entry.durationSeconds)}</span>
+                              <button
+                                type="button"
+                                className="mx-btn mx-btn--icon"
+                                title={t('sync.addToSync')}
+                                disabled={entry.url === ''}
+                                onClick={() => onAddSync(entry)}
+                              >
+                                <IconGrid />
+                              </button>
                               <button
                                 type="button"
                                 className="mx-btn mx-btn--icon"

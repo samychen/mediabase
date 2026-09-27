@@ -40,6 +40,15 @@ M2 范围(本里程碑):
   窗口数组,并把 `/get` URL 的 origin 改写成浏览器可达地址(上游回显的是它自己
   看到的 Host);playback 未开启/不可达都是带码错误+配置提示,不是白屏。
 
+M3 范围(本里程碑,进行中):
+
+- **同步回放墙**:录像窗口可「加入同步回放」(每行一个按钮,或直接拖拽)进
+  1/4/9 宫格;每个格子各自走 MSE 播放自己的窗口,所有格子共享同一条**挂钟
+  时间轴** —— 面板内的 rAF 主时钟把全局时刻映射到每格自己的秒数,多路录像
+  对齐同播、联动拖动。宫格的声明式状态在共享 store 里(录像面板与回放墙走
+  同一条面板间接缝),60fps 的时钟刻意**不**进 store —— 一次 tick 绝不能重发
+  其余六个面板赖以渲染的快照。零新依赖,媒体字节依旧浏览器 ⇄ :9996 直连。
+
 ## 快速开始
 
 ```sh
@@ -122,7 +131,7 @@ product/mediamtx-console/
 ├── packages/
 │   ├── protocol/            @mtxconsole/protocol   双面纯逻辑:schemas/适配器/解析
 │   ├── host/bridge/         @mtxconsole/host-bridge 宿主能力:15 个 RPC 方法 + 6 个工具
-│   ├── client/console/      @mtxconsole/ui-console  6 个面板 + WHEP 客户端 + MSE 回放 + store
+│   ├── client/console/      @mtxconsole/ui-console  7 个面板 + WHEP 客户端 + MSE 回放/同步墙 + store
 │   └── bundle/{app,ui}/     组合层(宿主 patch / 浏览器名册)
 ├── apps/cli/                宿主入口(身份:mtxconsole)
 ├── apps/web/                页面(Vite)
@@ -136,15 +145,20 @@ product/mediamtx-console/
 :3091(各自 bundle 层挪默认端口),身份目录分别为 `~/.mediabase` /
 `~/.openvideo` / `~/.mtxconsole`。
 
-## 已知边界(M2)
+## 已知边界(M3)
 
-- 回放窗口按段播放,未做跨段时间轴(拖到下一段需再点一次;playback 服务器
-  的 `/get` 不支持 Range,浏览器进度条只在当前窗口内有效);
+- 主舞台的回放窗口仍按段播放,未做跨段**串联**(M3 的同步墙解决的是多窗口
+  **并行**对齐;同一路径的相邻窗口尚未拼成一条进度条)。playback 服务器的
+  `/get` 不支持 Range,所以墙上拖动只在已缓冲范围内即时生效,向前拖要等
+  顺序流追上,播放头之后已被逐出的缓冲无法找回;
 - 回放要求浏览器支持 MSE(现代桌面浏览器与 iOS 17.1+ 均可;更老的 Safari 会
   得到明确的"不支持"提示而非黑屏);HEVC 录像的 codec 串按标准公式构造,但未
   在真实 HEVC 设备上验证过;
-- 全局配置只提供只读审阅 + 子集补丁方法,未做表单 UI(M3 候选);
-- 单服务器(一个宿主对一个 MediaMTX;多服务器切换是 M3 候选);
+- 全局配置只提供只读审阅 + 子集补丁方法,未做表单 UI(M3 剩余候选);
+- 单服务器(一个宿主对一个 MediaMTX;多服务器切换是另一个未做的 M3 候选);
+- 同步墙的时钟/DOM 一半没有测试覆盖 —— `sync.ts`(时间轴数学与拖放载荷契约)
+  和 store 的宫格动作由 `tests/sync.test.ts` 钉住,但 rAF 主时钟与每格 MSE 的
+  接线需要真浏览器才能验(本仓库其余浏览器腿同样如此:由 `verify.mjs` 走 LIVE);
 - WHEP 播放依赖浏览器原生 `RTCPeerConnection`(全平台现代浏览器可用);HLS
   回退仅原生支持的浏览器(不引入 hls.js,零新依赖是本产品的硬约束);
 - MediaMTX 认证仅实现 basic-auth(API 侧);JWT 等上游新认证方式未接。
