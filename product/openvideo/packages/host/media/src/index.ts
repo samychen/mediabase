@@ -14,7 +14,7 @@
 // hosted transcription/analysis/export) are replaced by their local seams:
 // import-by-path, transcript sidecars, and a browser-side export.
 
-import { createWriteStream, existsSync, mkdirSync, readFileSync, statSync, unlinkSync } from 'node:fs'
+import { closeSync, createWriteStream, existsSync, mkdirSync, openSync, readSync, statSync, unlinkSync } from 'node:fs'
 import { Readable } from 'node:stream'
 import { randomBytes } from 'node:crypto'
 import { join } from 'node:path'
@@ -36,7 +36,6 @@ import type {} from '@mediabase/log'
 import type {} from '@mediabase/api'
 import type {} from '@mediabase/tools'
 import { MediaStore, guessContentType, type AssetRow, type ProjectRow } from './store.ts'
-import { startAssetsServer, type AssetsServer } from './assets-http.ts'
 import { ProxyError, ProxyManager, probeFfmpeg, type ProxyInfo, type ProxyTarget } from './proxy.ts'
 import { UploadManager, UploadError } from './uploads.ts'
 
@@ -47,6 +46,41 @@ export const inject = ['api', 'capabilities', 'tools', 'log'] as const
 /** 512 KiB per chunk → ~700 KiB of base64 JSON, inside the 1 MB WS cap. */
 export const UPLOAD_CHUNK_BYTES = 512 * 1024
 
+/**
+ * Largest slice served for one `Range` request (8 MiB).
+ *
+ * The cap is what makes an open-ended `bytes=0-` safe: without it, a plain
+ * press of play on a multi-gigabyte master would read the whole file into
+ * memory before answering. Capping turns that into "here is the first window,
+ * the total is N" — the client comes back for the next one, and RSS stays
+ * flat no matter how large the asset is.
+ */
+export const ASSET_SLICE_BYTES = 8 * 1024 * 1024
+
+/**
+ * Read `[start, end]` (inclusive) out of `file` with a positioned read.
+ * Returns a view over one allocated buffer — the bytes outside the window are
+ * never touched, which is the whole point.
+ */
+export function readFileWindow(file: string, start: number, end: number): Uint8Array {
+  const want = Math.max(0, end - start + 1)
+  const buf = Buffer.allocUnsafe(want)
+  const fd = openSync(file, 'r')
+  try {
+    let got = 0
+    // readSync may return short (it is not obliged to fill the request), so
+    // loop until the window is complete or the file ends.
+    while (got < want) {
+      const n = readSync(fd, buf, got, want - got, start + got)
+      if (n <= 0) break
+      got += n
+    }
+    return new Uint8Array(buf.buffer, buf.byteOffset, got)
+  } finally {
+    closeSync(fd)
+  }
+}
+
 export interface OpenvideoConfig {
   /** Media library directory (default `<appPaths.home>/media`). */
   mediaDir?: string
@@ -54,8 +88,6 @@ export interface OpenvideoConfig {
   projectDir?: string
   /** Ceiling for one browser upload (default 512 MB). */
   maxUploadBytes?: number
-  /** Preferred port of the Range-aware assets sidecar (default 3095). */
-  assetsPort?: number
   /** ffmpeg executable for proxy transcoding (default `ffmpeg` on PATH). */
   ffmpegPath?: string
 }
@@ -64,7 +96,6 @@ export const Config: Schema<OpenvideoConfig, OpenvideoConfig> = z.object({
   mediaDir: z.string().description('media library directory; default <appPaths.home>/media'),
   projectDir: z.string().description('project directory; default <appPaths.home>/projects'),
   maxUploadBytes: z.natural().default(512 * 1024 * 1024).description('upload ceiling in bytes'),
-  assetsPort: z.natural().default(3095).description('Range-aware assets sidecar port'),
   ffmpegPath: z.string().default('ffmpeg').description('ffmpeg binary for proxy transcoding'),
 })
 
@@ -121,7 +152,6 @@ const TranscriptS = z.object({
 
 /** Every method name this capability contributes (the manifest states exactly these). */
 export const API_METHODS = [
-  'openvideo.assets.endpoint',
   'openvideo.assets.list',
   'openvideo.assets.import',
   'openvideo.assets.fetch',
@@ -186,26 +216,6 @@ export function apply(ctx: Context, rawConfig: OpenvideoConfig): void {
   })
   if (ffmpegProbe === null) log.info('未检测到 ffmpeg — 代理转码不可用(其余功能不受影响)')
 
-  // The Range-aware byte plane (see assets-http.ts): media elements need a
-  // seekable response; the base gateway route answers whole bodies.
-  let assetsServer: AssetsServer | null = null
-  assetsServer = startAssetsServer({
-    store,
-    proxyFile: (id) => {
-      const ready = proxies.readyFile(id)
-      if (ready === null) return null
-      return { path: ready.path, contentType: ready.target === 'mp4' ? 'video/mp4' : 'video/webm' }
-    },
-    port: config.assetsPort ?? 3095,
-    onError: (e) => log.warn('素材边车首选端口被占,改用随机端口', {
-      error: e instanceof Error ? e.message : String(e),
-    }),
-  })
-  ctx.effect(() => () => {
-    assetsServer?.close()
-    assetsServer = null
-  }, `${name}: assets sidecar`)
-
   const uploads = new UploadManager({
     tmpDir,
     maxUploadBytes: config.maxUploadBytes ?? 512 * 1024 * 1024,
@@ -213,35 +223,72 @@ export function apply(ctx: Context, rawConfig: OpenvideoConfig): void {
   })
 
   // ---- data plane: one byte route per asset --------------------------------
-  // The gateway's route handler takes no request, so "which asset" is in the
-  // route NAME; the registry is live, so an asset is servable the moment it
-  // lands and its route dies with the asset (or the fiber).
+  // "Which asset" is in the route NAME (the registry is live, so an asset is
+  // servable the moment it lands and its route dies with the asset or the
+  // fiber); "which bytes" now travels in the Range request, so a seek does not
+  // pay for everything before the seek target.
 
   const routeDisposers = new Map<string, () => void>()
-  const serveAsset = (row: AssetRow): void => {
-    const routeName = `openvideo.asset.${row.id}`
+  /**
+   * Serve one immutable file over the gateway's data plane, with Range.
+   *
+   * `resolve` is called per request (not captured): a proxy file appears after
+   * its transcode finishes and an asset can be replaced on disk, so the route
+   * must look the file up again every time rather than bind once.
+   */
+  const serveFile = (routeName: string, description: string, resolve: () => { path: string; contentType: string } | null): void => {
     if (routeDisposers.has(routeName)) return
     const dispose = ctx.api.route({
       name: routeName,
-      description: `bytes of asset ${row.id} (${row.name})`,
-      handler: () => {
-        const file = store.assetPath(row)
-        if (!existsSync(file)) return { body: null }
-        return {
-          body: new Uint8Array(readFileSync(file)),
-          // Lowercase keys: the gateway writes its own lowercase defaults into
-          // the same head object — a capitalized duplicate would be sent twice.
-          // Ids are never reused, so bytes under one id are immutable.
-          headers: { 'content-type': row.contentType, 'cache-control': 'public, max-age=31536000' },
+      description,
+      handler: (range) => {
+        const found = resolve()
+        if (found === null) return { body: null }
+        let size: number
+        try {
+          size = statSync(found.path).size
+        } catch {
+          return { body: null }
         }
+        // Lowercase keys: the gateway writes its own lowercase defaults into
+        // the same head object — a capitalized duplicate would be sent twice.
+        // Ids are never reused, so bytes under one id are immutable.
+        const headers = { 'content-type': found.contentType, 'cache-control': 'public, max-age=31536000' }
+        // `totalSize` is what makes the route seekable: the gateway answers
+        // 206 + Content-Range, so a media element seeks natively instead of
+        // re-downloading from zero.
+        if (!range) return { body: readFileWindow(found.path, 0, size - 1), headers, totalSize: size }
+        const start = Math.min(range.start, Math.max(0, size - 1))
+        const end = Math.min(range.end, start + ASSET_SLICE_BYTES - 1, size - 1)
+        return { body: readFileWindow(found.path, start, end), headers, totalSize: size }
       },
     })
     routeDisposers.set(routeName, dispose)
   }
-  const unserveAsset = (id: string): void => {
-    const routeName = `openvideo.asset.${id}`
+  const unserve = (routeName: string): void => {
     routeDisposers.get(routeName)?.()
     routeDisposers.delete(routeName)
+  }
+
+  const serveAsset = (row: AssetRow): void => {
+    serveFile(
+      `openvideo.asset.${row.id}`,
+      `bytes of asset ${row.id} (${row.name})`,
+      () => ({ path: store.assetPath(row), contentType: row.contentType }),
+    )
+    // Registered alongside the original, not when the transcode lands: the
+    // handler resolves the file per request, so the route simply 404s until a
+    // proxy exists. One less lifecycle to keep in sync — and the registry is
+    // live either way.
+    serveFile(`openvideo.proxy.${row.id}`, `bytes of the proxy for asset ${row.id}`, () => {
+      const ready = proxies.readyFile(row.id)
+      if (ready === null) return null
+      return { path: ready.path, contentType: ready.target === 'mp4' ? 'video/mp4' : 'video/webm' }
+    })
+  }
+  const unserveAsset = (id: string): void => {
+    unserve(`openvideo.asset.${id}`)
+    unserve(`openvideo.proxy.${id}`)
   }
   for (const row of store.listAssets()) serveAsset(row)
 
@@ -337,17 +384,6 @@ export function apply(ctx: Context, rawConfig: OpenvideoConfig): void {
   const uploadsMax = (): number => config.maxUploadBytes ?? 512 * 1024 * 1024
 
   // ---- control plane --------------------------------------------------------
-
-  ctx.api.register({
-    name: 'openvideo.assets.endpoint',
-    description: '素材边车(base URL):支持 Range 的本地 HTTP,媒体元素应从这里拉字节',
-    params: z.object({}),
-    result: z.object({ base: z.string().required(), port: z.natural().required() }),
-    handler: () => {
-      const port = assetsServer?.port() ?? 0
-      return { base: `http://127.0.0.1:${port}`, port }
-    },
-  })
 
   ctx.api.register({
     name: 'openvideo.assets.list',
@@ -890,7 +926,6 @@ export function apply(ctx: Context, rawConfig: OpenvideoConfig): void {
   ctx.api.health(() => ({
     openvideo: {
       assets: store.listAssets().length,
-      assetsPort: assetsServer?.port() ?? 0,
       projects: store.listProjects().length,
       uploads: uploads.active(),
       proxy: { ffmpeg: ffmpegProbe !== null, jobs: proxies.activeJobs() },
@@ -899,5 +934,5 @@ export function apply(ctx: Context, rawConfig: OpenvideoConfig): void {
     },
   }))
 
-  log.info(`媒体库 ${mediaDir} · 项目 ${projectDir} · 素材边车 :${assetsServer?.port() ?? '?'}`)
+  log.info(`媒体库 ${mediaDir} · 项目 ${projectDir} · 数据面 /api/openvideo.asset.<id> (Range)`)
 }

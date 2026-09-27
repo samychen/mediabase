@@ -37,8 +37,9 @@ Everything a project uses lives in the library.
 | `openvideo.assets.remove` *(method)* | refuses with `-32004` + the project names while any project references the asset |
 
 A project references a file as `asset:<id>`. Bytes are served on the data
-plane at `GET /api/openvideo.asset.<id>` (and with Range support on the
-assets sidecar). Direct `https://` sources are also valid in a document — but
+plane at `GET /api/openvideo.asset.<id>`, with byte ranges (`206` +
+`Content-Range`); a ready proxy is at `GET /api/openvideo.proxy.<id>`.
+Direct `https://` sources are also valid in a document — but
 prefer `assets.fetch` + `asset:<id>`: a library asset gets duration probing,
 transcripts, proxy transcoding and CORS-free export, a raw URL gets none of
 those guarantees.

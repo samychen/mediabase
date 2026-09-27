@@ -124,12 +124,16 @@ try {
   checks.expect('数据面路由回读字节', served.ok && servedBody.equals(payload), `${served.status} ${servedBody.length}B`)
   checks.expect('数据面路由带 content-type', served.headers.get('content-type') === 'text/plain', served.headers.get('content-type'))
 
-  // ---- the Range-aware sidecar (media elements need seekable bytes)
-  const ep = await rpc.call('openvideo.assets.endpoint')
-  checks.expect('assets.endpoint 报告边车', typeof ep?.base === 'string' && ep.port > 0, `${ep?.base}`)
-  const ranged = await fetch(`${ep.base}/asset/${assetId}`, { headers: { range: 'bytes=0-9' } })
+  // ---- Range on the same route (media elements need seekable bytes)
+  checks.expect('整块响应广告 Accept-Ranges', served.headers.get('accept-ranges') === 'bytes', `${served.headers.get('accept-ranges')}`)
+  const ranged = await fetch(`${base}/api/openvideo.asset.${assetId}`, { headers: { range: 'bytes=0-9' } })
   const rangedBody = Buffer.from(await ranged.arrayBuffer())
-  checks.expect('边车 Range 返回 206 与 10 字节', ranged.status === 206 && rangedBody.length === 10, `status=${ranged.status}`)
+  checks.expect('Range 返回 206 与 10 字节', ranged.status === 206 && rangedBody.length === 10, `status=${ranged.status}`)
+  checks.expect('206 带 Content-Range', ranged.headers.get('content-range') === `bytes 0-9/${payload.length}`, `${ranged.headers.get('content-range')}`)
+  // 真的按窗口定位，而不是永远从 0 开始
+  const tail = await fetch(`${base}/api/openvideo.asset.${assetId}`, { headers: { range: 'bytes=10-19' } })
+  const tailBody = Buffer.from(await tail.arrayBuffer())
+  checks.expect('窗口定位到第 2 段', tail.status === 206 && tailBody.equals(payload.subarray(10, 20)), `${tail.status} ${tailBody.length}B`)
 
   // ---- import by path (a temp file of our own — works against an external host too)
   const scratch = mkdtempSync(join(tmpdir(), 'openvideo-verify-src-'))

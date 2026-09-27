@@ -93,11 +93,10 @@ describe('editor store: basics', () => {
   it('refresh seeds durations from what the host already knows', async () => {
     // the default stub asset has duration 8 — probing is skipped for it, so
     // the client map must come from the row itself or segments stay zero-length
-    stub.reply('openvideo.assets.endpoint', { base: 'http://127.0.0.1:3095', port: 3095 })
     await store.refresh()
     expect(store.get().durations['asset:aaaaaaaaaaaaaaaa']).toBe(8)
-    // with a sidecar the asset URL points at it (Range-aware)
-    expect(store.assetUrl('aaaaaaaaaaaaaaaa')).toBe('http://127.0.0.1:3095/asset/aaaaaaaaaaaaaaaa')
+    // one byte plane: the gateway route, which is Range-aware
+    expect(store.assetUrl('aaaaaaaaaaaaaaaa')).toBe('/api/openvideo.asset.aaaaaaaaaaaaaaaa')
   })
 
   it('opens a project into the draft and adopts host-saved documents as one undo step', async () => {
@@ -154,18 +153,17 @@ describe('editor store: basics', () => {
 })
 
 describe('editor store: proxy seam', () => {
-  it('playUrlFor prefers a ready proxy on the sidecar, passes URLs through', async () => {
-    stub.reply('openvideo.assets.endpoint', { base: 'http://127.0.0.1:3095', port: 3095 })
+  it('playUrlFor prefers a ready proxy route, passes URLs through', async () => {
     stub.reply('openvideo.assets.list', {
       assets: [asset({ proxy: { status: 'ready', target: 'webm', progress: 1, error: null } })],
     })
     await store.refresh()
-    expect(store.playUrlFor('asset:aaaaaaaaaaaaaaaa')).toBe('http://127.0.0.1:3095/proxy/aaaaaaaaaaaaaaaa')
+    expect(store.playUrlFor('asset:aaaaaaaaaaaaaaaa')).toBe('/api/openvideo.proxy.aaaaaaaaaaaaaaaa')
     expect(store.playUrlFor('https://example.com/x.mp4')).toBe('https://example.com/x.mp4')
-    // without a ready proxy it is the plain asset URL (sidecar-first)
+    // without a ready proxy it is the plain asset URL
     stub.reply('openvideo.assets.list', { assets: [asset()] })
     await store.refresh()
-    expect(store.playUrlFor('asset:aaaaaaaaaaaaaaaa')).toBe('http://127.0.0.1:3095/asset/aaaaaaaaaaaaaaaa')
+    expect(store.playUrlFor('asset:aaaaaaaaaaaaaaaa')).toBe('/api/openvideo.asset.aaaaaaaaaaaaaaaa')
   })
 })
 

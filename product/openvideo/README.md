@@ -126,8 +126,10 @@ Where the conventions land (against the root `AGENTS.md`):
 - **i18n**: no string in a component; zh-CN and en in parallel; host errors
   localize by key (guarded by tests/i18n.test.ts).
 - **Control plane ≠ data plane**: bytes travel over
-  `GET /api/openvideo.asset.<id>`; uploads come in as chunks over the control
-  plane (bound by the 1 MB frame cap).
+  `GET /api/openvideo.asset.<id>` (range-served: `206` + `Content-Range`, 8 MiB
+  per response, read with a positioned read so a seek never loads the whole
+  file); uploads come in as chunks over the control plane (bound by the 1 MB
+  frame cap).
 
 ## Boundaries (deliberate deltas from the upstream app)
 

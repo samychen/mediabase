@@ -97,7 +97,8 @@ product/openvideo/
   `messageKey`（客户端字典渲染）。
 - **副作用挂 fiber**：上传会话清扫定时器、每素材路由的注册/注销都在 `ctx.effect`。
 - **i18n**：组件零字符串；zh-CN + en 平行；宿主错误按 key 本地化（tests/i18n.test.ts 守着）。
-- **数据面 ≠ 控制面**：字节走 `GET /api/openvideo.asset.<id>`；上传分块走控制面（受 1 MB 帧上限约束）。
+- **数据面 ≠ 控制面**：字节走 `GET /api/openvideo.asset.<id>`（支持 `Range`：`206` +
+  `Content-Range`，单次 8MiB 封顶、定位读，seek 不读全文件）；上传分块走控制面（受 1 MB 帧上限约束）。
 
 ## 边界（相对上游，故意不做/换掉的部分）
 

@@ -5,7 +5,7 @@ names it), so OpenVideo ships its editor-shaped chrome without the base
 knowing. Layout derived from clawnify/OpenVideo `src/client/edit.tsx` (MIT):
 
 - **Projects home screen**: cards with 16:9 covers (the first main-track clip's
-  frame via the assets sidecar + `#t=` media fragment), create/open/delete,
+  frame via the range-served asset route + `#t=` media fragment), create/open/delete,
   and the empty state OUTSIDE any card ("an empty card reads as broken").
 - **Four-region editor grid**: slim top bar (back · project name · header
   panels incl. status + theme picker), left rail (`sidebar` area), center

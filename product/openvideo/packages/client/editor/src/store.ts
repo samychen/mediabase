@@ -97,9 +97,6 @@ export interface EditorState {
     * stream undecodable in THIS browser). Shared by media list, timeline and
     * inspector so one lie cannot hide behind three panels. */
   decodeState: Record<string, 'ok' | 'fail'>
-  /** Base URL of the host's Range-aware assets sidecar (null = old host or
-    * unreachable; assetUrl then falls back to the gateway route). */
-  assetsBase: string | null
   /** One-line status of the last gesture (an i18n key + params). */
   status: { key: string; params?: Record<string, string | number> } | null
   undoDepth: number
@@ -173,7 +170,6 @@ const initialState: EditorState = {
   durations: {},
   ask: { busy: false, answer: null, error: null },
   decodeState: {},
-  assetsBase: null,
   status: null,
   undoDepth: 0,
   redoDepth: 0,
@@ -270,8 +266,6 @@ export function createEditorStore(ctx: Context): EditorStore {
 
     async refresh() {
       try {
-        const endpoint = await call<{ base: string }>('openvideo.assets.endpoint').catch(() => null)
-        if (endpoint !== null && endpoint.base !== state.assetsBase) set({ assetsBase: endpoint.base })
         const [assets, projects] = await Promise.all([
           call<{ assets: AssetRow[] }>('openvideo.assets.list'),
           call<{ projects: ProjectSummary[] }>('openvideo.projects.list'),
@@ -643,9 +637,8 @@ export function createEditorStore(ctx: Context): EditorStore {
     },
 
     assetUrl(id) {
-      // Media elements need a SEEKABLE response: the sidecar speaks Range/206,
-      // the gateway route answers whole bodies (fine for small pulls only).
-      if (state.assetsBase !== null) return `${state.assetsBase}/asset/${id}`
+      // The gateway route is Range-aware (206 + Content-Range), so one URL
+      // serves both a small pull and a seek in a media element.
       // apiUrl ONLY appends the token — the full `/api/…` path is the caller's
       // job (a bare route name resolves relative to the page and hits the SPA
       // fallback: HTML where the media element expects bytes).
@@ -658,11 +651,8 @@ export function createEditorStore(ctx: Context): EditorStore {
       const id = src.slice(6)
       const asset = state.assets.find((a) => a.id === id)
       // The proxy exists for browsers that cannot decode the original; when it
-      // is ready, it IS the playable truth (proxies need the sidecar: they are
-      // served by the same Range-aware byte plane).
-      if (asset?.proxy?.status === 'ready' && state.assetsBase !== null) {
-        return `${state.assetsBase}/proxy/${id}`
-      }
+      // is ready, it IS the playable truth.
+      if (asset?.proxy?.status === 'ready') return ctx.net.apiUrl(`/api/openvideo.proxy.${id}`)
       return store.assetUrl(id)
     },
 
@@ -757,8 +747,8 @@ export function createEditorStore(ctx: Context): EditorStore {
       if ((v.error?.code ?? 0) === 1) return
       finish('fail')
     }, { signal: ctrl.signal })
-    // Same seam as playback (sidecar when available, full /api/ path else) —
-    // a bare route name resolves against the page and returns HTML.
+    // Same URL as playback — a bare route name would resolve against the page
+    // and return HTML where the media element expects bytes.
     v.src = store.assetUrl(asset.id)
   }
 

@@ -109,13 +109,14 @@ product/openvideo/
   │  名册: connection → i18n → ui → editor → shell(最后)
   │
   ├─ 控制面 WS /rpc ──────────────► @mediabase/server → ctx.api 注册表
-  │    openvideo.* 16 个方法           └► @openvideo/host-media
+  │    openvideo.* 29 个方法           └► @openvideo/host-media
   │    agent.run("用一句话要求修改")        ├─ store.ts: ~/.openvideo/{media,projects} 文件即数据
   │      └► @mediabase/agent ─► ctx.tools ─┤  (assets.json 索引 + <id>.json 项目文档 + .vtt 边车)
-  │           openvideo_* 17 个受检工具     └─ uploads.ts: 分块会话(512KiB 块, 30min TTL 清扫)
+  │           openvideo_* 20 个受检工具     └─ uploads.ts: 分块会话(512KiB 块, 30min TTL 清扫)
   │
-  └─ 数据面 GET /api/openvideo.asset.<id> ◄─ 每素材一条路由(注册表是活的,素材落地即可播)
-       预览/导出从这里拉字节;导出=浏览器 canvas+MediaRecorder 实时录制
+  └─ 数据面 GET /api/openvideo.asset.<id> [Range] ◄─ 每素材一条路由(注册表是活的,素材落地即可播)
+       GET /api/openvideo.proxy.<id> [Range] ◄─ 代理就绪即生效(未就绪 404)
+       预览/导出/封面从这里拉字节;导出=浏览器 canvas+MediaRecorder 实时录制
 ```
 
 ## 五、关键设计决策与取舍
@@ -134,10 +135,12 @@ product/openvideo/
    块必须按序、总量不得超过声明大小，会话文件落盘（内存不驻留），30 分钟 TTL 定时清扫挂在
    `ctx.effect` 上。大文件另有 `assets.import {path}`（宿主本机路径导入，本地信任边界）。
 3. **每素材一条数据面路由**。
-   `ApiRoute.handler` 是无参函数（"one-shot/latest bytes"语义），无法在一条路由里区分
-   "哪个素材"；而注册表是**活的**（网关按请求解析路由表），所以素材落地时注册
-   `openvideo.asset.<id>`、删除时注销，天然满足"晚挂载立即可用"。代价：网关不支持 Range，
-   整块响应——本地小素材无感，大文件在 README 边界表中如实标注。
+   注册素材时注册 `openvideo.asset.<id>`、删除时注销（注册表是**活的**，网关按请求解析
+   路由表，天然满足"晚挂载立即可用"）。一条路由仍无法区分"哪个素材"（路由名承担），
+   但"要哪一段字节"现在走 HTTP `Range`：`handler` 接收 `{start,end}` 窗口、回 `totalSize`，
+   网关据此发 `206 + Content-Range` + `Accept-Ranges: bytes`，浏览器原生 seek 不再从头重下。
+   单次响应按 `ASSET_SLICE_BYTES`(8MiB) 封顶，`bytes=0-` 这种开放式请求不会把整个素材读进
+   内存——读窗口用定位读（`openSync/readSync`），窗口外的字节根本不碰。
 4. **受检操作集一处声明，三处消费**。
    `OPS`（名称+描述+参数 schema+纯函数 `applyOp`）定义在 `@openvideo/edl`：
    宿主把它注册成 17 个 agent 工具（LLM 的 JSON Schema 由同一声明派生）、
@@ -181,7 +184,7 @@ product/openvideo/
 | 托管转写/素材分析（AI 看片） | `.vtt` 字幕稿边车（人工/外部工具产出后附加） | 无本地 ASR；字幕数学全移植，逻辑有测试 |
 | D1 + R2 | 文件系统 | 见决策 9 |
 | 自有 instruct LLM 循环 | 基座 `agent.run` + 同一组受检工具 | 见决策 5 |
-| 数据面 Range（大文件 seek） | 产品自带素材边车 HTTP（:3095，Range/206/CORS，磁盘流式） | 基座网关路由无请求上下文、整块响应；媒体元素需要可 seek 的响应（250MB 实测教训） |
+| 数据面 Range（大文件 seek） | 基座网关路由原生支持 Range（206 + Content-Range，单次 8MiB 封顶 + 定位读） | 上游依赖托管 HLS 服务；本地需要一个可 seek 的字节面（250MB 实测教训）。**曾**为此自带 :3095 边车；基座补上 Range 后边车已删除——少一个 CORS 全开、无 token 的监听端口 |
 | 胶片缩略图/波形/hls.js | 不移植 | 预览聚焦剪辑语义 |
 | React 19 / Tailwind 4 / lucide 图标 | React 18 / 纯 CSS(.ov-* 作用域) / 文本符号 | 与基座同版本同风格，零新增依赖 |
 

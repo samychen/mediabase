@@ -109,23 +109,31 @@ describe('the composed openvideo host', () => {
     expect(readFileSync(onDisk).equals(payload)).toBe(true)
   }, 60_000)
 
-  it('serves asset bytes over the Range-aware sidecar (206 + CORS)', async () => {
-    const ep = await host!.rpc.call<{ base: string; port: number }>('openvideo.assets.endpoint')
-    expect(ep.port).toBeGreaterThan(0)
+  // The byte plane is the BASE gateway route, not a product-owned server: the
+  // product had its own Range-aware sidecar only while the gateway answered
+  // whole bodies. These are the properties a media element depends on.
+  it('serves asset bytes over the gateway route with Range (206 + Content-Range)', async () => {
+    const base = `http://127.0.0.1:${host!.port}`
     const assets = await host!.rpc.call<{ assets: AssetWire[] }>('openvideo.assets.list')
     const a = assets.assets[0]!
-    const full = await fetch(`${ep.base}/asset/${a.id}`)
+    expect(a.size).toBeGreaterThan(100)
+    const full = await fetch(`${base}/api/openvideo.asset.${a.id}`)
+    expect(full.status).toBe(200)
     expect(full.headers.get('accept-ranges')).toBe('bytes')
-    expect(full.headers.get('access-control-allow-origin')).toBe('*')
     const body = Buffer.from(await full.arrayBuffer())
     expect(body.length).toBe(a.size)
-    const part = await fetch(`${ep.base}/asset/${a.id}`, { headers: { range: 'bytes=0-99' } })
+    // a seek never transfers the bytes before the target
+    const part = await fetch(`${base}/api/openvideo.asset.${a.id}`, { headers: { range: 'bytes=0-99' } })
     expect(part.status).toBe(206)
     expect(part.headers.get('content-range')).toBe(`bytes 0-99/${a.size}`)
     const slice = Buffer.from(await part.arrayBuffer())
     expect(slice.length).toBe(100)
     expect(slice.equals(body.subarray(0, 100))).toBe(true)
-    const bad = await fetch(`${ep.base}/asset/${a.id}`, { headers: { range: `bytes=${a.size + 10}-${a.size + 20}` } })
+    // the window really is positioned, not a prefix
+    const tail = await fetch(`${base}/api/openvideo.asset.${a.id}`, { headers: { range: 'bytes=100-199' } })
+    expect(tail.status).toBe(206)
+    expect(Buffer.from(await tail.arrayBuffer()).equals(body.subarray(100, 200))).toBe(true)
+    const bad = await fetch(`${base}/api/openvideo.asset.${a.id}`, { headers: { range: `bytes=${a.size + 10}-${a.size + 20}` } })
     expect(bad.status).toBe(416)
   })
 
@@ -272,8 +280,9 @@ describe('the composed openvideo host', () => {
       await new Promise((r) => setTimeout(r, 500))
     }
     expect(status).toBe('ready')
-    const ep = await host!.rpc.call<{ base: string }>('openvideo.assets.endpoint')
-    const part = await fetch(`${ep.base}/proxy/${imported.asset.id}`, { headers: { range: 'bytes=0-99' } })
+    // The proxy rides the same byte plane as the original (its own route), so
+    // the browser's fallback path is range-served too.
+    const part = await fetch(`http://127.0.0.1:${host!.port}/api/openvideo.proxy.${imported.asset.id}`, { headers: { range: 'bytes=0-99' } })
     expect(part.status).toBe(206)
     expect(part.headers.get('content-type')).toBe('video/webm')
     expect((await part.arrayBuffer()).byteLength).toBe(100)

@@ -12,10 +12,15 @@ API (`/api/assets`, `/api/projects`) reborn as mediabase registries:
   refusal carries the JSON pointer) / remove / **op** (one checked operation,
   one save, one undo).
 - **Data plane** (`ctx.api.route`): `GET /api/openvideo.asset.<id>` serves the
-  bytes with the asset's content type. One route per asset, registered when
+  bytes with the asset's content type, and `GET /api/openvideo.proxy.<id>` the
+  transcoded stand-in once it lands. `totalSize` is declared, so the gateway
+  range-serves both (`206` + `Content-Range`), which is what makes a media
+  element seek instead of re-downloading from zero; each response is capped at
+  8 MiB and read with a positioned read, so `bytes=0-` on a multi-gigabyte
+  master costs one window, not one file. One route per asset, registered when
   the asset lands, disposed when it dies — the gateway resolves routes per
   request, so late assets are immediately playable.
-- **Agent tools** (`ctx.tools`): the five CRUD tools plus one tool per checked
+- **Agent tools** (`ctx.tools`): the CRUD tools plus one tool per checked
   operation from `@openvideo/edl` (`OPS`). "Ask for a change" and any
   `agent.run` prompt act through these — the model calls fixed, checked
   operations; it never writes the document blind.
