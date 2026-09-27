@@ -329,6 +329,20 @@
   background: radial-gradient(circle at center, transparent 30%, rgba(0, 0, 0, 0.55));
   pointer-events: none;
 }
+.mx-player__chainbar {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.mx-player__chainscrub {
+  flex: 1;
+  min-width: 120px;
+  accent-color: var(--mb-accent, #4c8dff);
+}
+.mx-player__chaintime {
+  min-width: 96px;
+  text-align: right;
+}
 .mx-player__foot {
   display: flex;
   align-items: center;

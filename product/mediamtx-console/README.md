@@ -94,6 +94,12 @@ M4 scope (this milestone):
   cell, paused, until the clock reaches the next window. The drag payload is
   versioned up (v2, schema-checked): an M3 tab cannot drop a single-window
   payload into an M4 wall.
+- **Whole-chain transport**: the stage grows a second scrubber spanning the
+  playlist's total playing time (the native one still scrubs inside the
+  current window). Dragging across a window boundary RE-STREAMS the target
+  window from its first byte and applies the in-window target as soon as
+  buffer exists — no Range upstream, no lies downstream. Position painting
+  rides the video's own `timeupdate`: no rAF, no re-renders.
 
 ## Quick start
 
@@ -186,9 +192,10 @@ See [AGENT.md](./AGENT.md).
 - chains play window-by-window — on the main stage AND in every wall cell:
   one rebuffer per hop (the playback server's `/get` has no Range support, so
   a window can only start from its first byte); the stage's native scrubber
-  still spans only the CURRENT window. Seeking stays honest about the missing
-  Range: instant inside the buffered range, forward seeks wait for the
-  sequential stream, evicted tail cannot be recovered;
+  still spans only the current window (the chain transport is what jumps
+  across them). Seeking stays honest about the missing Range: instant inside
+  the buffered range, forward seeks wait for the sequential stream, evicted
+  tail cannot be recovered;
 - recording playback requires browser MSE (all modern desktop browsers and
   iOS 17.1+; older Safari gets an explicit "unsupported" message instead of a
   black screen). HEVC codec strings follow the standard formula but have not

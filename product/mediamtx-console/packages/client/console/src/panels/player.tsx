@@ -16,6 +16,8 @@ import { useI18n } from '@mediabase/i18n'
 import { useConsole } from '../use-console.ts'
 import { isWhepError, nativeHlsSupported, startWhep, type WhepHandle } from '../whep.ts'
 import { MsePlayer } from '../mse.ts'
+import { chainLocate, chainOffsetMs, chainTotalMs } from '../playlist.ts'
+import { fmtDur } from '../format.ts'
 import { IconStop, IconTv } from '../icons.tsx'
 
 type PlayerState = 'idle' | 'connecting' | 'live' | 'error'
@@ -36,6 +38,34 @@ export function PlayerPanel({ ctx }: { ctx: Context }): ReactElement | null {
   const recPos = recording === null || recording.playlist.length < 2
     ? null
     : `${recording.index + 1}/${recording.playlist.length}`
+
+  // ---- the chain transport (M4): whole-playlist scrubber under the stage ----
+  //
+  // Position painting rides the video's own timeupdate (no rAF, no renders);
+  // a cross-window jump stores the in-window target in pendingSeekRef and
+  // lets the re-attached stream apply it as soon as buffer exists — honest
+  // against a Range-less /get: the window re-streams from its first byte and
+  // the element holds the seek until the fetch covers it.
+  const recordingRef = useRef(recording)
+  useEffect(() => {
+    recordingRef.current = recording
+  })
+  const chainScrubRef = useRef<HTMLInputElement | null>(null)
+  const chainTimeRef = useRef<HTMLSpanElement | null>(null)
+  const pendingSeekRef = useRef<number | null>(null)
+
+  const paintChain = (): void => {
+    const rec = recordingRef.current
+    if (rec === null || rec.playlist.length < 2) return
+    const video = videoRef.current
+    const cur = video !== null && Number.isFinite(video.currentTime) ? video.currentTime : 0
+    const total = chainTotalMs(rec.playlist)
+    const posMs = Math.min(chainOffsetMs(rec.playlist, rec.index) + cur * 1000, total)
+    const scrub = chainScrubRef.current
+    if (scrub !== null) scrub.value = String(posMs)
+    const label = chainTimeRef.current
+    if (label !== null) label.textContent = `${fmtDur(posMs / 1000)} / ${fmtDur(total / 1000)}`
+  }
   // A recording owns the stage: the live pipeline stands down while one plays.
   const selected = recording === null ? snap?.selected ?? null : null
   const mode = snap?.playMode ?? 'whep'
@@ -69,10 +99,23 @@ export function PlayerPanel({ ctx }: { ctx: Context }): ReactElement | null {
         setDetail(mseDetail === 'mse-unsupported' ? t('player.mseUnsupported') : mseDetail ?? 'playback error')
       }
     })
+    const onProgress = (): void => {
+      const pending = pendingSeekRef.current
+      if (pending === null || video.buffered.length === 0) return
+      pendingSeekRef.current = null
+      video.currentTime = pending
+    }
+    const onTime = (): void => paintChain()
+    video.addEventListener('progress', onProgress)
+    video.addEventListener('timeupdate', onTime)
     void player.play(recUrl)
-    return () => player.dispose()
+    return () => {
+      video.removeEventListener('progress', onProgress)
+      video.removeEventListener('timeupdate', onTime)
+      player.dispose()
+    }
     // t is stable per locale; re-running on locale change is harmless.
-    // store identity is stable for the plugin's lifetime.
+    // store identity is stable for the plugin's lifetime; paintChain reads refs.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [recUrl, store])
 
@@ -168,6 +211,37 @@ export function PlayerPanel({ ctx }: { ctx: Context }): ReactElement | null {
         ? detail ?? t('common.error', { detail: '?' })
         : t('player.stopped')
 
+  const chain = recording !== null && recording.playlist.length > 1 ? recording : null
+  const chainTotal = chain === null ? 0 : chainTotalMs(chain.playlist)
+
+  const onChainScrub = (e: { target: { value: string } }): void => {
+    if (chain === null || store === null) return
+    const v = Number(e.target.value)
+    if (!Number.isFinite(v)) return
+    const pos = chainLocate(chain.playlist, v)
+    if (pos.index !== chain.index) {
+      pendingSeekRef.current = pos.relMs / 1000
+      store.seekRecording(pos.index)
+    } else {
+      const video = videoRef.current
+      const rel = pos.relMs / 1000
+      if (video !== null) {
+        if (video.buffered.length > 0) {
+          const bufStart = video.buffered.start(0)
+          video.currentTime = rel < bufStart ? bufStart : rel
+        } else {
+          pendingSeekRef.current = rel
+        }
+      }
+    }
+    // Instant feedback from the requested offset; timeupdate corrects it to
+    // where the media actually is once the seek lands.
+    const scrub = chainScrubRef.current
+    if (scrub !== null) scrub.value = String(v)
+    const label = chainTimeRef.current
+    if (label !== null) label.textContent = `${fmtDur(Math.min(v, chainTotal) / 1000)} / ${fmtDur(chainTotal / 1000)}`
+  }
+
   return (
     <section className="mx-player">
       <header className="mx-player__bar">
@@ -204,6 +278,23 @@ export function PlayerPanel({ ctx }: { ctx: Context }): ReactElement | null {
           ? <p className="mx-dim mx-player__placeholder">{t('player.none')}</p>
           : <video ref={videoRef} controls playsInline muted />}
       </div>
+      {chain !== null && (
+        <div className="mx-player__chainbar">
+          <input
+            ref={chainScrubRef}
+            type="range"
+            className="mx-player__chainscrub"
+            min={0}
+            max={chainTotal > 0 ? chainTotal : 1}
+            step={250}
+            defaultValue={0}
+            aria-label={t('player.chainScrub')}
+            title={t('player.chainScrub')}
+            onChange={onChainScrub}
+          />
+          <span ref={chainTimeRef} className="mx-mono mx-dim mx-player__chaintime">—</span>
+        </div>
+      )}
       <footer className="mx-player__foot">
         <span className="mx-badge" data-state={state === 'live' ? 'ready' : state === 'error' ? 'err' : 'idle'}>
           {stateText}

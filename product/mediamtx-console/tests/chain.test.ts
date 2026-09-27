@@ -82,4 +82,33 @@ describe('the recording chain on the player stage', () => {
     store.stopRecording()
     expect(store.get().recording).toBeNull()
   })
+
+  it('seekRecording jumps windows with a NEW object, clamped, and no-ops in place', () => {
+    const store = offlineStore()
+    store.playRecording([W1, W2, W3], 0, 'x')
+    const before = store.get().recording
+    store.seekRecording(2)
+    const after = store.get().recording
+    expect(after?.index).toBe(2)
+    expect(after).not.toBe(before)
+    expect(after?.playlist).toBe(before?.playlist)
+
+    // Clamped both ways; fractional indexes truncate.
+    store.seekRecording(99)
+    expect(store.get().recording?.index).toBe(2)
+    store.seekRecording(-4)
+    expect(store.get().recording?.index).toBe(0)
+    store.seekRecording(1.7)
+    expect(store.get().recording?.index).toBe(1)
+
+    // Same window: the panel seeks inside it — the snapshot must NOT churn.
+    const same = store.get().recording
+    store.seekRecording(1)
+    expect(store.get().recording).toBe(same)
+
+    // No chain, no crash.
+    store.stopRecording()
+    store.seekRecording(3)
+    expect(store.get().recording).toBeNull()
+  })
 })

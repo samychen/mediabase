@@ -72,6 +72,8 @@ export interface ConsoleStore {
   playRecording(playlist: PlaybackEntry[], index: number, label: string): void
   /** Advance to the chain's next window; past the last one the stage clears. */
   advanceRecording(): void
+  /** Jump the chain to another window (the panel owns the in-window seek). */
+  seekRecording(index: number): void
   stopRecording(): void
   /** Refresh the list of paths that have recordings. */
   loadRecordingPaths(): Promise<void>
@@ -214,6 +216,13 @@ export function createConsoleStore(rpc: RpcService): ConsoleStore {
       // Past the last window the stage clears — a chain that loops would
       // silently re-fetch the same bytes forever.
       emit({ recording: rec.index + 1 < rec.playlist.length ? { ...rec, index: rec.index + 1 } : null })
+    },
+    seekRecording: (index) => {
+      const rec = snapshot.recording
+      if (rec === null) return
+      const i = Math.max(0, Math.min(Math.trunc(index), rec.playlist.length - 1))
+      if (i === rec.index) return // the panel seeks within the window itself
+      emit({ recording: { ...rec, index: i } })
     },
     stopRecording: () => emit({ recording: null }),
     loadRecordingPaths: async () => {

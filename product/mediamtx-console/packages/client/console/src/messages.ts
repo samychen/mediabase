@@ -42,6 +42,7 @@ export type MessageKey =
   | 'player.hlsUnsupported'
   | 'player.mseUnsupported'
   | 'player.stop'
+  | 'player.chainScrub'
   | 'recordings.pick'
   | 'recordings.noPaths'
   | 'recordings.empty'
@@ -136,6 +137,7 @@ const zhCN: Record<MessageKey, string> = {
   'player.hlsUnsupported': '此浏览器不支持原生 HLS,请用 WebRTC 模式。',
   'player.mseUnsupported': '此浏览器不支持 MediaSource(MSE),无法回放录像。',
   'player.stop': '停止',
+  'player.chainScrub': '整链进度;跨窗口跳转将从目标窗口的第一个字节重新取流(/get 无 Range)',
   'recordings.pick': '选择路径…',
   'recordings.noPaths': '还没有录像 —— 给路径开启「录制」,推流之后这里会出现可回放的窗口。',
   'recordings.empty': '该路径暂无可回放窗口。',
@@ -231,6 +233,7 @@ const en: Record<MessageKey, string> = {
   'player.hlsUnsupported': 'This browser cannot play HLS natively — use WebRTC mode.',
   'player.mseUnsupported': 'This browser lacks MediaSource (MSE) — recording playback unavailable.',
   'player.stop': 'Stop',
+  'player.chainScrub': 'Whole-chain progress; a cross-window jump re-streams from the target window’s first byte (/get has no Range)',
   'recordings.pick': 'Select a path…',
   'recordings.noPaths': 'No recordings yet — enable Record on a path, publish to it, and playable windows will show up here.',
   'recordings.empty': 'No playable windows for this path yet.',
