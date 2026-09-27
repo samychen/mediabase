@@ -436,3 +436,25 @@ export function classifyUpstream(httpStatus: number, body: unknown): UpstreamFai
   if (httpStatus === 401 || httpStatus === 403) return { kind: 'unavailable', detail }
   return { kind: 'conflict', detail }
 }
+
+// ---- managed servers (the host-side registry, M3 multi-server) ----------------
+
+/** How a registered server authenticates upstream. Credentials NEVER cross
+ * the wire — panels and agents see only the kind. */
+export type ServerAuth = 'none' | 'basic' | 'bearer'
+
+export const SERVER_AUTHS: readonly ServerAuth[] = ['none', 'basic', 'bearer']
+
+/** One registered MediaMTX server, as the control plane exposes it. */
+export interface ManagedServer {
+  name: string
+  /** Normalized API base (no trailing slash). */
+  url: string
+  auth: ServerAuth
+}
+
+export const ManagedServerS = z.object({
+  name: z.string().required(),
+  url: z.string().required(),
+  auth: z.union([z.const('none'), z.const('basic'), z.const('bearer')]).required(),
+})

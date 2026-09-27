@@ -11,6 +11,10 @@
 // Clean-room: the API surface was derived from a running MediaMTX v1.21 (MIT)
 // and its published route table; no third-party console's code was read.
 
+import { readFileSync } from 'node:fs'
+import { mkdir, writeFile } from 'node:fs/promises'
+import { dirname, join } from 'node:path'
+import { homedir } from 'node:os'
 import type { Context } from '@deepseek-ai/cordis'
 import { parse, z, type Schema } from '@mediabase/schema'
 import { RpcCode, RpcError } from '@mediabase/rpc'
@@ -27,6 +31,7 @@ import {
   SESSION_LIST_ROUTE,
   ServerInfoS,
   SessionRowS,
+  ManagedServerS,
   addressToUrl,
   classifyUpstream,
   parseMetrics,
@@ -36,9 +41,11 @@ import {
   toRecordingRow,
   toSessionRow,
   type Endpoints,
+  type ManagedServer,
   type PathRow,
   type PlaybackEntry,
   type SessionKind,
+  type ServerAuth,
   type SessionRow,
 } from '@mtxconsole/protocol'
 
@@ -49,18 +56,27 @@ export const inject = ['api', 'capabilities', 'tools', 'log'] as const
 export interface BridgeConfig {
   /** MediaMTX API base, e.g. http://127.0.0.1:9997 */
   serverUrl?: string
+  /** Name of the env-seeded server in the registry (default "default"). */
+  serverName?: string
   /** Basic-auth user for the API (MediaMTX `auth*` settings), when enabled. */
   username?: string
   password?: string
+  /** Static bearer token (MediaMTX JWT auth); takes precedence over basic. */
+  serverToken?: string
   /** Per-request timeout (default 8000 ms). */
   timeoutMs?: number
+  /** Registry file; default `<appPaths.home>/mtxconsole-servers.json`. */
+  serversFile?: string
 }
 
 export const Config: Schema<BridgeConfig, BridgeConfig> = z.object({
   serverUrl: z.string().default('http://127.0.0.1:9997').description('MediaMTX API base URL'),
+  serverName: z.string().description('name of the env-seeded server (default "default")'),
   username: z.string().description('API basic-auth user'),
   password: z.string().description('API basic-auth password'),
+  serverToken: z.string().description('static bearer/JWT for the API; takes precedence over basic'),
   timeoutMs: z.natural().default(8000).description('per-request timeout'),
+  serversFile: z.string().description('server-registry JSON path; default <home>/mtxconsole-servers.json'),
 })
 
 const API_METHODS = [
@@ -79,6 +95,10 @@ const API_METHODS = [
   'mediamtx.recordings.list',
   'mediamtx.recordings.get',
   'mediamtx.playback.list',
+  'mediamtx.servers.list',
+  'mediamtx.servers.add',
+  'mediamtx.servers.remove',
+  'mediamtx.servers.switch',
 ] as const
 
 const TOOL_NAMES = [
@@ -88,6 +108,8 @@ const TOOL_NAMES = [
   'mediamtx.path.add',
   'mediamtx.path.delete',
   'mediamtx.sessions.kick',
+  'mediamtx.servers.list',
+  'mediamtx.servers.switch',
 ] as const
 
 // ---- wire schemas ------------------------------------------------------------
@@ -99,37 +121,168 @@ const OK: { ok: true } = { ok: true }
 const SessionsS = z.object({ sessions: z.array(SessionRowS).required() })
 const EndpointsS1 = z.object({ endpoints: EndpointsS.required() })
 const ServerInfoS1 = z.object({ info: ServerInfoS.required() })
+const ManagedServerS1 = z.object({ server: ManagedServerS.required() })
+const ServersListS = z.object({
+  servers: z.array(ManagedServerS).required(),
+  active: z.string().required(),
+})
+const ServerActiveS = z.object({ active: z.string().required() })
 
 const kindS = z.union(SESSION_KINDS.map((k) => z.const(k)) as never)
 
 export function apply(ctx: Context, rawConfig: BridgeConfig): void {
   const config = parse(Config, rawConfig ?? {})
   const log = ctx.log.child(name)
-  const serverUrl = (config.serverUrl ?? 'http://127.0.0.1:9997').replace(/\/+$/, '')
   const timeoutMs = config.timeoutMs ?? 8000
-  const authHeader = config.username !== undefined
-    ? `Basic ${Buffer.from(`${config.username}:${config.password ?? ''}`).toString('base64')}`
-    : null
+
+  // ---- the server registry (M3: one console, several MediaMTX servers) --------
+  //
+  // The env-seeded server always exists and wins name clashes; servers
+  // registered at runtime persist to a JSON file under the host identity's
+  // home (the base settings.json pattern — credentials are host-side ONLY,
+  // plaintext on disk, never on the wire). The ACTIVE pick persists too, so a
+  // restart comes back where the operator left off.
+
+  /** A registered server WITH its credentials (never leaves the host). */
+  interface ServerEntry {
+    name: string
+    url: string
+    username?: string
+    password?: string
+    token?: string
+  }
+
+  /** Trim + strip trailing slashes; null when not an absolute http(s) URL. */
+  const normalizeUrl = (raw: string): string | null => {
+    const trimmed = raw.trim().replace(/\/+$/, '')
+    if (trimmed === '') return null
+    try {
+      const u = new URL(trimmed)
+      if (u.protocol !== 'http:' && u.protocol !== 'https:') return null
+    } catch {
+      return null
+    }
+    return trimmed
+  }
+
+  const seedUrl = normalizeUrl(config.serverUrl ?? '') ?? 'http://127.0.0.1:9997'
+  const seedName = (config.serverName ?? '').trim() === '' ? 'default' : (config.serverName ?? '').trim()
+  const seed: ServerEntry = {
+    name: seedName,
+    url: seedUrl,
+    ...(config.username !== undefined ? { username: config.username, password: config.password ?? '' } : {}),
+    ...(config.serverToken !== undefined && config.serverToken !== '' ? { token: config.serverToken } : {}),
+  }
+
+  const appHome = (ctx.get('appPaths') as { home?: string } | undefined)?.home
+  const registryFile = config.serversFile
+    ?? join(appHome ?? join(homedir(), '.mtxconsole'), 'mtxconsole-servers.json')
+
+  /** Best-effort load: a corrupt registry must not stop the console booting. */
+  const persisted = ((): { active?: unknown; servers?: unknown } => {
+    try {
+      const raw = JSON.parse(readFileSync(registryFile, 'utf8')) as unknown
+      return raw !== null && typeof raw === 'object' ? raw as { active?: unknown; servers?: unknown } : {}
+    } catch {
+      return {}
+    }
+  })()
+
+  const servers: ServerEntry[] = [seed]
+  for (const item of Array.isArray(persisted.servers) ? persisted.servers : []) {
+    if (item === null || typeof item !== 'object') continue
+    const raw = item as Record<string, unknown>
+    const nm = typeof raw.name === 'string' ? raw.name.trim() : ''
+    const url = typeof raw.url === 'string' ? normalizeUrl(raw.url) : null
+    if (nm === '' || url === null || nm === seedName) continue // env seed wins its name
+    if (servers.some((s) => s.name === nm)) continue
+    servers.push({
+      name: nm,
+      url,
+      ...(typeof raw.username === 'string' && raw.username !== ''
+        ? { username: raw.username, password: typeof raw.password === 'string' ? raw.password : '' }
+        : {}),
+      ...(typeof raw.token === 'string' && raw.token !== '' ? { token: raw.token } : {}),
+    })
+  }
+  let activeName = typeof persisted.active === 'string' && servers.some((s) => s.name === persisted.active)
+    ? persisted.active
+    : seedName
 
   /** Last known server info, for the health payload (no probing in health). */
   let lastVersion: string | null = null
 
-  /** One HTTP call to MediaMTX with the whole error contract in one place. */
+  function activeServer(): ServerEntry {
+    return servers.find((s) => s.name === activeName) ?? seed
+  }
+
+  /** Bearer wins over basic: a JWT-configured server never also sends basic. */
+  function authHeaderFor(srv: ServerEntry): string | null {
+    if (srv.token !== undefined && srv.token !== '') return `Bearer ${srv.token}`
+    if (srv.username !== undefined) return `Basic ${Buffer.from(`${srv.username}:${srv.password ?? ''}`).toString('base64')}`
+    return null
+  }
+
+  function publicView(srv: ServerEntry): ManagedServer {
+    const auth: ServerAuth = srv.token !== undefined && srv.token !== ''
+      ? 'bearer'
+      : srv.username !== undefined ? 'basic' : 'none'
+    return { name: srv.name, url: srv.url, auth }
+  }
+
+  /**
+   * WRITE the next registry state first, commit to memory only after the file
+   * agrees (the settings-package rule: a failed write must never leave the
+   * host reporting state that was not persisted).
+   */
+  async function persistRegistry(nextServers: ServerEntry[], nextActive: string): Promise<void> {
+    try {
+      await mkdir(dirname(registryFile), { recursive: true })
+      await writeFile(registryFile, JSON.stringify({ active: nextActive, servers: nextServers }, null, 2))
+    } catch (e) {
+      throw new RpcError(
+        RpcCode.INTERNAL,
+        `cannot persist the server registry at ${registryFile}: ${e instanceof Error ? e.message : String(e)}`,
+      )
+    }
+  }
+
+  async function switchActive(nm: string): Promise<string> {
+    if (!servers.some((s) => s.name === nm)) {
+      throw new RpcError(RpcCode.NOT_FOUND, `no such server: ${nm}`, undefined, {
+        messageKey: 'mediamtx.serverUnknown',
+        messageParams: { name: nm },
+      })
+    }
+    if (nm !== activeName) {
+      await persistRegistry(servers, nm)
+      activeName = nm
+      // A different server has a different identity; do not report the old one.
+      lastVersion = null
+      log.info(`active MediaMTX server → ${nm}`)
+    }
+    return activeName
+  }
+
+  /** One HTTP call to the ACTIVE MediaMTX, whole error contract in one place. */
   async function mtx<T>(method: string, path: string, body?: unknown): Promise<T> {
+    const srv = activeServer()
+    const auth = authHeaderFor(srv)
+    const headers: Record<string, string> = {}
+    if (auth !== null) headers.authorization = auth
+    if (body !== undefined) headers['content-type'] = 'application/json'
     let res: Response
     try {
-      res = await fetch(`${serverUrl}${path}`, {
+      res = await fetch(`${srv.url}${path}`, {
         method,
         signal: AbortSignal.timeout(timeoutMs),
-        ...(authHeader !== null ? { headers: { authorization: authHeader } } : {}),
-        ...(body !== undefined
-          ? { body: JSON.stringify(body), headers: { 'content-type': 'application/json', ...(authHeader !== null ? { authorization: authHeader } : {}) } }
-          : {}),
+        headers,
+        ...(body !== undefined ? { body: JSON.stringify(body) } : {}),
       })
     } catch (e) {
-      throw new RpcError(RpcCode.UNAVAILABLE, `MediaMTX unreachable at ${serverUrl}: ${(e as Error).message}`, undefined, {
+      throw new RpcError(RpcCode.UNAVAILABLE, `MediaMTX unreachable at ${srv.url}: ${(e as Error).message}`, undefined, {
         messageKey: 'mediamtx.unreachable',
-        messageParams: { url: serverUrl },
+        messageParams: { url: srv.url },
       })
     }
     const text = await res.text()
@@ -159,6 +312,7 @@ export function apply(ctx: Context, rawConfig: BridgeConfig): void {
     typeof cfg[key] === 'string' ? (cfg[key] as string) : undefined
 
   async function deriveEndpoints(): Promise<Endpoints> {
+    const serverUrl = activeServer().url
     const cfg = await globalConfig()
     // MediaMTX keeps the ADDRESS defaults even for disabled servers (observed
     // on v1.21: `webrtc: no` still reports webrtcAddress ":8889"), so the
@@ -230,7 +384,7 @@ export function apply(ctx: Context, rawConfig: BridgeConfig): void {
     handler: async () => {
       const info = await mtx<{ version: string; started: string }>('GET', '/v3/info')
       lastVersion = info.version
-      return { info: { version: info.version, started: info.started, apiBase: serverUrl } }
+      return { info: { version: info.version, started: info.started, apiBase: activeServer().url } }
     },
   })
 
@@ -441,9 +595,10 @@ export function apply(ctx: Context, rawConfig: BridgeConfig): void {
       if (p.end !== undefined) query.set('end', p.end)
       let res: Response
       try {
+        const auth = authHeaderFor(activeServer())
         res = await fetch(`${eps.playback}/list?${query.toString()}`, {
           signal: AbortSignal.timeout(timeoutMs),
-          ...(authHeader !== null ? { headers: { authorization: authHeader } } : {}),
+          ...(auth !== null ? { headers: { authorization: auth } } : {}),
         })
       } catch (e) {
         throw new RpcError(
@@ -478,6 +633,98 @@ export function apply(ctx: Context, rawConfig: BridgeConfig): void {
       }
       return { entries }
     },
+  })
+
+  ctx.api.register({
+    name: 'mediamtx.servers.list',
+    description: '托管的 MediaMTX 服务器注册表(名称/地址/认证方式——凭据不过线)与当前活动服务器',
+    params: z.object({}),
+    result: ServersListS,
+    handler: async () => ({ servers: servers.map(publicView), active: activeName }),
+  })
+
+  ctx.api.register({
+    name: 'mediamtx.servers.add',
+    description: '登记一个 MediaMTX 服务器(凭据只存宿主侧文件,永不出线;token 优先于 basic)',
+    mutates: true,
+    params: z.object({
+      name: z.string().min(1).max(64).required().description('unique registry name'),
+      url: z.string().min(1).max(2000).required().description('API base, e.g. http://192.168.1.10:9997'),
+      username: z.string().max(200).description('basic-auth user'),
+      password: z.string().max(200).description('basic-auth password'),
+      token: z.string().max(4000).description('static bearer/JWT; takes precedence over basic'),
+    }),
+    result: ManagedServerS1,
+    handler: async (p) => {
+      const nm = p.name.trim()
+      if (nm === '') {
+        throw new RpcError(RpcCode.INVALID_PARAMS, 'server name must not be blank', undefined, {
+          messageKey: 'mediamtx.serverBadName',
+        })
+      }
+      const url = normalizeUrl(p.url)
+      if (url === null) {
+        throw new RpcError(RpcCode.INVALID_PARAMS, `not an absolute http(s) URL: ${p.url}`, undefined, {
+          messageKey: 'mediamtx.serverBadUrl',
+          messageParams: { url: p.url },
+        })
+      }
+      if (servers.some((srv) => srv.name === nm)) {
+        throw new RpcError(RpcCode.INVALID_PARAMS, `server already registered: ${nm}`, undefined, {
+          messageKey: 'mediamtx.serverExists',
+          messageParams: { name: nm },
+        })
+      }
+      const entry: ServerEntry = {
+        name: nm,
+        url,
+        ...(p.username !== undefined && p.username !== '' ? { username: p.username, password: p.password ?? '' } : {}),
+        ...(p.token !== undefined && p.token !== '' ? { token: p.token } : {}),
+      }
+      const next = [...servers, entry]
+      await persistRegistry(next, activeName) // write first, commit after
+      servers.length = 0
+      servers.push(...next)
+      log.info(`server registered: ${nm} → ${url}`)
+      return { server: publicView(entry) }
+    },
+  })
+
+  ctx.api.register({
+    name: 'mediamtx.servers.remove',
+    description: '移除一个已登记的服务器(活动服务器不可移除——先切走)',
+    mutates: true,
+    params: z.object({ name: z.string().min(1).required() }),
+    result: OkS,
+    handler: async (p) => {
+      if (!servers.some((srv) => srv.name === p.name)) {
+        throw new RpcError(RpcCode.NOT_FOUND, `no such server: ${p.name}`, undefined, {
+          messageKey: 'mediamtx.serverUnknown',
+          messageParams: { name: p.name },
+        })
+      }
+      if (p.name === activeName) {
+        throw new RpcError(RpcCode.CONFLICT, `cannot remove the ACTIVE server: ${p.name} — switch away first`, undefined, {
+          messageKey: 'mediamtx.serverActive',
+          messageParams: { name: p.name },
+        })
+      }
+      const next = servers.filter((srv) => srv.name !== p.name)
+      await persistRegistry(next, activeName)
+      servers.length = 0
+      servers.push(...next)
+      log.info(`server removed: ${p.name}`)
+      return OK
+    },
+  })
+
+  ctx.api.register({
+    name: 'mediamtx.servers.switch',
+    description: '切换活动服务器:其后每个方法都路由到它(面板应刷新各自的视图)',
+    mutates: true,
+    params: z.object({ name: z.string().min(1).required() }),
+    result: ServerActiveS,
+    handler: async (p) => ({ active: await switchActive(p.name) }),
   })
 
   // ---- agent tools -------------------------------------------------------------
@@ -543,6 +790,19 @@ export function apply(ctx: Context, rawConfig: BridgeConfig): void {
     },
   })
 
+  ctx.tools.register({
+    name: 'mediamtx.servers.list',
+    description: 'List the managed MediaMTX servers (name, api url, auth kind — never credentials) and which one is ACTIVE. Every other tool routes to the active one.',
+    execute: async () => ({ servers: servers.map(publicView), active: activeName }),
+  })
+
+  ctx.tools.register({
+    name: 'mediamtx.servers.switch',
+    description: 'Switch which managed MediaMTX server the console talks to (names come from mediamtx.servers.list). Registration/removal of servers is operator-only RPC, not a tool: credentials are not model input.',
+    params: z.object({ name: z.string().min(1).required() }),
+    execute: async (args) => ({ active: await switchActive(String(args.name)) }),
+  })
+
   // ---- manifest + health --------------------------------------------------------
 
   ctx.capabilities.register({
@@ -555,10 +815,12 @@ export function apply(ctx: Context, rawConfig: BridgeConfig): void {
 
   ctx.api.health(() => ({
     mediamtx: {
-      server: serverUrl,
+      server: activeServer().url,
+      name: activeName,
+      registered: servers.length,
       version: lastVersion,
     },
   }))
 
-  log.info(`MediaMTX API 桥 → ${serverUrl}`)
+  log.info(`MediaMTX API 桥 → ${activeServer().url}(注册表 ${servers.length} 台,活动:${activeName};${registryFile})`)
 }

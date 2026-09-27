@@ -11,7 +11,7 @@
 // openvideo editor uses. All panels share ONE store instance provided on the
 // context, so they poll the server once, not once per panel.
 
-import type { Endpoints, MetricsSummary, PathRow, PlaybackEntry, ServerInfo, SessionKind, SessionRow } from '@mtxconsole/protocol'
+import type { Endpoints, ManagedServer, MetricsSummary, PathRow, PlaybackEntry, ServerInfo, SessionKind, SessionRow } from '@mtxconsole/protocol'
 import type { RpcService } from '@mediabase/connection'
 import { SYNC_MAX_SLOTS, type SyncLayout, type SyncSlot } from './sync.ts'
 
@@ -40,6 +40,10 @@ export interface ConsoleSnapshot {
   recEntries: PlaybackEntry[]
   recLoading: boolean
   recError: string | null
+  /** Managed-server registry (M3) + which server every method routes to. */
+  servers: ManagedServer[]
+  activeServer: string | null
+  serversError: string | null
   /** Global-config review state (on-demand; NOT part of the polling loop). */
   cfg: Record<string, unknown> | null
   cfgLoading: boolean
@@ -73,6 +77,12 @@ export interface ConsoleStore {
   loadRecordingPaths(): Promise<void>
   /** Pick a recorded path and fetch its playable windows. */
   selectRecordingPath(name: string | null): Promise<void>
+  /** Refresh the managed-server registry + the active pick. */
+  loadServers(): Promise<void>
+  /** Route everything to another registered server and drop stale views. */
+  switchServer(name: string): Promise<void>
+  addServer(entry: { name: string; url: string; username?: string; password?: string; token?: string }): Promise<void>
+  removeServer(name: string): Promise<void>
   /** Fetch the flat global config for review (config panel). */
   loadGlobalConfig(): Promise<void>
   /** Subset-patch the global config, then re-read it (the server normalizes). */
@@ -105,6 +115,9 @@ export const EMPTY_FALLBACK: ConsoleSnapshot = {
   recEntries: [],
   recLoading: false,
   recError: null,
+  servers: [],
+  activeServer: null,
+  serversError: null,
   cfg: null,
   cfgLoading: false,
   cfgSaving: false,
@@ -180,6 +193,7 @@ export function createConsoleStore(rpc: RpcService): ConsoleStore {
         }
       }, POLL_MS)
       void refresh()
+      void store.loadServers()
     },
     stop() {
       if (timer !== null) {
@@ -231,6 +245,42 @@ export function createConsoleStore(rpc: RpcService): ConsoleStore {
           emit({ recLoading: false, recError: e instanceof Error ? e.message : String(e) })
         }
       }
+    },
+    loadServers: async () => {
+      try {
+        const res = await rpc.call<{ servers: ManagedServer[]; active: string }>('mediamtx.servers.list', {})
+        emit({ servers: res.servers, activeServer: res.active, serversError: null })
+      } catch (e) {
+        emit({ serversError: e instanceof Error ? e.message : String(e) })
+      }
+    },
+    switchServer: async (name) => {
+      const res = await rpc.call<{ active: string }>('mediamtx.servers.switch', { name })
+      // A different server makes every cached view a lie: drop the stage,
+      // the wall, the recording browser and the config review, then re-poll.
+      emit({
+        activeServer: res.active,
+        selected: null,
+        recording: null,
+        syncSlots: emptySyncSlots(),
+        recPaths: [],
+        recPath: null,
+        recEntries: [],
+        recLoading: false,
+        recError: null,
+        cfg: null,
+        cfgError: null,
+        serversError: null,
+      })
+      await Promise.all([refresh(), store.loadServers()])
+    },
+    addServer: async (entry) => {
+      await rpc.call('mediamtx.servers.add', entry)
+      await store.loadServers()
+    },
+    removeServer: async (name) => {
+      await rpc.call('mediamtx.servers.remove', { name })
+      await store.loadServers()
     },
     loadGlobalConfig: async () => {
       emit({ cfgLoading: true, cfgError: null })

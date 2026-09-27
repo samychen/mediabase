@@ -14,8 +14,10 @@
 // CI without MediaMTX still runs everything that does not need a server.
 
 import { afterAll, beforeAll, describe, expect, it } from 'vitest'
+import { existsSync } from 'node:fs'
 import { createServer as createHttpServer, type Server } from 'node:http'
 import type { AddressInfo } from 'node:net'
+import { join } from 'node:path'
 import {
   bootMtxconsole,
   expectError,
@@ -28,6 +30,7 @@ import {
 const UNAVAILABLE = -32002
 const NOT_FOUND = -32001
 const INVALID_PARAMS = -32602
+const CONFLICT = -32004
 
 interface PathRowWire {
   name: string
@@ -100,6 +103,40 @@ describe('the console host without a MediaMTX server', () => {
     const err = await expectError(host!.rpc, 'mediamtx.playback.list', { name: 'cam1' })
     expect(err.code).toBe(UNAVAILABLE)
     expect(err.messageKey).toBe('mediamtx.unreachable')
+  })
+
+  it('manages the server registry offline — registry ops are local and coded', async () => {
+    const list = await host!.rpc.call<{ servers: Array<{ name: string; url: string; auth: string }>; active: string }>('mediamtx.servers.list')
+    expect(list.active).toBe('default')
+    expect(list.servers).toEqual([{ name: 'default', url: 'http://127.0.0.1:9', auth: 'none' }])
+
+    // add → switch → every call now routes (and fails) against the NEW server
+    await host!.rpc.call('mediamtx.servers.add', { name: 'bogus', url: 'http://127.0.0.1:8/' })
+    await host!.rpc.call('mediamtx.servers.switch', { name: 'bogus' })
+    const routed = await expectError(host!.rpc, 'mediamtx.info')
+    expect(routed.code).toBe(UNAVAILABLE)
+    expect(routed.messageParams?.url).toBe('http://127.0.0.1:8') // trailing slash normalized away
+
+    // the coded local contract
+    const rmActive = await expectError(host!.rpc, 'mediamtx.servers.remove', { name: 'bogus' })
+    expect(rmActive.code).toBe(CONFLICT)
+    expect(rmActive.messageKey).toBe('mediamtx.serverActive')
+    const dup = await expectError(host!.rpc, 'mediamtx.servers.add', { name: 'default', url: 'http://x:1' })
+    expect(dup.code).toBe(INVALID_PARAMS)
+    expect(dup.messageKey).toBe('mediamtx.serverExists')
+    const badUrl = await expectError(host!.rpc, 'mediamtx.servers.add', { name: 'y', url: 'ftp://nope' })
+    expect(badUrl.code).toBe(INVALID_PARAMS)
+    expect(badUrl.messageKey).toBe('mediamtx.serverBadUrl')
+    const ghost = await expectError(host!.rpc, 'mediamtx.servers.switch', { name: 'ghost' })
+    expect(ghost.code).toBe(NOT_FOUND)
+    expect(ghost.messageKey).toBe('mediamtx.serverUnknown')
+
+    // switch back, clean up — health follows the active server
+    await host!.rpc.call('mediamtx.servers.switch', { name: 'default' })
+    await host!.rpc.call('mediamtx.servers.remove', { name: 'bogus' })
+    const after = await host!.rpc.call<{ servers: unknown[]; active: string }>('mediamtx.servers.list')
+    expect(after.servers).toHaveLength(1)
+    expect(after.active).toBe('default')
   })
 })
 
@@ -235,8 +272,11 @@ describe('the playback bridge against a mocked API+playback pair', () => {
   let pb: Server | null = null
   let host: BootedHost | null = null
   let pbPort = 0
+  let apiUrl = ''
   let playbackEnabled = true
   let lastListQuery: string | null = null
+  /** The authorization header the mock API saw most recently (auth tests). */
+  let lastAuth: string | null = null
 
   beforeAll(async () => {
     pb = createHttpServer((req, res) => {
@@ -260,6 +300,7 @@ describe('the playback bridge against a mocked API+playback pair', () => {
     pbPort = (pb.address() as AddressInfo).port
 
     api = createHttpServer((req, res) => {
+      lastAuth = (req.headers.authorization as string | undefined) ?? null
       const u = new URL(req.url ?? '/', 'http://localhost')
       res.setHeader('content-type', 'application/json')
       if (u.pathname === '/v3/info') {
@@ -284,10 +325,11 @@ describe('the playback bridge against a mocked API+playback pair', () => {
     })
     await new Promise<void>((r) => api!.listen(0, '127.0.0.1', r))
     const apiPort = (api.address() as AddressInfo).port
+    apiUrl = `http://127.0.0.1:${apiPort}`
 
     host = await bootMtxconsole({
       MTXCONSOLE_STRICT_CAPABILITIES: '1',
-      MTXCONSOLE_SERVER_URL: `http://127.0.0.1:${apiPort}`,
+      MTXCONSOLE_SERVER_URL: apiUrl,
     })
   }, 120_000)
 
@@ -333,4 +375,63 @@ describe('the playback bridge against a mocked API+playback pair', () => {
     expect(err.message).toContain('playback: yes')
     playbackEnabled = true
   })
+
+  it('sends basic-auth upstream, and a configured bearer token WINS over it', async () => {
+    const basic = await bootMtxconsole({
+      MTXCONSOLE_STRICT_CAPABILITIES: '1',
+      MTXCONSOLE_SERVER_URL: apiUrl,
+      MTXCONSOLE_USERNAME: 'u',
+      MTXCONSOLE_PASSWORD: 'p',
+    })
+    lastAuth = null
+    await basic.rpc.call('mediamtx.info')
+    expect(lastAuth).toBe(`Basic ${Buffer.from('u:p').toString('base64')}`)
+    await basic.stop()
+
+    const bearer = await bootMtxconsole({
+      MTXCONSOLE_STRICT_CAPABILITIES: '1',
+      MTXCONSOLE_SERVER_URL: apiUrl,
+      MTXCONSOLE_USERNAME: 'u',
+      MTXCONSOLE_PASSWORD: 'p',
+      MTXCONSOLE_SERVER_TOKEN: 'jwt.header.payload',
+    })
+    lastAuth = null
+    await bearer.rpc.call('mediamtx.info')
+    expect(lastAuth).toBe('Bearer jwt.header.payload')
+    await bearer.stop()
+  }, 120_000)
+
+  it('routes every call through the ACTIVE registered server and persists the registry', async () => {
+    const list = await host!.rpc.call<{ servers: Array<{ name: string; url: string; auth: string }>; active: string }>('mediamtx.servers.list')
+    expect(list.servers).toEqual([{ name: 'default', url: apiUrl, auth: 'none' }])
+
+    await host!.rpc.call('mediamtx.servers.add', { name: 'second', url: `${apiUrl}/`, username: 'u2', password: 's' })
+    const added = await host!.rpc.call<{ servers: Array<Record<string, unknown>> }>('mediamtx.servers.list')
+    const second = added.servers.find((s) => s.name === 'second')
+    expect(second).toEqual({ name: 'second', url: apiUrl, auth: 'basic' }) // normalized; NO credentials on the wire
+    expect(JSON.stringify(added)).not.toContain('u2')
+
+    await host!.rpc.call('mediamtx.servers.switch', { name: 'second' })
+    lastAuth = null
+    const info = await host!.rpc.call<{ info: { apiBase: string } }>('mediamtx.info')
+    expect(info.info.apiBase).toBe(apiUrl)
+    expect(lastAuth).toBe(`Basic ${Buffer.from('u2:s').toString('base64')}`) // per-server credentials
+
+    // persisted under the host identity's home — a restart comes back there
+    const registryFile = join(host!.home, 'mtxconsole-servers.json')
+    expect(existsSync(registryFile)).toBe(true)
+    const restarted = await bootMtxconsole({
+      MTXCONSOLE_HOME: host!.home,
+      MTXCONSOLE_STRICT_CAPABILITIES: '1',
+      MTXCONSOLE_SERVER_URL: apiUrl,
+    })
+    const afterBoot = await restarted.rpc.call<{ servers: Array<{ name: string }>; active: string }>('mediamtx.servers.list')
+    expect(afterBoot.active).toBe('second')
+    expect(afterBoot.servers.map((s) => s.name)).toEqual(['default', 'second'])
+    await restarted.stop()
+
+    // restore for the remaining tests (the world-3 host is shared)
+    await host!.rpc.call('mediamtx.servers.switch', { name: 'default' })
+    await host!.rpc.call('mediamtx.servers.remove', { name: 'second' })
+  }, 120_000)
 })

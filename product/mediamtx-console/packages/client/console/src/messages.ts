@@ -46,6 +46,17 @@ export type MessageKey =
   | 'recordings.noPaths'
   | 'recordings.empty'
   | 'recordings.playChain'
+  | 'config.servers'
+  | 'config.serverAdd'
+  | 'config.serverAdded'
+  | 'config.serverRemoved'
+  | 'config.serverSwitched'
+  | 'config.srvName'
+  | 'config.srvUrl'
+  | 'config.srvUser'
+  | 'config.srvPass'
+  | 'config.srvToken'
+  | 'config.serverActive'
   | 'config.save'
   | 'config.reset'
   | 'config.saved'
@@ -77,6 +88,11 @@ export type MessageKey =
   | 'mediamtx.notKickable'
   | 'mediamtx.playbackDisabled'
   | 'mediamtx.playbackUnreachable'
+  | 'mediamtx.serverExists'
+  | 'mediamtx.serverUnknown'
+  | 'mediamtx.serverActive'
+  | 'mediamtx.serverBadUrl'
+  | 'mediamtx.serverBadName'
 
 const zhCN: Record<MessageKey, string> = {
   'console.ready': 'MediaMTX 控制台就绪',
@@ -124,6 +140,17 @@ const zhCN: Record<MessageKey, string> = {
   'recordings.noPaths': '还没有录像 —— 给路径开启「录制」,推流之后这里会出现可回放的窗口。',
   'recordings.empty': '该路径暂无可回放窗口。',
   'recordings.playChain': '从此窗口连播(自动接续其后的窗口)',
+  'config.servers': '服务器',
+  'config.serverAdd': '登记',
+  'config.serverAdded': '已登记 {name}',
+  'config.serverRemoved': '已移除 {name}',
+  'config.serverSwitched': '已切换到 {name}',
+  'config.srvName': '名称',
+  'config.srvUrl': 'API 地址',
+  'config.srvUser': '用户名(basic)',
+  'config.srvPass': '密码',
+  'config.srvToken': 'Bearer/JWT(优先)',
+  'config.serverActive': '活动',
   'config.save': '保存改动',
   'config.reset': '放弃改动',
   'config.saved': '已保存 {n} 个键,并回读了服务器的归一化结果。',
@@ -155,6 +182,11 @@ const zhCN: Record<MessageKey, string> = {
   'mediamtx.notKickable': '{kind} 会话不支持踢出',
   'mediamtx.playbackDisabled': '该 MediaMTX 未开启回放服务(mediamtx.yml 加 playback: yes)',
   'mediamtx.playbackUnreachable': '回放服务不可达({url})',
+  'mediamtx.serverExists': '服务器 {name} 已登记',
+  'mediamtx.serverUnknown': '没有名为 {name} 的服务器',
+  'mediamtx.serverActive': '{name} 是当前活动服务器 —— 先切换到别的服务器再移除',
+  'mediamtx.serverBadUrl': '不是合法的 http(s) 地址:{url}',
+  'mediamtx.serverBadName': '服务器名称不能为空白',
 }
 
 const en: Record<MessageKey, string> = {
@@ -203,6 +235,17 @@ const en: Record<MessageKey, string> = {
   'recordings.noPaths': 'No recordings yet — enable Record on a path, publish to it, and playable windows will show up here.',
   'recordings.empty': 'No playable windows for this path yet.',
   'recordings.playChain': 'Play from here (chains the following windows)',
+  'config.servers': 'Servers',
+  'config.serverAdd': 'Register',
+  'config.serverAdded': 'Registered {name}',
+  'config.serverRemoved': 'Removed {name}',
+  'config.serverSwitched': 'Switched to {name}',
+  'config.srvName': 'Name',
+  'config.srvUrl': 'API base URL',
+  'config.srvUser': 'Username (basic)',
+  'config.srvPass': 'Password',
+  'config.srvToken': 'Bearer/JWT (wins)',
+  'config.serverActive': 'active',
   'config.save': 'Save changes',
   'config.reset': 'Discard changes',
   'config.saved': 'Saved {n} key(s) and re-read the server’s normalized truth.',
@@ -234,6 +277,11 @@ const en: Record<MessageKey, string> = {
   'mediamtx.notKickable': '{kind} sessions cannot be kicked',
   'mediamtx.playbackDisabled': 'The playback server is disabled on this MediaMTX (set playback: yes in mediamtx.yml)',
   'mediamtx.playbackUnreachable': 'Playback server unreachable ({url})',
+  'mediamtx.serverExists': 'Server {name} is already registered',
+  'mediamtx.serverUnknown': 'No server named {name}',
+  'mediamtx.serverActive': '{name} is the ACTIVE server — switch away before removing it',
+  'mediamtx.serverBadUrl': 'Not an absolute http(s) URL: {url}',
+  'mediamtx.serverBadName': 'Server name must not be blank',
 }
 
 export const messages: Record<'zh-CN' | 'en', Record<MessageKey, string>> = { 'zh-CN': zhCN, en }

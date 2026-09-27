@@ -1,17 +1,31 @@
-// Config (bottom drawer): the server's flat global config (~122 keys) as a
-// reviewable, editable form — the M3 candidate "read-only review + subset
-// patch, no form UI" made real. Everything upstream reports is shown, bucketed
+// Config (bottom drawer): the server registry (M3 multi-server) and the
+// flat global config (~122 keys) as a reviewable, editable form — the M3
+// candidates "single server per host" and "read-only review + subset patch,
+// no form UI" made real. Everything upstream reports is shown, bucketed
 // by key-prefix (conf.ts): scalars become inputs, composite values stay
 // read-only JSON (their honest editor is mediamtx.yml). Save sends ONLY the
 // diff through mediamtx.config.global.patch and re-reads the config, because
 // the server normalizes values and listener changes apply immediately — the
 // panel must show the server's truth, not the operator's draft.
 
-import { useEffect, useMemo, useState, type ReactElement } from 'react'
+import { useEffect, useMemo, useState, type FormEvent, type ReactElement } from 'react'
 import type { Context } from '@deepseek-ai/cordis'
 import { useI18n } from '@mediabase/i18n'
 import { useConsole } from '../use-console.ts'
 import { configDiff, groupConfig, seedDraft, type ConfigDraft } from '../conf.ts'
+import { IconPlus, IconTrash } from '../icons.tsx'
+
+const msg = (e: unknown): string => (e instanceof Error ? e.message : String(e))
+
+interface ServerForm {
+  name: string
+  url: string
+  username: string
+  password: string
+  token: string
+}
+
+const EMPTY_SERVER_FORM: ServerForm = { name: '', url: '', username: '', password: '', token: '' }
 
 /** Number inputs show '' for NaN (an emptied field), never the string "NaN". */
 function numText(v: string | number | boolean | undefined): string {
@@ -28,6 +42,7 @@ export function ConfigPanel({ ctx }: { ctx: Context }): ReactElement | null {
   const cfg = snap?.cfg ?? null
 
   const [draft, setDraft] = useState<ConfigDraft>({})
+  const [srvForm, setSrvForm] = useState<ServerForm>(EMPTY_SERVER_FORM)
   const [feedback, setFeedback] = useState<{ kind: 'ok' | 'err'; text: string } | null>(null)
 
   // Load once per store (the panel opens with the drawer; refresh re-pulls).
@@ -53,6 +68,40 @@ export function ConfigPanel({ ctx }: { ctx: Context }): ReactElement | null {
     setDraft((prev) => ({ ...prev, [key]: value }))
   }
 
+  const onSwitch = (name: string): void => {
+    if (name === '' || name === snap.activeServer) return
+    setFeedback(null)
+    void store.switchServer(name)
+      .then(() => setFeedback({ kind: 'ok', text: t('config.serverSwitched', { name }) }))
+      .catch((e: unknown) => setFeedback({ kind: 'err', text: msg(e) }))
+  }
+
+  const onAddServer = (event: FormEvent): void => {
+    event.preventDefault()
+    const name = srvForm.name.trim()
+    const url = srvForm.url.trim()
+    if (name === '' || url === '') return
+    setFeedback(null)
+    void store.addServer({
+      name,
+      url,
+      ...(srvForm.username.trim() !== '' ? { username: srvForm.username.trim(), password: srvForm.password } : {}),
+      ...(srvForm.token.trim() !== '' ? { token: srvForm.token.trim() } : {}),
+    })
+      .then(() => {
+        setFeedback({ kind: 'ok', text: t('config.serverAdded', { name }) })
+        setSrvForm(EMPTY_SERVER_FORM)
+      })
+      .catch((e: unknown) => setFeedback({ kind: 'err', text: msg(e) }))
+  }
+
+  const onRemoveServer = (name: string): void => {
+    setFeedback(null)
+    void store.removeServer(name)
+      .then(() => setFeedback({ kind: 'ok', text: t('config.serverRemoved', { name }) }))
+      .catch((e: unknown) => setFeedback({ kind: 'err', text: msg(e) }))
+  }
+
   const onSave = (): void => {
     if (dirtyCount === 0 || snap.cfgSaving) return
     setFeedback(null)
@@ -61,8 +110,75 @@ export function ConfigPanel({ ctx }: { ctx: Context }): ReactElement | null {
       .catch((e: unknown) => setFeedback({ kind: 'err', text: e instanceof Error ? e.message : String(e) }))
   }
 
+  const activeEntry = snap.servers.find((s) => s.name === snap.activeServer) ?? null
+
   return (
     <section className="mx-config">
+      <h3 className="mx-h">{t('config.servers')}</h3>
+      <div className="mx-config__bar">
+        <select
+          className="mx-select mx-config__srvpick"
+          value={snap.activeServer ?? ''}
+          onChange={(e) => onSwitch(e.target.value)}
+        >
+          {snap.servers.map((s) => (
+            <option key={s.name} value={s.name}>{s.name} · {s.url}</option>
+          ))}
+        </select>
+        {activeEntry !== null && <span className="mx-kind">{activeEntry.auth}</span>}
+      </div>
+      {snap.servers.length > 0 && (
+        <table className="mx-table mx-table--dense">
+          <tbody>
+            {snap.servers.map((s) => (
+              <tr key={s.name} data-active={s.name === snap.activeServer ? 'yes' : undefined}>
+                <td className="mx-mono">
+                  {s.name}
+                  {s.name === snap.activeServer && <span className="mx-config__active"> · {t('config.serverActive')}</span>}
+                </td>
+                <td className="mx-mono mx-dim">{s.url}</td>
+                <td className="mx-table__label">{s.auth}</td>
+                <td>
+                  <button
+                    type="button"
+                    className="mx-btn mx-btn--icon mx-btn--danger"
+                    title={t('stream.delete')}
+                    disabled={s.name === snap.activeServer}
+                    onClick={() => onRemoveServer(s.name)}
+                  >
+                    <IconTrash />
+                  </button>
+                </td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      )}
+      <form className="mx-form mx-config__srvform" onSubmit={onAddServer}>
+        <label className="mx-field">
+          <span>{t('config.srvName')}</span>
+          <input value={srvForm.name} onChange={(e) => setSrvForm({ ...srvForm, name: e.target.value })} placeholder="office" required />
+        </label>
+        <label className="mx-field">
+          <span>{t('config.srvUrl')}</span>
+          <input value={srvForm.url} onChange={(e) => setSrvForm({ ...srvForm, url: e.target.value })} placeholder="http://192.168.1.10:9997" required />
+        </label>
+        <label className="mx-field">
+          <span>{t('config.srvUser')}</span>
+          <input value={srvForm.username} onChange={(e) => setSrvForm({ ...srvForm, username: e.target.value })} autoComplete="off" />
+        </label>
+        <label className="mx-field">
+          <span>{t('config.srvPass')}</span>
+          <input type="password" value={srvForm.password} onChange={(e) => setSrvForm({ ...srvForm, password: e.target.value })} autoComplete="new-password" />
+        </label>
+        <label className="mx-field">
+          <span>{t('config.srvToken')}</span>
+          <input type="password" value={srvForm.token} onChange={(e) => setSrvForm({ ...srvForm, token: e.target.value })} autoComplete="off" />
+        </label>
+        <button type="submit" className="mx-btn"><IconPlus /> {t('config.serverAdd')}</button>
+      </form>
+      {snap.serversError !== null && <p className="mx-error">{t('common.error', { detail: snap.serversError })}</p>}
+
       <h3 className="mx-h">{t('panel.config.title')}</h3>
       <div className="mx-config__bar">
         <button type="button" className="mx-btn" disabled={snap.cfgLoading} onClick={() => void store.loadGlobalConfig()}>

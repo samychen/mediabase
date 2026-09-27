@@ -38,7 +38,7 @@ M1 scope:
 - **Coded degradation**: with the server unreachable every call answers
   `UNAVAILABLE + messageKey` — panels say "unreachable" instead of going blank.
 
-M2 scope (this milestone):
+M2 scope:
 
 - **Recording playback**: a right-column panel browses playback windows per
   path (day-grouped, start time + duration); Play puts the window on the main
@@ -52,7 +52,7 @@ M2 scope (this milestone):
   disabled/unreachable are coded errors carrying the config hint, never a
   blank panel.
 
-M3 scope (this milestone, in progress):
+M3 scope (this milestone):
 
 - **Sync playback wall**: park recording windows into a 1/4/9 video grid (a
   button on every recordings row, or drag-and-drop); each occupied cell
@@ -67,6 +67,13 @@ M3 scope (this milestone, in progress):
 - **Cross-window chaining**: Play on a recordings row now means "from here" —
   the clicked window plus every window after it form a chain the main stage
   auto-advances through (position badge `i/N`); no more click-per-window.
+- **Multi-server**: the host keeps a persisted registry of MediaMTX servers
+  (the env-seeded default plus operator additions through the config panel);
+  `mediamtx.servers.switch` re-routes EVERY method to the picked server, the
+  panels drop their now-stale views, and the agent gets `servers.list` /
+  `servers.switch` as tools (add/remove stay operator-only RPC — credentials
+  are not model input). Upstream auth grows a static bearer/JWT token beside
+  basic-auth (bearer wins when both are set).
 - **Global config form**: the bottom drawer shows the whole flat config
   (~122 keys) as the server reports it, bucketed by key-name prefix; scalars
   are editable, composite values render read-only JSON (their honest editor
@@ -89,6 +96,10 @@ pnpm run dev:mtxconsole     # http://127.0.0.1:3091
 MTXCONSOLE_SERVER_URL=http://192.168.1.10:9997 \
 MTXCONSOLE_USERNAME=admin MTXCONSOLE_PASSWORD=… \
 pnpm run host:mtxconsole
+# bearer/JWT instead of basic (takes precedence):
+MTXCONSOLE_SERVER_TOKEN=eyJ… pnpm run host:mtxconsole
+# more servers need no env: register them in the Config panel (persisted
+# under ~/.mtxconsole/mtxconsole-servers.json) and switch at runtime.
 ```
 
 Recording playback needs two settings on the MediaMTX side (`mediamtx.yml`):
@@ -174,8 +185,9 @@ See [AGENT.md](./AGENT.md).
 - the config form edits scalars only — composite keys (`pathDefaults`,
   `authInternalUsers`…) stay read-only by design (mediamtx.yml is their
   editor; a partial-object patch would silently drop siblings);
-- single server per host (multi-server switching is the other open M3
-  candidate);
+- operator-registered server credentials persist in PLAINTEXT under the host
+  home (`mtxconsole-servers.json` — the base settings.json pattern; they
+  never cross the wire), and the env-seeded server always wins its name;
 - the sync wall has no test coverage for its clock/DOM half — `sync.ts` (the
   timeline math and the drop payload contract) and the store actions are
   pinned by `tests/sync.test.ts`, but the rAF loop and the per-cell MSE
@@ -184,4 +196,6 @@ See [AGENT.md](./AGENT.md).
 - WHEP relies on the browser's native `RTCPeerConnection`; the HLS fallback
   only exists where native (no hls.js — zero new runtime deps is a hard
   constraint of this product);
-- MediaMTX auth: basic-auth only (JWT-style upstream auth not wired).
+- upstream auth: basic or a STATIC bearer token (`MTXCONSOLE_SERVER_TOKEN`,
+  or per-server `token`); no refresh/expiry handling — an expired JWT
+  surfaces as the coded upstream 401 (`UNAVAILABLE`).

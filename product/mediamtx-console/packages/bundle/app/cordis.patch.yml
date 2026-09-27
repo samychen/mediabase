@@ -17,8 +17,14 @@
         # SHORT env names: the identity prefix (MTXCONSOLE_) is applied by the
         # boot layer, so these read MTXCONSOLE_SERVER_URL etc.
         serverUrl: !!js ctx.env.str('SERVER_URL')
+        serverName: !!js ctx.env.str('SERVER_NAME')
         username: !!js ctx.env.str('USERNAME')
         password: !!js ctx.env.str('PASSWORD')
+        # Upstream bearer/JWT — NOT to be confused with the front door's own
+        # TOKEN (the base `server` row below): SERVER_TOKEN authenticates the
+        # console TO MediaMTX; TOKEN authenticates browsers to the console.
+        serverToken: !!js ctx.env.str('SERVER_TOKEN')
+        serversFile: !!js ctx.env.str('SERVERS_FILE')
         timeoutMs: !!js ctx.env.num('TIMEOUT_MS')
 
 # A patch replaces the WHOLE config of the row it targets, so this override

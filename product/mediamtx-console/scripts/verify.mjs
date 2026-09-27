@@ -231,6 +231,26 @@ try {
     checks.expect('不可踢协议先行拒绝', notKick?.messageKey === 'mediamtx.notKickable', notKick?.messageKey)
   }
 
+  // ---- 多服务器注册表(M3):登记/切换是宿主本地动作,不依赖活服务器
+  const sList = await rpc.call('mediamtx.servers.list')
+  checks.expect('servers.list 报告注册表与活动服务器',
+    Array.isArray(sList?.servers) && typeof sList?.active === 'string' && sList.servers.some((x) => x.name === sList.active),
+    JSON.stringify(sList ?? null).slice(0, 140))
+  const originalActive = sList?.active ?? 'default'
+  await rpc.call('mediamtx.servers.add', { name: 'verify-bogus', url: 'http://127.0.0.1:9/' })
+  await rpc.call('mediamtx.servers.switch', { name: 'verify-bogus' })
+  const bogusErr = await expectError(rpc, 'mediamtx.info', {}, -32002)
+  checks.expect('切换后调用路由到新服务器', bogusErr?.messageParams?.url === 'http://127.0.0.1:9',
+    JSON.stringify(bogusErr?.messageParams ?? null))
+  const rmActive = await expectError(rpc, 'mediamtx.servers.remove', { name: 'verify-bogus' }, -32004)
+  checks.expect('活动服务器不可移除(带码)', rmActive?.messageKey === 'mediamtx.serverActive', rmActive?.messageKey)
+  await rpc.call('mediamtx.servers.switch', { name: originalActive })
+  await rpc.call('mediamtx.servers.remove', { name: 'verify-bogus' })
+  const restored = await rpc.call('mediamtx.servers.list')
+  checks.expect('注册表恢复原状', restored?.active === originalActive && (restored?.servers ?? []).every((x) => x.name !== 'verify-bogus'))
+  const viaTool = await rpc.call('tools.run', { name: 'mediamtx.servers.list', args: {} })
+  checks.expect('tools.run 直通 servers.list', Array.isArray(viaTool?.servers))
+
   // ---- the page (when built)
   const distIndex = join(PRODUCT_ROOT, 'apps/web/dist/index.html')
   try {

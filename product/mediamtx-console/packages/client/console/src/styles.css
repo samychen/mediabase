@@ -581,3 +581,27 @@
   font-family: var(--mb-font-mono, ui-monospace, monospace);
   font-size: 10px;
 }
+
+/* Multi-server (M3): registry picker, table and the add form. */
+.mx-config__srvpick {
+  max-width: 420px;
+}
+.mx-config__srvform {
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+  align-items: flex-end;
+}
+.mx-config__srvform .mx-field {
+  flex: 1;
+  min-width: 130px;
+}
+.mx-config__srvform .mx-btn {
+  margin-bottom: 1px;
+}
+.mx-config__active {
+  color: var(--mb-ok, #30a46c);
+}
+.mx-config tr[data-active='yes'] td {
+  background: color-mix(in srgb, var(--mb-accent, #4c8dff) 6%, transparent);
+}

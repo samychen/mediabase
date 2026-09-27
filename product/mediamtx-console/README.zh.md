@@ -30,7 +30,7 @@ M1 范围:
 - **带码降级**:服务器不可达时每个调用都返回 `UNAVAILABLE + messageKey`,
   面板显示"不可达"而不是一片空白。
 
-M2 范围(本里程碑):
+M2 范围:
 
 - **录像回放**:右侧新面板按路径浏览录像窗口(天粒度分组、时刻+时长),点播放
   即上主舞台;播放走 MSE 吃 playback 服务器的 fMP4 流(浏览器直连 :9996,媒体
@@ -40,7 +40,7 @@ M2 范围(本里程碑):
   窗口数组,并把 `/get` URL 的 origin 改写成浏览器可达地址(上游回显的是它自己
   看到的 Host);playback 未开启/不可达都是带码错误+配置提示,不是白屏。
 
-M3 范围(本里程碑,进行中):
+M3 范围(本里程碑):
 
 - **同步回放墙**:录像窗口可「加入同步回放」(每行一个按钮,或直接拖拽)进
   1/4/9 宫格;每个格子各自走 MSE 播放自己的窗口,所有格子共享同一条**挂钟
@@ -50,6 +50,11 @@ M3 范围(本里程碑,进行中):
   其余六个面板赖以渲染的快照。零新依赖,媒体字节依旧浏览器 ⇄ :9996 直连。
 - **跨窗口连播**:录像行的「播放」语义升级为「从此窗口连播」——该窗口与其后
   所有窗口组成播放链,主舞台在窗口边界自动续接(位置徽标 i/N),不再一段一点。
+- **多服务器切换**:宿主维护一份持久化的服务器注册表(env 种子 + 配置面板
+  登记),`mediamtx.servers.switch` 把**每个方法**都路由到选中的服务器,面板
+  随即清空所有已成谎言的视图;agent 拿到 servers.list / servers.switch 两个
+  工具(登记/移除只留作 operator RPC —— 凭据不该是模型输入)。上游认证在
+  basic 之外增加静态 bearer/JWT(两者都设时 token 优先)。
 - **全局配置表单**:底部抽屉按服务器原样展示整份平面配置(约 122 键),按键名
   前缀分桶;标量可编辑,复合值(对象/数组)只读展示 JSON(它们的诚实编辑器是
   mediamtx.yml)。「保存」只把**差量**经 `mediamtx.config.global.patch` 发出,
@@ -70,6 +75,10 @@ pnpm run dev:mtxconsole     # http://127.0.0.1:3091
 MTXCONSOLE_SERVER_URL=http://192.168.1.10:9997 \
 MTXCONSOLE_USERNAME=admin MTXCONSOLE_PASSWORD=… \
 pnpm run host:mtxconsole
+# 用 bearer/JWT 代替 basic(两者都设时 token 优先):
+MTXCONSOLE_SERVER_TOKEN=eyJ… pnpm run host:mtxconsole
+# 更多服务器无需 env:在「全局配置」面板登记(持久化到
+# ~/.mtxconsole/mtxconsole-servers.json),运行时随时切换。
 ```
 
 录像回放需要 MediaMTX 侧两处配置(`mediamtx.yml`):
@@ -163,10 +172,14 @@ product/mediamtx-console/
   在真实 HEVC 设备上验证过;
 - 配置表单只覆盖标量——复合键(pathDefaults、authInternalUsers 等)刻意只读
   (用 mediamtx.yml 编辑;对嵌套对象做子集补丁会静默丢掉兄弟字段);
-- 单服务器(一个宿主对一个 MediaMTX;多服务器切换是另一个未做的 M3 候选);
+- operator 登记的服务器凭据以明文持久化在宿主 home 下
+  (`mtxconsole-servers.json` —— 与基座 settings.json 同一模式;凭据永不
+  过线),env 种子的同名服务器永远优先;
 - 同步墙的时钟/DOM 一半没有测试覆盖 —— `sync.ts`(时间轴数学与拖放载荷契约)
   和 store 的宫格动作由 `tests/sync.test.ts` 钉住,但 rAF 主时钟与每格 MSE 的
   接线需要真浏览器才能验(本仓库其余浏览器腿同样如此:由 `verify.mjs` 走 LIVE);
 - WHEP 播放依赖浏览器原生 `RTCPeerConnection`(全平台现代浏览器可用);HLS
   回退仅原生支持的浏览器(不引入 hls.js,零新依赖是本产品的硬约束);
-- MediaMTX 认证仅实现 basic-auth(API 侧);JWT 等上游新认证方式未接。
+- 上游认证:basic 或静态 bearer token(`MTXCONSOLE_SERVER_TOKEN` / 每服务器
+  `token`);无刷新与过期处理 —— JWT 过期会以上游 401 的带码错误
+  (`UNAVAILABLE`)浮现。
