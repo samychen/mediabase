@@ -67,6 +67,13 @@ M3 scope (this milestone, in progress):
 - **Cross-window chaining**: Play on a recordings row now means "from here" —
   the clicked window plus every window after it form a chain the main stage
   auto-advances through (position badge `i/N`); no more click-per-window.
+- **Global config form**: the bottom drawer shows the whole flat config
+  (~122 keys) as the server reports it, bucketed by key-name prefix; scalars
+  are editable, composite values render read-only JSON (their honest editor
+  is mediamtx.yml). Save sends ONLY the diff through
+  `mediamtx.config.global.patch`, then re-reads the config — the server
+  normalizes values and listener changes take effect immediately, so the
+  panel shows the server's truth, never a stale draft.
 
 ## Quick start
 
@@ -164,8 +171,9 @@ See [AGENT.md](./AGENT.md).
   iOS 17.1+; older Safari gets an explicit "unsupported" message instead of a
   black screen). HEVC codec strings follow the standard formula but have not
   been verified against real HEVC hardware;
-- global config: read-only review + subset patch method, no form UI yet (next
-  M3 candidate);
+- the config form edits scalars only — composite keys (`pathDefaults`,
+  `authInternalUsers`…) stay read-only by design (mediamtx.yml is their
+  editor; a partial-object patch would silently drop siblings);
 - single server per host (multi-server switching is the other open M3
   candidate);
 - the sync wall has no test coverage for its clock/DOM half — `sync.ts` (the

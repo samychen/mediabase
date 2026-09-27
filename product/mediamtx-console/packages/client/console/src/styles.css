@@ -490,3 +490,94 @@
 .mx-recordings .mx-row .mx-btn + .mx-btn {
   margin-left: 0;
 }
+
+/* ---- global config (M3): review + subset-patch form ---- */
+.mx-config {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  min-height: 0;
+}
+.mx-config__bar {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+.mx-config__danger {
+  margin: 0;
+  font-size: 11px;
+}
+.mx-config__groups {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  max-height: 44vh;
+  overflow: auto;
+}
+.mx-config__group {
+  border: 1px solid var(--mb-border, #2a3140);
+  border-radius: 8px;
+  background: var(--mb-surface, #161b24);
+}
+.mx-config__summary {
+  cursor: pointer;
+  padding: 8px 12px;
+  font-size: 12px;
+  font-weight: 600;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: var(--mb-text-dim, #9aa4b2);
+}
+.mx-config__fields {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  padding: 4px 12px 10px;
+}
+.mx-config__field {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+.mx-config__key {
+  flex: 0 0 240px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: var(--mb-text-dim, #9aa4b2);
+}
+.mx-config__field input[type='text'],
+.mx-config__field input[type='number'] {
+  flex: 1;
+  min-width: 0;
+  padding: 4px 8px;
+  border: 1px solid var(--mb-border, #2a3140);
+  border-radius: 6px;
+  background: var(--mb-bg, #0f1319);
+  color: var(--mb-text, #e6edf3);
+  font-size: 12px;
+  font-family: var(--mb-font-mono, ui-monospace, monospace);
+}
+.mx-config__field[data-kind='bool'] input {
+  width: 14px;
+  height: 14px;
+  accent-color: var(--mb-accent, #4c8dff);
+}
+.mx-config__field[data-kind='complex'] {
+  align-items: flex-start;
+}
+.mx-config__json {
+  flex: 1;
+  min-width: 0;
+  margin: 0;
+  padding: 6px 8px;
+  max-height: 160px;
+  overflow: auto;
+  border: 1px dashed var(--mb-border, #2a3140);
+  border-radius: 6px;
+  background: var(--mb-bg, #0f1319);
+  color: var(--mb-text-dim, #9aa4b2);
+  font-family: var(--mb-font-mono, ui-monospace, monospace);
+  font-size: 10px;
+}

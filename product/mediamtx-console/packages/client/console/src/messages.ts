@@ -9,6 +9,7 @@ export type MessageKey =
   | 'panel.sessions.title'
   | 'panel.recordings.title'
   | 'panel.sync.title'
+  | 'panel.config.title'
   | 'server.unreachable'
   | 'server.version'
   | 'server.started'
@@ -45,6 +46,12 @@ export type MessageKey =
   | 'recordings.noPaths'
   | 'recordings.empty'
   | 'recordings.playChain'
+  | 'config.save'
+  | 'config.reset'
+  | 'config.saved'
+  | 'config.dirty'
+  | 'config.danger'
+  | 'config.readonly'
   | 'sync.addToSync'
   | 'sync.empty'
   | 'sync.dropHint'
@@ -80,6 +87,7 @@ const zhCN: Record<MessageKey, string> = {
   'panel.sessions.title': '会话',
   'panel.recordings.title': '录像回放',
   'panel.sync.title': '同步回放',
+  'panel.config.title': '全局配置',
   'server.unreachable': 'MediaMTX 不可达',
   'server.version': '版本',
   'server.started': '启动于',
@@ -116,6 +124,12 @@ const zhCN: Record<MessageKey, string> = {
   'recordings.noPaths': '还没有录像 —— 给路径开启「录制」,推流之后这里会出现可回放的窗口。',
   'recordings.empty': '该路径暂无可回放窗口。',
   'recordings.playChain': '从此窗口连播(自动接续其后的窗口)',
+  'config.save': '保存改动',
+  'config.reset': '放弃改动',
+  'config.saved': '已保存 {n} 个键,并回读了服务器的归一化结果。',
+  'config.dirty': '{n} 处改动',
+  'config.danger': '改动立即生效(监听地址尤甚,保存后对应服务会重启);「保存」只发送你改过的键。复合值(对象/数组)只读,请改 mediamtx.yml。',
+  'config.readonly': '复合值只读 —— 用 mediamtx.yml 编辑',
   'sync.addToSync': '加入同步回放',
   'sync.empty': '还没有画面 —— 点录像窗口行的「加入同步回放」,或把窗口拖进下面的格子;多路录像会在同一条时间轴上对齐播放。',
   'sync.dropHint': '拖入录像窗口',
@@ -152,6 +166,7 @@ const en: Record<MessageKey, string> = {
   'panel.sessions.title': 'Sessions',
   'panel.recordings.title': 'Recordings',
   'panel.sync.title': 'Sync playback',
+  'panel.config.title': 'Global config',
   'server.unreachable': 'MediaMTX unreachable',
   'server.version': 'Version',
   'server.started': 'Started',
@@ -188,6 +203,12 @@ const en: Record<MessageKey, string> = {
   'recordings.noPaths': 'No recordings yet — enable Record on a path, publish to it, and playable windows will show up here.',
   'recordings.empty': 'No playable windows for this path yet.',
   'recordings.playChain': 'Play from here (chains the following windows)',
+  'config.save': 'Save changes',
+  'config.reset': 'Discard changes',
+  'config.saved': 'Saved {n} key(s) and re-read the server’s normalized truth.',
+  'config.dirty': '{n} pending',
+  'config.danger': 'Changes apply immediately (listener addresses especially — saving restarts that listener); Save sends only the keys you changed. Composite values (objects/arrays) are read-only here; edit them in mediamtx.yml.',
+  'config.readonly': 'Composite value — read-only; edit via mediamtx.yml',
   'sync.addToSync': 'Add to sync playback',
   'sync.empty': 'Nothing on the wall yet — click “Add to sync playback” on a recording window, or drag one into the grid; several windows then play side by side on ONE shared timeline.',
   'sync.dropHint': 'Drop a recording window',

@@ -40,6 +40,11 @@ export interface ConsoleSnapshot {
   recEntries: PlaybackEntry[]
   recLoading: boolean
   recError: string | null
+  /** Global-config review state (on-demand; NOT part of the polling loop). */
+  cfg: Record<string, unknown> | null
+  cfgLoading: boolean
+  cfgSaving: boolean
+  cfgError: string | null
   /** Synchronized-playback wall (M3): fixed-length grid of recording windows.
    * Declarative state only — the master clock lives in the panel (60fps ticks
    * must not re-emit the snapshot every other panel reads). */
@@ -68,6 +73,10 @@ export interface ConsoleStore {
   loadRecordingPaths(): Promise<void>
   /** Pick a recorded path and fetch its playable windows. */
   selectRecordingPath(name: string | null): Promise<void>
+  /** Fetch the flat global config for review (config panel). */
+  loadGlobalConfig(): Promise<void>
+  /** Subset-patch the global config, then re-read it (the server normalizes). */
+  patchGlobalConfig(values: Record<string, unknown>): Promise<void>
   /** Park a recording window in grid cell `index` (null clears the cell). */
   syncAssign(index: number, slot: SyncSlot | null): void
   syncSetLayout(layout: SyncLayout): void
@@ -96,6 +105,10 @@ export const EMPTY_FALLBACK: ConsoleSnapshot = {
   recEntries: [],
   recLoading: false,
   recError: null,
+  cfg: null,
+  cfgLoading: false,
+  cfgSaving: false,
+  cfgError: null,
   syncSlots: emptySyncSlots(),
   syncLayout: 4,
   generation: 0,
@@ -217,6 +230,28 @@ export function createConsoleStore(rpc: RpcService): ConsoleStore {
         if (snapshot.recPath === name) {
           emit({ recLoading: false, recError: e instanceof Error ? e.message : String(e) })
         }
+      }
+    },
+    loadGlobalConfig: async () => {
+      emit({ cfgLoading: true, cfgError: null })
+      try {
+        const res = await rpc.call<{ config: Record<string, unknown> }>('mediamtx.config.global.get', {})
+        emit({ cfg: res.config, cfgLoading: false })
+      } catch (e) {
+        emit({ cfgLoading: false, cfgError: e instanceof Error ? e.message : String(e) })
+      }
+    },
+    patchGlobalConfig: async (values) => {
+      emit({ cfgSaving: true, cfgError: null })
+      try {
+        await rpc.call('mediamtx.config.global.patch', { values })
+        // Re-read after patching: the server normalizes values (and a changed
+        // listener address reboots that listener) — the panel must show truth.
+        const res = await rpc.call<{ config: Record<string, unknown> }>('mediamtx.config.global.get', {})
+        emit({ cfg: res.config, cfgSaving: false })
+      } catch (e) {
+        emit({ cfgSaving: false, cfgError: e instanceof Error ? e.message : String(e) })
+        throw e
       }
     },
     syncAssign: (index, slot) => {
