@@ -13,6 +13,7 @@ import type { Context } from '@deepseek-ai/cordis'
 import { useI18n } from '@mediabase/i18n'
 import { useConsole } from '../use-console.ts'
 import { configDiff, groupConfig, seedDraft, type ConfigDraft } from '../conf.ts'
+import { fmtClock, fmtDay } from '../format.ts'
 import { IconPlus, IconTrash } from '../icons.tsx'
 
 const msg = (e: unknown): string => (e instanceof Error ? e.message : String(e))
@@ -26,6 +27,9 @@ interface ServerForm {
 }
 
 const EMPTY_SERVER_FORM: ServerForm = { name: '', url: '', username: '', password: '', token: '' }
+
+/** Inside this window an expiring token turns amber instead of staying dim. */
+const TOKEN_SOON_MS = 10 * 60 * 1000
 
 /** Number inputs show '' for NaN (an emptied field), never the string "NaN". */
 function numText(v: string | number | boolean | undefined): string {
@@ -112,6 +116,17 @@ export function ConfigPanel({ ctx }: { ctx: Context }): ReactElement | null {
 
   const activeEntry = snap.servers.find((s) => s.name === snap.activeServer) ?? null
 
+  // The bridge decodes a bearer token's exp (never verifies — that is the
+  // server's job); expired turns red, expiring-soon amber, distant future dim.
+  const tokenBadge = (expiresAt: number): { state: 'err' | 'idle' | undefined; text: string } => {
+    const ms = expiresAt * 1000
+    const iso = new Date(ms).toISOString()
+    const time = `${fmtDay(iso)} ${fmtClock(iso)}`
+    if (ms < Date.now()) return { state: 'err', text: t('config.tokenExpired', { time }) }
+    if (ms - Date.now() < TOKEN_SOON_MS) return { state: 'idle', text: t('config.tokenExpiring', { time }) }
+    return { state: undefined, text: t('config.tokenExpiring', { time }) }
+  }
+
   return (
     <section className="mx-config">
       <h3 className="mx-h">{t('config.servers')}</h3>
@@ -137,7 +152,13 @@ export function ConfigPanel({ ctx }: { ctx: Context }): ReactElement | null {
                   {s.name === snap.activeServer && <span className="mx-config__active"> · {t('config.serverActive')}</span>}
                 </td>
                 <td className="mx-mono mx-dim">{s.url}</td>
-                <td className="mx-table__label">{s.auth}</td>
+                <td className="mx-table__label">
+                  {s.auth}
+                  {s.expiresAt !== null && (() => {
+                    const b = tokenBadge(s.expiresAt)
+                    return <span className="mx-badge mx-config__exp" data-state={b.state}>{b.text}</span>
+                  })()}
+                </td>
                 <td>
                   <button
                     type="button"

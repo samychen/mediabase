@@ -73,6 +73,10 @@ M4 范围(本里程碑):
   管当前窗口内部)。拖过窗口边界 = 从目标窗口的第一个字节**重新取流**,缓冲
   一到就落在窗口内的目标秒上——上游没有 Range,下游就不撒谎。位置绘制搭
   video 自己的 `timeupdate`:不开 rAF、不触发重渲染。
+- **JWT 过期感知**:bearer token 带 `exp` 声明时,注册表视图把它解码出来
+  (`servers.list` → `expiresAt`),配置面板以徽标呈现——已过期标红、10 分钟内
+  临期标黄。只解码、**不验签**:验签是流媒体服务器的职责,控制台的职责是让
+  快死的 token 变成看得见的警告,而不是神秘的 401。
 
 ## 快速开始
 
@@ -194,5 +198,6 @@ product/mediamtx-console/
 - WHEP 播放依赖浏览器原生 `RTCPeerConnection`(全平台现代浏览器可用);HLS
   回退仅原生支持的浏览器(不引入 hls.js,零新依赖是本产品的硬约束);
 - 上游认证:basic 或静态 bearer token(`MTXCONSOLE_SERVER_TOKEN` / 每服务器
-  `token`);无刷新与过期处理 —— JWT 过期会以上游 401 的带码错误
-  (`UNAVAILABLE`)浮现。
+  `token`)。token 的 `exp` 会被解码并做成徽标(已过期/临期),但没有刷新
+  流程——真过期后调用以上游 401 的带码错误(`UNAVAILABLE`)浮现;轮换 token
+  = 重新登记该服务器(切走、移除、再登记)。

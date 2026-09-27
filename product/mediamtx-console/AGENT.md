@@ -32,7 +32,7 @@ both are set). Smoke the whole surface from a shell:
 | RPC `mediamtx.playback.list` `{name, start?, end?}` | playable windows `[{ startIso, durationSeconds, url }]` — `url` is a browser-fetchable fMP4 stream (origin already rewritten to the reachable playback base) |
 | RPC `mediamtx.config.global.get` | the server's flat config (122 keys) for review |
 | RPC `mediamtx.config.global.patch` `{values}` | subset-patch the global config (the config panel sends only the diff) |
-| `mediamtx.servers.list` | managed-server registry `[{name,url,auth}]` + which is `active` — credentials never cross the wire |
+| `mediamtx.servers.list` | managed-server registry `[{name,url,auth,expiresAt}]` + which is `active` — credentials never cross the wire; `expiresAt` is the bearer token's DECODED `exp` (epoch seconds, null without one) — a warning, not a verification |
 
 `ready: false` is not an error — it means no publisher is connected yet.
 `source` shows the configured pull URL once set (a path created without one

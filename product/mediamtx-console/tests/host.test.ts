@@ -108,7 +108,7 @@ describe('the console host without a MediaMTX server', () => {
   it('manages the server registry offline — registry ops are local and coded', async () => {
     const list = await host!.rpc.call<{ servers: Array<{ name: string; url: string; auth: string }>; active: string }>('mediamtx.servers.list')
     expect(list.active).toBe('default')
-    expect(list.servers).toEqual([{ name: 'default', url: 'http://127.0.0.1:9', auth: 'none' }])
+    expect(list.servers).toEqual([{ name: 'default', url: 'http://127.0.0.1:9', auth: 'none', expiresAt: null }])
 
     // add → switch → every call now routes (and fails) against the NEW server
     await host!.rpc.call('mediamtx.servers.add', { name: 'bogus', url: 'http://127.0.0.1:8/' })
@@ -403,12 +403,12 @@ describe('the playback bridge against a mocked API+playback pair', () => {
 
   it('routes every call through the ACTIVE registered server and persists the registry', async () => {
     const list = await host!.rpc.call<{ servers: Array<{ name: string; url: string; auth: string }>; active: string }>('mediamtx.servers.list')
-    expect(list.servers).toEqual([{ name: 'default', url: apiUrl, auth: 'none' }])
+    expect(list.servers).toEqual([{ name: 'default', url: apiUrl, auth: 'none', expiresAt: null }])
 
     await host!.rpc.call('mediamtx.servers.add', { name: 'second', url: `${apiUrl}/`, username: 'u2', password: 's' })
     const added = await host!.rpc.call<{ servers: Array<Record<string, unknown>> }>('mediamtx.servers.list')
     const second = added.servers.find((s) => s.name === 'second')
-    expect(second).toEqual({ name: 'second', url: apiUrl, auth: 'basic' }) // normalized; NO credentials on the wire
+    expect(second).toEqual({ name: 'second', url: apiUrl, auth: 'basic', expiresAt: null }) // normalized; NO credentials on the wire
     expect(JSON.stringify(added)).not.toContain('u2')
 
     await host!.rpc.call('mediamtx.servers.switch', { name: 'second' })
@@ -433,5 +433,27 @@ describe('the playback bridge against a mocked API+playback pair', () => {
     // restore for the remaining tests (the world-3 host is shared)
     await host!.rpc.call('mediamtx.servers.switch', { name: 'default' })
     await host!.rpc.call('mediamtx.servers.remove', { name: 'second' })
+  }, 120_000)
+
+  it('decodes a bearer token’s exp for the registry view — without ever exposing the token', async () => {
+    const exp = Math.floor(Date.now() / 1000) + 3600
+    const payload = Buffer.from(JSON.stringify({ exp, sub: 'camops' })).toString('base64url')
+    const token = `eyJhbGciOiJIUzI1NiJ9.${payload}.sig-never-shown`
+    await host!.rpc.call('mediamtx.servers.add', { name: 'jwtcam', url: apiUrl, token })
+    await host!.rpc.call('mediamtx.servers.add', { name: 'noexp', url: apiUrl, token: `h.${Buffer.from(JSON.stringify({ sub: 'x' })).toString('base64url')}.s` })
+
+    const list = await host!.rpc.call<{ servers: Array<{ name: string; auth: string; expiresAt: number | null }> }>('mediamtx.servers.list')
+    const jwt = list.servers.find((s) => s.name === 'jwtcam')
+    expect(jwt?.auth).toBe('bearer')
+    expect(jwt?.expiresAt).toBe(exp) // decoded, for the panel's expiry warning
+    expect(list.servers.find((s) => s.name === 'noexp')?.expiresAt).toBeNull()
+    expect(list.servers.find((s) => s.name === 'default')?.expiresAt).toBeNull()
+    // The token itself never rides the wire in any piece.
+    const raw = JSON.stringify(list)
+    expect(raw).not.toContain(payload)
+    expect(raw).not.toContain('sig-never-shown')
+
+    await host!.rpc.call('mediamtx.servers.remove', { name: 'jwtcam' })
+    await host!.rpc.call('mediamtx.servers.remove', { name: 'noexp' })
   }, 120_000)
 })

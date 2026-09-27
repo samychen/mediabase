@@ -100,6 +100,11 @@ M4 scope (this milestone):
   window from its first byte and applies the in-window target as soon as
   buffer exists — no Range upstream, no lies downstream. Position painting
   rides the video's own `timeupdate`: no rAF, no re-renders.
+- **JWT expiry awareness**: a bearer token carrying an `exp` claim gets it
+  decoded into the registry view (`servers.list` → `expiresAt`) and badged in
+  the config panel — red once expired, amber inside 10 minutes. Decoded, NOT
+  verified: checking signatures is the streaming server's job; the console's
+  job is making a dying token a visible warning instead of a mysterious 401.
 
 ## Quick start
 
@@ -215,5 +220,8 @@ See [AGENT.md](./AGENT.md).
   only exists where native (no hls.js — zero new runtime deps is a hard
   constraint of this product);
 - upstream auth: basic or a STATIC bearer token (`MTXCONSOLE_SERVER_TOKEN`,
-  or per-server `token`); no refresh/expiry handling — an expired JWT
-  surfaces as the coded upstream 401 (`UNAVAILABLE`).
+  or per-server `token`). A token's `exp` is decoded and badged
+  (expired/expiring-soon), but there is no refresh flow — once it truly
+  expires, calls surface the coded upstream 401 (`UNAVAILABLE`), and
+  rotating a token means re-registering the server (switch away, remove,
+  add again).

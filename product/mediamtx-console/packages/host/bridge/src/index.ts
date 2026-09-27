@@ -45,7 +45,6 @@ import {
   type PathRow,
   type PlaybackEntry,
   type SessionKind,
-  type ServerAuth,
   type SessionRow,
 } from '@mtxconsole/protocol'
 
@@ -223,11 +222,33 @@ export function apply(ctx: Context, rawConfig: BridgeConfig): void {
     return null
   }
 
+  /**
+   * Best-effort decode of a JWT's `exp` claim (epoch seconds). NO signature
+   * verification — that is the streaming server's job and needs its keys;
+   * this is a UX warning so an expiring token is visible before it turns
+   * into a mysterious upstream 401.
+   */
+  function decodeTokenExp(token: string): number | null {
+    const parts = token.split('.')
+    if (parts.length < 2) return null
+    try {
+      const json = Buffer.from(parts[1] ?? '', 'base64url').toString('utf8')
+      const obj = JSON.parse(json) as unknown
+      const exp = obj !== null && typeof obj === 'object' ? (obj as { exp?: unknown }).exp : undefined
+      return typeof exp === 'number' && Number.isFinite(exp) ? exp : null
+    } catch {
+      return null
+    }
+  }
+
   function publicView(srv: ServerEntry): ManagedServer {
-    const auth: ServerAuth = srv.token !== undefined && srv.token !== ''
-      ? 'bearer'
-      : srv.username !== undefined ? 'basic' : 'none'
-    return { name: srv.name, url: srv.url, auth }
+    const bearer = srv.token !== undefined && srv.token !== ''
+    return {
+      name: srv.name,
+      url: srv.url,
+      auth: bearer ? 'bearer' : srv.username !== undefined ? 'basic' : 'none',
+      expiresAt: bearer ? decodeTokenExp(srv.token ?? '') : null,
+    }
   }
 
   /**

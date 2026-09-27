@@ -58,6 +58,8 @@ export type MessageKey =
   | 'config.srvPass'
   | 'config.srvToken'
   | 'config.serverActive'
+  | 'config.tokenExpired'
+  | 'config.tokenExpiring'
   | 'config.save'
   | 'config.reset'
   | 'config.saved'
@@ -153,6 +155,8 @@ const zhCN: Record<MessageKey, string> = {
   'config.srvPass': '密码',
   'config.srvToken': 'Bearer/JWT(优先)',
   'config.serverActive': '活动',
+  'config.tokenExpired': 'token 已过期({time})',
+  'config.tokenExpiring': 'token {time} 过期',
   'config.save': '保存改动',
   'config.reset': '放弃改动',
   'config.saved': '已保存 {n} 个键,并回读了服务器的归一化结果。',
@@ -249,6 +253,8 @@ const en: Record<MessageKey, string> = {
   'config.srvPass': 'Password',
   'config.srvToken': 'Bearer/JWT (wins)',
   'config.serverActive': 'active',
+  'config.tokenExpired': 'token EXPIRED ({time})',
+  'config.tokenExpiring': 'token expires {time}',
   'config.save': 'Save changes',
   'config.reset': 'Discard changes',
   'config.saved': 'Saved {n} key(s) and re-read the server’s normalized truth.',

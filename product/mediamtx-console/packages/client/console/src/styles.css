@@ -617,6 +617,9 @@
 .mx-config__srvform .mx-btn {
   margin-bottom: 1px;
 }
+.mx-config__exp {
+  margin-left: 6px;
+}
 .mx-config__active {
   color: var(--mb-ok, #30a46c);
 }

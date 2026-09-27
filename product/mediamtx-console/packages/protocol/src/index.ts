@@ -451,10 +451,16 @@ export interface ManagedServer {
   /** Normalized API base (no trailing slash). */
   url: string
   auth: ServerAuth
+  /** The bearer token's DECODED `exp` claim (epoch seconds), null when there
+   * is no bearer token or no exp. Decoded, NOT verified — signature checking
+   * is the streaming server's job; this exists so an about-to-expire token
+   * is a visible warning instead of a mysterious 401. */
+  expiresAt: number | null
 }
 
 export const ManagedServerS = z.object({
   name: z.string().required(),
   url: z.string().required(),
   auth: z.union([z.const('none'), z.const('basic'), z.const('bearer')]).required(),
+  expiresAt: z.union([z.number(), nullS]),
 })
