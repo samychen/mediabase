@@ -8,71 +8,25 @@
 // names no capability: compose a panel into `sidebar`/`monitor`/`right`/
 // `bottom` and it appears in the matching pane.
 
-import { Component, createElement, useCallback, useRef, useState, useSyncExternalStore, type ErrorInfo, type ReactNode } from 'react'
+import { createElement, useCallback, useState, useSyncExternalStore } from 'react'
 import type { ReactElement } from 'react'
 import type { Context } from '@deepseek-ai/cordis'
-import type { PanelArea, UiPanel, UiService } from '@mediabase/ui'
 import { useI18n } from '@mediabase/i18n'
+import { createShellParts, usePanels } from '@mediabase/ui-web'
 import { IconChevronLeft, IconFilm, IconPlus, IconTrash } from '@openvideo/ui-editor'
 import type { EditorState, EditorStore } from '@openvideo/ui-editor'
 import './styles.css'
 
-const EMPTY: readonly UiPanel[] = []
-
-/** Reactive view of one panel area (same snapshot discipline as the base shell). */
-function usePanels(ui: UiService | undefined, area: PanelArea): readonly UiPanel[] {
-  const cache = useRef<{ key: string; panels: readonly UiPanel[] }>({ key: '', panels: EMPTY })
-  const subscribe = useCallback(
-    (onChange: () => void): (() => void) => ui?.subscribe(onChange) ?? ((): void => {}),
-    [ui],
-  )
-  const getSnapshot = useCallback((): readonly UiPanel[] => {
-    if (!ui) return EMPTY
-    const key = `${area}:${ui.revision()}`
-    if (cache.current.key !== key) cache.current = { key, panels: ui.list(area) }
-    return cache.current.panels
-  }, [ui, area, cache])
-  return useSyncExternalStore(subscribe, getSnapshot, getSnapshot)
-}
-
-/** Contains a broken panel: one throwing capability must not white-screen the app. */
-class PanelBoundary extends Component<
-  { label: string; children: ReactNode; t: (key: string, params?: Record<string, string | number>) => string },
-  { error: Error | null }
-> {
-  override state: { error: Error | null } = { error: null }
-
-  static getDerivedStateFromError(error: Error): { error: Error } {
-    return { error }
-  }
-
-  override componentDidCatch(error: Error, info: ErrorInfo): void {
-    console.error(`[ui-shell] 面板 "${this.props.label}" 渲染失败:`, error.message, info.componentStack)
-  }
-
-  override render(): ReactNode {
-    if (this.state.error !== null) {
-      return (
-        <div className="status ov-error">
-          {this.props.t('ov.shell.panelError', { panel: this.props.label, message: this.state.error.message })}
-        </div>
-      )
-    }
-    return this.props.children
-  }
-}
-
-type TFunc = (key: string, params?: Record<string, string | number>) => string
-
-function renderPanel(panel: UiPanel, ctx: Context, t: TFunc): ReactNode {
-  const heading = panel.titleKey !== undefined ? t(panel.titleKey) : panel.title
-  return (
-    <section key={panel.id} className="ovs-section">
-      {heading !== '' && <div className="ovs-pane-title">{heading}</div>}
-      <PanelBoundary label={panel.id} t={t}>{createElement(panel.component, { ctx })}</PanelBoundary>
-    </section>
-  )
-}
+// The panel MECHANICS (reactive area reads, broken-panel boundary, renderer)
+// are the base shell's shared parts; this shell only states its own classes
+// and keys — the home screen and editor grid below are its own LOOK.
+const { PanelBoundary, renderPanel } = createShellParts({
+  errorKey: 'ov.shell.panelError',
+  errorClass: 'status ov-error',
+  logTag: '[ui-shell]',
+  sectionClass: 'ovs-section',
+  headingClass: 'ovs-pane-title',
+})
 
 // ---- home screen: projects as cards ----------------------------------------
 

@@ -17,38 +17,8 @@
 import { randomBytes } from 'node:crypto'
 import { copyFileSync, existsSync, mkdirSync, readFileSync, readdirSync, renameSync, rmSync, statSync, writeFileSync } from 'node:fs'
 import { extname, join } from 'node:path'
-import type { Edl } from '@openvideo/edl'
-
-/** One library entry — the row the API answers with. */
-export interface AssetRow {
-  /** 16-hex id; projects reference the file as "asset:<id>". */
-  id: string
-  /** File name under the media dir (id + the original extension). */
-  key: string
-  name: string
-  contentType: string
-  size: number
-  createdAt: string
-  /** Seconds, probed by the client from media metadata; null until known. */
-  duration: number | null
-  hasTranscript: boolean
-}
-
-export interface ProjectSummary {
-  id: string
-  name: string
-  brief: string
-  createdAt: string
-  updatedAt: string
-  /** The first main-track clip's asset id (the project's cover), or null. */
-  coverAsset: string | null
-  /** Where in that source the cover frame sits. */
-  coverAt: number | null
-}
-
-export interface ProjectRow extends ProjectSummary {
-  edl: Edl
-}
+import type { AssetRow, Edl, ProjectRow, ProjectSummary } from '@openvideo/edl'
+export type { AssetRow, ProjectRow, ProjectSummary } from '@openvideo/edl'
 
 const newAssetId = (): string => randomBytes(8).toString('hex')
 const newProjectId = (): string => randomBytes(8).toString('hex')

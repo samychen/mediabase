@@ -3,15 +3,20 @@
 //   1. the console's dictionaries are parallel (zh-CN and en carry the same keys),
 //   2. every messageKey the host bridge throws has text in BOTH locales,
 //   3. every literal t('…') key used by panels and the store exists.
+//
+// The dictionary the browser actually holds is the base i18n plugin's
+// CORE_MESSAGES with this product's addMessages() merged over them — so the
+// assertions below run against that merged view, not the product slice alone.
 
 import { readFileSync, readdirSync, statSync } from 'node:fs'
 import { join } from 'node:path'
 import { describe, expect, it } from 'vitest'
+import { CORE_MESSAGES } from '@mediabase/i18n'
 import { messages } from '../packages/client/console/src/messages.ts'
 import { PRODUCT_ROOT } from './support/host.ts'
 
-const zh = messages['zh-CN']
-const en = messages.en
+const zh = { ...CORE_MESSAGES['zh-CN'], ...messages['zh-CN'] }
+const en = { ...CORE_MESSAGES.en, ...messages.en }
 
 function sourcesUnder(dir: string): string[] {
   const out: string[] = []

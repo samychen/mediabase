@@ -127,7 +127,7 @@ export const PathRowS = z.object({
 })
 
 /** The path's CONFIG-side facts, merged into the runtime row by the host. */
-export interface PathConfFacts {
+interface PathConfFacts {
   record: boolean
   /** The configured static source ('publisher' = waits for a live push). */
   source?: string
@@ -321,7 +321,7 @@ export interface RecordingDay {
   segments: number
 }
 
-export interface RecordingRow {
+interface RecordingRow {
   name: string
   days: RecordingDay[]
 }
@@ -418,7 +418,7 @@ export function rewriteOrigin(url: string, originBase: string): string | null {
 }
 
 /** Error mapping for the upstream `{status:"error",error:"…"}` contract. */
-export interface UpstreamFailure {
+interface UpstreamFailure {
   /** Suggested RPC bucket. */
   kind: 'not_found' | 'invalid' | 'conflict' | 'unavailable'
   detail: string
@@ -438,7 +438,7 @@ export function classifyUpstream(httpStatus: number, body: unknown): UpstreamFai
 
 /** How a registered server authenticates upstream. Credentials NEVER cross
  * the wire — panels and agents see only the kind. */
-export type ServerAuth = 'none' | 'basic' | 'bearer'
+type ServerAuth = 'none' | 'basic' | 'bearer'
 
 /** One registered MediaMTX server, as the control plane exposes it. */
 export interface ManagedServer {

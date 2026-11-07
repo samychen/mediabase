@@ -16,6 +16,9 @@
 // and sizes are fractions of the canvas.
 
 import { z } from '@mediabase/schema'
+// The canonical ProjectCaptions lives in captions.ts (this file used to carry
+// a second, drift-prone copy); `Edl` below references it.
+import type { ProjectCaptions } from './captions.ts'
 
 export const MAX_ELEMENTS = 100
 export const MAX_SOURCES = 20
@@ -115,23 +118,6 @@ export interface AudioTrack {
   id: string
   muted?: boolean
   elements: AudioElement[]
-}
-
-export interface CaptionStyle {
-  /** Font size as a share of the frame's height. */
-  size: number
-  position: 'bottom' | 'top'
-  /** Distance from that edge, as a share of the frame's height. */
-  margin: number
-  background: boolean
-  color: string
-  maxChars: number
-}
-
-export interface ProjectCaptions {
-  enabled: boolean
-  lang: string
-  style: CaptionStyle
 }
 
 export interface Edl {

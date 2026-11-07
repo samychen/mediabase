@@ -23,6 +23,12 @@ importers:
       '@mediabase/boot':
         specifier: workspace:^
         version: link:packages/host/boot
+      '@mediabase/i18n':
+        specifier: workspace:^
+        version: link:packages/client/i18n
+      '@mediabase/test-host':
+        specifier: workspace:^
+        version: link:packages/host/test-host
       '@types/js-yaml':
         specifier: ^4.0.9
         version: 4.0.9
@@ -421,6 +427,8 @@ importers:
         specifier: ^0.1.6
         version: link:../../base/schema
 
+  packages/host/test-host: {}
+
   packages/host/tools:
     dependencies:
       '@deepseek-ai/cordis':
@@ -749,6 +757,9 @@ importers:
       '@mediabase/ui':
         specifier: ^0.1.6
         version: link:../../../../../packages/client/ui
+      '@mediabase/ui-web':
+        specifier: ^0.1.6
+        version: link:../../../../../packages/client/ui-web
       '@openvideo/ui-editor':
         specifier: ^0.1.6
         version: link:../editor

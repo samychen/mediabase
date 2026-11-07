@@ -66,20 +66,11 @@ export const IconUndo = (p: IconProps): ReactElement => (
 export const IconRedo = (p: IconProps): ReactElement => (
   <Svg {...p}><path d="M15 14l5-5-5-5" /><path d="M20 9H10a6 6 0 0 0 0 12h3" /></Svg>
 )
-export const IconCheck = (p: IconProps): ReactElement => (
-  <Svg {...p}><path d="M20 6L9 17l-5-5" /></Svg>
-)
 export const IconUpload = (p: IconProps): ReactElement => (
   <Svg {...p}><path d="M4 15v3a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2v-3" /><path d="M12 15V3M7 8l5-5 5 5" /></Svg>
 )
 export const IconDownload = (p: IconProps): ReactElement => (
   <Svg {...p}><path d="M4 15v3a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2v-3" /><path d="M12 3v12M7 10l5 5 5-5" /></Svg>
-)
-export const IconInbox = (p: IconProps): ReactElement => (
-  <Svg {...p}>
-    <path d="M22 12h-6l-2 3h-4l-2-3H2" />
-    <path d="M5.5 5.1L2 12v6a2 2 0 0 0 2 2h16a2 2 0 0 0 2-2v-6l-3.5-6.9a2 2 0 0 0-1.8-1.1H7.3a2 2 0 0 0-1.8 1.1z" />
-  </Svg>
 )
 export const IconType = (p: IconProps): ReactElement => (
   <Svg {...p}><path d="M4 7V4h16v3M12 4v16M8 20h8" /></Svg>

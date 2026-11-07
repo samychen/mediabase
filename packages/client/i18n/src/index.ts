@@ -16,6 +16,11 @@ import { useCallback, useSyncExternalStore } from 'react'
 import { hasRpcCode, RpcCode } from '@mediabase/protocol'
 import { CORE_MESSAGES } from './messages.ts'
 
+/** The dictionary this plugin mounts by default. Clients that addMessages()
+ * their own MERGE over it — a test (or panel) asserting the effective runtime
+ * dictionary needs exactly this view. */
+export { CORE_MESSAGES }
+
 declare module '@deepseek-ai/cordis' {
   interface Context {
     /** UI translations. */

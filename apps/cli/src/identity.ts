@@ -21,6 +21,3 @@ export const IDENTITY: BootIdentity = {
 export function resolveIdentity(env: CapabilityEnv, base: BootIdentity = IDENTITY): BootIdentity {
   return resolveBootIdentity(env, base)
 }
-
-/** Diagnostic prefix for this product (kept as a named export for local messages). */
-export const BIN = IDENTITY.bin

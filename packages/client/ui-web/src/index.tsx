@@ -16,6 +16,12 @@ import type {} from '@mediabase/ui'
 import { SHELL_MESSAGES } from './messages.ts'
 import { App } from './App.tsx'
 
+// A product shell may keep the base MECHANICS and restyle the chrome: these
+// are the shared panel parts (reactive area reads, broken-panel boundary,
+// renderer), parameterized by the shell's own classes and keys.
+export { createShellParts, usePanels } from './shell-parts.tsx'
+export type { ShellParts, ShellPartsOptions, Translate } from './shell-parts.tsx'
+
 export const name = 'ui-web'
 
 /** `ui` to render panels, `i18n` for the shell's own text. */

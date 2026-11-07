@@ -1,6 +1,6 @@
 // Every operator-facing string, both locales. Panels never hold UI copy.
 
-export type MessageKey =
+type MessageKey =
   | 'panel.status.title'
   | 'panel.dashboard.title'
   | 'panel.streams.title'
@@ -84,7 +84,6 @@ export type MessageKey =
   | 'sessions.empty'
   | 'sessions.kick'
   | 'sessions.kicked'
-  | 'common.refresh'
   | 'common.loading'
   | 'common.error'
   | 'mediamtx.unreachable'
@@ -183,7 +182,6 @@ const zhCN: Record<MessageKey, string> = {
   'sessions.empty': '当前没有会话。',
   'sessions.kick': '踢出',
   'sessions.kicked': '已踢出 {id}',
-  'common.refresh': '刷新',
   'common.loading': '加载中…',
   'common.error': '出错了:{detail}',
   'mediamtx.unreachable': 'MediaMTX 不可达({url})',
@@ -283,7 +281,6 @@ const en: Record<MessageKey, string> = {
   'sessions.empty': 'No sessions right now.',
   'sessions.kick': 'Kick',
   'sessions.kicked': 'Kicked {id}',
-  'common.refresh': 'Refresh',
   'common.loading': 'Loading…',
   'common.error': 'Something went wrong: {detail}',
   'mediamtx.unreachable': 'MediaMTX unreachable ({url})',

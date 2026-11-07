@@ -17,7 +17,7 @@ import type { Endpoints, ManagedServer, MetricsSummary, PathRow, PlaybackEntry, 
 import type { RpcService } from '@mediabase/connection'
 import { SYNC_MAX_SLOTS, type SyncLayout, type SyncSlot } from './sync.ts'
 
-export const POLL_MS = 3000
+const POLL_MS = 3000
 const SLOW_EVERY = 5
 
 export interface ConsoleSnapshot {

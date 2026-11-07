@@ -21,10 +21,12 @@ import {
   parseVtt,
   rid,
   splitClip,
-  totalDuration,
+  type AssetRow,
   type Cue,
   type Edl,
   type MainElement,
+  type ProjectRow,
+  type ProjectSummary,
 } from '@openvideo/edl'
 // Type-only imports: the services this store consumes are declared by the
 // base client packages (rpc/net by @mediabase/connection, i18n by
@@ -32,41 +34,10 @@ import {
 import type {} from '@mediabase/connection'
 import type {} from '@mediabase/i18n'
 
-// ---- wire shapes (mirror @openvideo/host-media's result schemas) ------------
-
-export interface AssetProxyInfo {
-  status: 'none' | 'queued' | 'running' | 'ready' | 'failed'
-  target: 'webm' | 'mp4' | null
-  progress: number | null
-  error: string | null
-}
-
-export interface AssetRow {
-  id: string
-  key: string
-  name: string
-  contentType: string
-  size: number
-  createdAt: string
-  duration: number | null
-  hasTranscript: boolean
-  /** Live proxy facet from the host (absent on hosts predating proxies). */
-  proxy?: AssetProxyInfo
-}
-
-export interface ProjectSummary {
-  id: string
-  name: string
-  brief: string
-  createdAt: string
-  updatedAt: string
-  coverAsset: string | null
-  coverAt: number | null
-}
-
-export interface ProjectRow extends ProjectSummary {
-  edl: Edl
-}
+// The wire shapes (asset rows, project rows) come from @openvideo/edl — the
+// shared declaration the host shapes and this client renders. Re-exported so
+// the panels keep importing from the store.
+export type { AssetProxyInfo, AssetRow, ProjectRow, ProjectSummary } from '@openvideo/edl'
 
 export type Sel =
   | { kind: 'main'; index: number }
@@ -821,12 +792,6 @@ export function createEditorStore(ctx: Context): EditorStore {
   }
 
   return store
-}
-
-/** Total length of the current draft (0 when nothing is open). */
-export function draftDuration(state: EditorState): number {
-  if (state.draft === null) return 0
-  return totalDuration(mainSegments(state.draft, (src) => state.durations[src]))
 }
 
 /** Caption lines over the finished video, from per-src cues. */

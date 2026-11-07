@@ -16,7 +16,6 @@ export {
 export type {
   AudioElement,
   AudioTrack,
-  CaptionStyle as EdlCaptionStyle,
   Edl,
   EdlInvalid,
   Fit,
@@ -28,7 +27,6 @@ export type {
   OverlayMediaElement,
   OverlayTextElement,
   OverlayTrack,
-  ProjectCaptions as EdlCaptions,
 } from './edl.ts'
 
 export { splitClip } from './split.ts'
@@ -67,3 +65,13 @@ export type { MainSegment, SourceDuration } from './timeline.ts'
 
 export { OPS, OP_NAMES, SHAPES, applyOp, describeEdl, opArgs, rid } from './ops.ts'
 export type { OpDef, OpName } from './ops.ts'
+
+// The media capability's wire rows — the host shapes them, the client renders
+// them; one declaration, both typecheck planes.
+export type {
+  AssetProxyInfo,
+  AssetProxyTarget,
+  AssetRow,
+  ProjectRow,
+  ProjectSummary,
+} from './wire.ts'

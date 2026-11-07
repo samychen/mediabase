@@ -16,7 +16,6 @@ export const SHELL_MESSAGES = {
     'ov.shell.updated': '{date} 更新',
     'ov.shell.back': '项目',
     'ov.shell.missingEditor': '编辑器能力(@openvideo/ui-editor)未组合——名册中它必须排在壳之前。',
-    'ov.shell.cover': '封面',
     'ov.shell.panelError': '面板 “{panel}” 渲染失败:{message}',
   },
   en: {
@@ -32,7 +31,6 @@ export const SHELL_MESSAGES = {
     'ov.shell.updated': 'updated {date}',
     'ov.shell.back': 'Projects',
     'ov.shell.missingEditor': 'The editor capability (@openvideo/ui-editor) is not composed — it must precede the shell in the roster.',
-    'ov.shell.cover': 'cover',
     'ov.shell.panelError': 'panel “{panel}” failed to render: {message}',
   },
 } as const

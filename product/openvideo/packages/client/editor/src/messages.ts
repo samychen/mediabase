@@ -89,7 +89,6 @@ export const EDITOR_MESSAGES = {
 
     // inspector panel
     'ov.inspector.title': '检查器',
-    'ov.inspector.noSelection': '未选中元素 — 显示项目设置',
     'ov.inspector.project': '项目',
     'ov.inspector.name': '名称',
     'ov.inspector.brief': '简介(给 AI 的意图)',
@@ -97,8 +96,6 @@ export const EDITOR_MESSAGES = {
     'ov.inspector.width': '宽',
     'ov.inspector.height': '高',
     'ov.inspector.fps': '帧率',
-    'ov.inspector.background': '背景色',
-    'ov.inspector.aspect': '画幅',
     'ov.inspector.landscape': '横屏 16:9',
     'ov.inspector.vertical': '竖屏 9:16',
     'ov.inspector.square': '方形 1:1',
@@ -259,7 +256,6 @@ export const EDITOR_MESSAGES = {
 
     // inspector panel
     'ov.inspector.title': 'Inspector',
-    'ov.inspector.noSelection': 'Nothing selected — showing project settings',
     'ov.inspector.project': 'Project',
     'ov.inspector.name': 'Name',
     'ov.inspector.brief': 'Brief (intent for the AI)',
@@ -267,8 +263,6 @@ export const EDITOR_MESSAGES = {
     'ov.inspector.width': 'Width',
     'ov.inspector.height': 'Height',
     'ov.inspector.fps': 'FPS',
-    'ov.inspector.background': 'Background',
-    'ov.inspector.aspect': 'Aspect',
     'ov.inspector.landscape': 'Landscape 16:9',
     'ov.inspector.vertical': 'Vertical 9:16',
     'ov.inspector.square': 'Square 1:1',

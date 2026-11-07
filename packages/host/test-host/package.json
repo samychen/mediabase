@@ -1,0 +1,21 @@
+{
+  "name": "@mediabase/test-host",
+  "version": "0.1.6",
+  "private": true,
+  "type": "module",
+  "description": "Shared harness core for host-level tests: boot a CLI host on a free port and talk to it over WS JSON-RPC / HTTP — test infrastructure, never a bundle row",
+  "main": "src/index.ts",
+  "types": "src/index.ts",
+  "exports": {
+    ".": "./src/index.ts"
+  },
+  "files": [
+    "src",
+    "README.md",
+    "LICENSE"
+  ],
+  "license": "MIT",
+  "scripts": {
+    "build": "node ../../../scripts/build-base.mjs"
+  }
+}

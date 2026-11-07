@@ -9,7 +9,7 @@ import { resolveIdentity as resolveBootIdentity, type BootIdentity } from '@medi
 
 export type { BootIdentity }
 
-export const IDENTITY: BootIdentity = {
+const IDENTITY: BootIdentity = {
   bin: 'openvideo',
   envPrefix: 'OPENVIDEO_',
   homeDir: '.openvideo',
@@ -21,6 +21,3 @@ export const IDENTITY: BootIdentity = {
 export function resolveIdentity(env: CapabilityEnv, base: BootIdentity = IDENTITY): BootIdentity {
   return resolveBootIdentity(env, base)
 }
-
-/** Diagnostic prefix for this product. */
-export const BIN = IDENTITY.bin

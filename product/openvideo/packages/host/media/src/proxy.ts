@@ -19,16 +19,12 @@
 import { spawn, spawnSync, type ChildProcess } from 'node:child_process'
 import { existsSync, mkdirSync, renameSync, rmSync } from 'node:fs'
 import { join } from 'node:path'
+import type { AssetProxyInfo, AssetProxyTarget } from '@openvideo/edl'
 
-export type ProxyTarget = 'webm' | 'mp4'
-
-export interface ProxyInfo {
-  status: 'none' | 'queued' | 'running' | 'ready' | 'failed'
-  target: ProxyTarget | null
-  /** 0..1 while running; null otherwise. */
-  progress: number | null
-  error: string | null
-}
+// The wire shape an asset row's proxy facet carries lives in @openvideo/edl
+// (one declaration, both typecheck planes); the manager speaks that shape.
+export type ProxyInfo = AssetProxyInfo
+export type ProxyTarget = AssetProxyTarget
 
 export interface ProxyManagerOptions {
   /** Where proxies live (`<mediaDir>/proxies`). */

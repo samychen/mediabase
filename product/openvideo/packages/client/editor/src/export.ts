@@ -23,7 +23,6 @@ import {
   wrapLines,
   type Cue,
   type Edl,
-  type MainSegment,
   type OverlayElement,
 } from '@openvideo/edl'
 
@@ -71,13 +70,8 @@ export function exportSupported(): boolean {
  * WebCodecs export (VideoDecoder → canvas → VideoEncoder) needs a demuxer and
  * a muxer — either a dependency (mediabunny / mp4box) or a hand-written
  * Matroska writer — and Firefox still ships no VideoEncoder. Until that call
- * is made, the MediaRecorder backend below is the only one; this probe tells
- * a UI (or an agent) whether an upgrade could even run in THIS browser.
+ * is made, the MediaRecorder backend below is the only one.
  */
-export function webcodecsAvailable(): boolean {
-  return typeof VideoEncoder !== 'undefined' && typeof VideoDecoder !== 'undefined'
-}
-
 export class ExportError extends Error {}
 
 /** Draw one video/image frame into the destination rect, contain or cover. */
@@ -515,9 +509,4 @@ export async function exportProject(opts: ExportOptions): Promise<ExportResult> 
   if (aborted) throw new ExportError('export.aborted')
   const blob = new Blob(chunks, { type: mime })
   return { blob, ext: mime.includes('mp4') ? 'mp4' : 'webm', seconds: total }
-}
-
-/** The main-track segments an export would walk (the UI shows the length up front). */
-export function exportSegments(edl: Edl, durations: Record<string, number>): MainSegment[] {
-  return mainSegments(edl, (src) => durations[src])
 }

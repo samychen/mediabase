@@ -23,7 +23,9 @@ import './styles.css'
 
 // The product shell (@openvideo/ui-shell) reads the store contract and borrows
 // a few glyphs; re-exported here so it imports ONE package, not deep paths.
-export type { AssetProxyInfo, AssetRow, EditorState, EditorStore, ProjectRow, ProjectSummary, Sel } from './store.ts'
+// The wire rows come straight from their single declaration in @openvideo/edl.
+export type { EditorState, EditorStore, Sel } from './store.ts'
+export type { AssetProxyInfo, AssetRow, ProjectRow, ProjectSummary } from '@openvideo/edl'
 export { IconChevronLeft, IconFilm, IconPlus, IconTrash } from './icons.tsx'
 
 declare module '@deepseek-ai/cordis' {
