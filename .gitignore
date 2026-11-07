@@ -5,6 +5,12 @@ node_modules/
 # Builds / generated
 apps/web/dist/
 product/*/apps/web/dist/
+# xmedia ships a dependency-free static shell as SOURCE, not a Vite build output.
+!product/xmedia/apps/web/dist/
+!product/xmedia/apps/web/dist/index.html
+product/xmedia/engine/build/
+# clangd's index cache lands next to the sources when it opens them.
+product/xmedia/engine/.cache/
 
 # Logs / runtime
 *.log
@@ -12,6 +18,9 @@ product/*/apps/web/dist/
 .mediabase/
 .openvideo/
 .mtxconsole/
+.xmedia/
+.vscode/
+.workbuddy/
 .DS_Store
 
 # scratch dirs created by tests

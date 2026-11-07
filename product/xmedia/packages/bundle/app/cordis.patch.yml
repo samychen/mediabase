@@ -1,0 +1,68 @@
+# @xmedia/bundle-app — the xmedia HOST composition layer.
+#
+# Stacked AFTER @mediabase/bundle-app (the profile's bundle order says so):
+# the base layer brings the infrastructure (log/api/settings/tools), the agent,
+# the MCP endpoint, the plugin manager and the front door; this layer inserts
+# the ONE capability that owns the native C++ process.
+#
+# Rows resolve from THIS bundle's manifest (@xmedia/host-engine is its
+# dependency); the registries are live, so `xmedia` mounting after `server`
+# is not a problem — the gateway resolves the method/route map per request.
+#
+# SHORT env names: the identity prefix (XMEDIA_) is applied by the boot layer,
+# so `ctx.env.str('ENGINE_BIN')` reads XMEDIA_ENGINE_BIN. Nothing here spells
+# a product prefix, and the base packages stay unaware of xmedia.
+
+- insert:
+    - id: xmedia
+      name: '@xmedia/host-engine'
+      config:
+        # XMEDIA_ENGINE_BIN wins. Otherwise use the product's own build output,
+        # so `build:xmedia:engine` followed by `pnpm run host:xmedia` just works
+        # (no PATH edits, no per-shell env). Missing binary still degrades to
+        # coded UNAVAILABLE errors instead of blocking the host.
+        binary: !!js ctx.env.str('ENGINE_BIN') ?? ctx.appPaths.root + 'engine/build/xmedia-bridge'
+        # Comma-separated argv, e.g. a Node-based fake engine in tests.
+        args: !!js ctx.env.list('ENGINE_ARGS')
+        # publish.start may block on codec init, hence the generous default
+        # (30s) in the capability's Config rather than in this layer.
+        callTimeoutMs: !!js ctx.env.num('ENGINE_TIMEOUT_MS')
+        autoRestart: !!js ctx.env.flag('ENGINE_AUTO_RESTART')
+        maxRestarts: !!js ctx.env.num('ENGINE_MAX_RESTARTS')
+        restartDelayMs: !!js ctx.env.num('ENGINE_RESTART_DELAY_MS')
+        # Engage the engine's process sandbox (resource caps + privilege drop,
+        # seccomp on Linux / Seatbelt on macOS). Off unless explicitly requested.
+        sandbox: !!js ctx.env.flag('ENGINE_SANDBOX')
+        # MediaMTX endpoints. The HOST only hands these URLs to clients:
+        # xmedia-kit pushes the encoded bytes straight to publishBase and the
+        # browser plays from whepBase/hlsBase WITHOUT proxying through mediabase.
+        # Defaults (in Config): rtmp://127.0.0.1:1935, http://127.0.0.1:8889,
+        # http://127.0.0.1:8888. Do NOT add a /live path to publishBase unless
+        # the viewer URLs carry the same prefix (viewerUrls() does it for you).
+        # Override the bases when the browser is not on the same machine as
+        # MediaMTX: they must be reachable from the VIEWER, not from the host.
+        publishBase: !!js ctx.env.str('PUBLISH_BASE')
+        whepBase: !!js ctx.env.str('WHEP_BASE')
+        hlsBase: !!js ctx.env.str('HLS_BASE')
+        publishPath: !!js ctx.env.str('PUBLISH_PATH')
+        # Live outputs are re-encoded so MediaMTX gets a regular IDR cadence:
+        # stream-copying a long-GOP source makes WHEP viewers stay black.
+        # Capability default: h264_videotoolbox on macOS, libx264 elsewhere.
+        # Override per FFmpeg build, e.g. XMEDIA_LIVE_VCODEC=h264_vaapi.
+        liveVideoCodec: !!js ctx.env.str('LIVE_VCODEC')
+
+# A patch replaces the WHOLE config of the row it targets, so this override
+# restates every field the base `server` row carried — only the default port
+# differs (:3088 base / :3090 openvideo / :3091 mtxconsole / :3092 xmedia),
+# still overridable by the environment's own PORT.
+- id: server
+  config:
+    root: !!js ctx.appPaths.root
+    port: !!js ctx.env.rawNum('PORT') ?? 3092
+    distIndex: !!js ctx.env.str('DIST_INDEX')
+    token: !!js ctx.env.str('TOKEN')
+    crossOriginIsolation: !!js ctx.env.flag('CROSS_ORIGIN_ISOLATION')
+    acl:
+      readonly: !!js ctx.env.flag('READONLY')
+      allow: !!js ctx.env.list('ACL_ALLOW')
+      deny: !!js ctx.env.list('ACL_DENY')

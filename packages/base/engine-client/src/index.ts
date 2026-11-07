@@ -138,6 +138,14 @@ export class EngineClient {
       if (this.options.onStderr) this.options.onStderr(text.trimEnd())
       else process.stderr.write(`[engine] ${text}`)
     })
+    // A write to a dead child's stdin (EPIPE / ECONNRESET) is expected once the
+    // child has exited; handleExit() has already settled every pending call, so
+    // the error must not bubble up as an unhandled 'error' on the socket (that
+    // would crash the supervisor). Anything other than a broken pipe is real.
+    proc.stdin!.on('error', (e: NodeJS.ErrnoException) => {
+      if (e.code === 'EPIPE' || e.code === 'ECONNRESET') return
+      this.handleExit(proc, null, null, e)
+    })
     proc.on('error', (e) => {
       // spawn failure (missing binary, not executable): same handling as exit.
       this.handleExit(proc, null, null, e)

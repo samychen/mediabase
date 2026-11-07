@@ -39,7 +39,16 @@
     "typecheck:mtxconsole": "tsc -p product/mediamtx-console/tsconfig.host.json && tsc -p product/mediamtx-console/tsconfig.client.json && tsc -p product/mediamtx-console/tsconfig.test.json",
     "test:mtxconsole": "vitest run --config product/mediamtx-console/vitest.config.ts",
     "verify:mtxconsole:compose": "node scripts/verify-composition.mjs packages/bundle/app/cordis.patch.yml product/mediamtx-console/packages/bundle/app/cordis.patch.yml product/mediamtx-console/packages/bundle/ui/client.yml",
-    "verify:mtxconsole": "node product/mediamtx-console/scripts/verify.mjs"
+    "verify:mtxconsole": "node product/mediamtx-console/scripts/verify.mjs",
+    "build:xmedia:engine": "node product/xmedia/scripts/build-engine.mjs",
+    "host:xmedia": "node product/xmedia/scripts/sync-whep.mjs && tsx product/xmedia/apps/cli/src/index.ts",
+    "sync:whep": "node product/xmedia/scripts/sync-whep.mjs",
+    "gen:protocol": "node product/xmedia/scripts/gen-protocol.mjs product/xmedia/protocol/contract.json product/xmedia/engine/src/xmedia_protocol.h",
+    "verify:protocol": "node product/xmedia/scripts/verify-protocol.mjs",
+    "typecheck:xmedia": "tsc -p product/xmedia/tsconfig.host.json && tsc -p product/xmedia/tsconfig.test.json",
+    "test:xmedia": "vitest run --config product/xmedia/vitest.config.ts",
+    "verify:xmedia:compose": "node scripts/verify-composition.mjs packages/bundle/app/cordis.patch.yml product/xmedia/packages/bundle/app/cordis.patch.yml",
+    "verify:xmedia": "node product/xmedia/scripts/verify.mjs"
   },
   "devDependencies": {
     "@mediabase/boot": "workspace:^",

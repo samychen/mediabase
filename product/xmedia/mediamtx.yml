@@ -1,0 +1,56 @@
+# MediaMTX config for xmedia's LIVE ENCODE ACCEPTANCE (loopback, v1.21.x keys).
+#
+# Topology: xmedia-kit (in the xmedia-bridge subprocess) encodes and muxes
+# straight to `rtmp://<host>:1935/<path>` with realtime pacing. MediaMTX serves
+# that same path to browsers over WHEP (WebRTC, low latency) and HLS (native
+# fallback). mediabase's Host is NOT in the media path — it only issues the
+# publish commands and hands the viewer URLs to the page.
+#
+# Start:  mediamtx product/xmedia/mediamtx.yml
+# Verify: XMEDIA_PUBLISH_OUTPUT=rtmp://127.0.0.1:1935/verify \
+#         XMEDIA_MTX_API=http://127.0.0.1:9997 pnpm run verify:xmedia
+#
+# This is a LOCAL TEST peer: no auth, no recording, no external exposure. For a
+# non-loopback deployment set XMEDIA_PUBLISH_BASE / XMEDIA_WHEP_BASE /
+# XMEDIA_HLS_BASE to addresses reachable from the BROWSER (not the host) and
+# tighten MediaMTX auth/TLS yourself.
+
+logLevel: info
+logDestinations: [stdout]
+
+# The v3 API is enabled ONLY so verify.mjs can assert that a publisher really
+# arrived (path.ready). It is not used by the product's control plane.
+api: true
+apiAddress: 127.0.0.1:9997
+
+metrics: false
+playback: false
+pprof: false
+
+rtmp: true
+rtmpAddress: :1935
+
+# WHEP is the primary viewer path. `webrtcAddress` is the HTTP signaling port;
+# the ICE/UDP listeners stay on MediaMTX defaults (8189).
+webrtc: true
+webrtcAddress: :8889
+
+# Native HLS is a zero-dependency fallback for Safari/iOS. No hls.js: this
+# product keeps the front end dependency-free.
+hls: true
+hlsAddress: :8888
+
+# Everything else is switched off: the acceptance is about the encode+publish
+# path and the browser's native player, not about ingesting other protocols.
+rtsp: false
+srt: false
+moq: false
+
+pathDefaults:
+  record: no
+
+# An absent `paths` map allows NOTHING; `all_others` is the documented
+# catch-all, so any `xmedia.publish.start { path }` works without editing this
+# file. Never add per-path `source:` entries here — publishers push to us.
+paths:
+  all_others:

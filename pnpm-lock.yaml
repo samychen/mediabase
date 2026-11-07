@@ -845,6 +845,81 @@ importers:
         specifier: ^0.1.6
         version: link:../../edl
 
+  product/xmedia/apps/cli:
+    dependencies:
+      '@deepseek-ai/cordis':
+        specifier: ^4.0.2
+        version: 4.0.2(@deepseek-ai/cordis-plugin-include@1.0.7)(@deepseek-ai/cordis-plugin-loader@1.0.3)
+      '@mediabase/agent':
+        specifier: ^0.1.6
+        version: link:../../../../packages/host/agent
+      '@mediabase/api':
+        specifier: ^0.1.6
+        version: link:../../../../packages/host/api
+      '@mediabase/boot':
+        specifier: ^0.1.6
+        version: link:../../../../packages/host/boot
+      '@mediabase/bundle-app':
+        specifier: ^0.1.6
+        version: link:../../../../packages/bundle/app
+      '@mediabase/engine-client':
+        specifier: ^0.1.6
+        version: link:../../../../packages/base/engine-client
+      '@mediabase/log':
+        specifier: ^0.1.6
+        version: link:../../../../packages/base/log
+      '@mediabase/mcp':
+        specifier: ^0.1.6
+        version: link:../../../../packages/host/mcp
+      '@mediabase/plugins':
+        specifier: ^0.1.6
+        version: link:../../../../packages/host/plugins
+      '@mediabase/protocol':
+        specifier: ^0.1.6
+        version: link:../../../../packages/base/protocol
+      '@mediabase/server':
+        specifier: ^0.1.6
+        version: link:../../../../packages/host/server
+      '@mediabase/settings':
+        specifier: ^0.1.6
+        version: link:../../../../packages/host/settings
+      '@mediabase/tools':
+        specifier: ^0.1.6
+        version: link:../../../../packages/host/tools
+      '@xmedia/bundle-app':
+        specifier: ^0.1.6
+        version: link:../../packages/bundle/app
+      '@xmedia/host-engine':
+        specifier: ^0.1.6
+        version: link:../../packages/host/engine
+
+  product/xmedia/packages/bundle/app:
+    dependencies:
+      '@xmedia/host-engine':
+        specifier: ^0.1.6
+        version: link:../../host/engine
+
+  product/xmedia/packages/host/engine:
+    dependencies:
+      '@mediabase/api':
+        specifier: ^0.1.6
+        version: link:../../../../../packages/host/api
+      '@mediabase/engine-client':
+        specifier: ^0.1.6
+        version: link:../../../../../packages/base/engine-client
+      '@mediabase/log':
+        specifier: ^0.1.6
+        version: link:../../../../../packages/base/log
+      '@mediabase/rpc':
+        specifier: ^0.1.6
+        version: link:../../../../../packages/base/rpc
+      '@mediabase/schema':
+        specifier: ^0.1.6
+        version: link:../../../../../packages/base/schema
+      '@mediabase/tools':
+        specifier: ^0.1.6
+        version: link:../../../../../packages/host/tools
+
 packages:
 
   '@asamuzakjp/css-color@6.0.7':

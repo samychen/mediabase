@@ -22,9 +22,11 @@ is hidden, and stops with the plugin (`ctx.effect` cleanup). It is a plain
 observable (immutable snapshot + `subscribe`) consumed through
 `useSyncExternalStore` — the same contract the openvideo editor store uses.
 
-Playback: `whep.ts` is a ~100-line standard WHEP client over the browser's
-native `RTCPeerConnection` (recvonly offer → POST SDP → answer → `Location`
-session URL → DELETE on teardown). The upstream refusal contract
+Playback: `whep.ts` re-exports the shared, dependency-free WHEP client at
+`libs/whep/whep.js` (also used by the xmedia product page) — the single source
+of truth, so the two products cannot drift. It is a standard WHEP client over
+the browser's native `RTCPeerConnection` (recvonly offer → POST SDP → answer →
+`Location` session URL → DELETE on teardown). The upstream refusal contract
 (`{"status":"error","error":"no stream is available on path 'cam1'"}`) is
 surfaced verbatim — the operator sees WHY. HLS is offered only where
 `canPlayType('application/vnd.apple.mpegurl')` succeeds; no hls.js, zero new

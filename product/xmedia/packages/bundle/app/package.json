@@ -1,0 +1,14 @@
+{
+  "name": "@xmedia/bundle-app",
+  "version": "0.1.6",
+  "private": true,
+  "type": "module",
+  "description": "xmedia host composition bundle: the product layer stacked AFTER @mediabase/bundle-app",
+  "files": [
+    "cordis.patch.yml"
+  ],
+  "dependencies": {
+    "@xmedia/host-engine": "^0.1.6"
+  },
+  "license": "MIT"
+}

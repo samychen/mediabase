@@ -1,0 +1,14 @@
+{
+  "extends": "../../tsconfig.base.json",
+  "compilerOptions": {
+    "lib": ["es2024"],
+    "types": ["node"],
+    "resolveJsonModule": true,
+    "esModuleInterop": true
+  },
+  "include": [
+    "tests/**/*.ts",
+    "packages/host/**/src/**/*.ts",
+    "apps/cli/src/**/*.ts"
+  ]
+}

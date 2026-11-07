@@ -1,3 +1,8 @@
+# pnpm >= 10 reads workspace settings from this file, not from .npmrc.
+# Internal @mediabase/* dependencies are declared as semver on purpose (see
+# .npmrc): they must resolve to the in-repo copies, never to the registry.
+linkWorkspacePackages: true
+
 packages:
   - 'packages/*'
   - 'packages/*/*'
