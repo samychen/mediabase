@@ -15,11 +15,14 @@ interface Stub {
   ctx: Context
   calls: Call[]
   reply: (method: string, result: unknown) => void
+  /** Host-notification handlers the store subscribed (fire to simulate). */
+  handlers: Record<string, (payload: unknown) => void>
 }
 
 function stubContext(): Stub {
   const calls: Call[] = []
   const replies = new Map<string, unknown>()
+  const handlers: Record<string, (payload: unknown) => void> = {}
   const ctx = {
     rpc: {
       call: async (method: string, params?: unknown) => {
@@ -33,9 +36,18 @@ function stubContext(): Stub {
     // the bare-route-name bug for four rounds.
     net: { apiUrl: (path: string) => path },
     i18n: { errorText: (e: unknown) => `[stub] ${(e as Error).message}` },
+    // The event bus the store subscribes its streaming to; tests fire these
+    // handlers to simulate host notifications (agent.delta / agent.progress).
+    events: {
+      on: (name: string, fn: (payload: unknown) => void) => {
+        handlers[name] = fn
+        return () => { delete handlers[name] }
+      },
+    },
   } as unknown as Context
   return {
     ctx,
+    handlers,
     calls,
     reply: (method, result) => {
       replies.set(method, result)
@@ -224,5 +236,55 @@ describe('editor store: ask for a change', () => {
     expect(store.get().draft?.main.elements[0]).toMatchObject({ duration: 5 })
     expect(store.get().ask.answer).toContain('剪短了开头')
     expect(store.get().undoDepth).toBe(1) // one instruction, one undo
+  })
+
+  it('renders the run while it streams, and carries the thread across asks', async () => {
+    const edl = starterEdl()
+    edl.main.elements.push({ id: 'a', type: 'video', src: 'asset:aaaaaaaaaaaaaaaa', duration: 8 })
+    stub.reply('openvideo.projects.get', { project: project(edl) })
+    await store.openProject('p1')
+
+    const edited = structuredClone(edl)
+    edited.main.elements[0]!.duration = 5
+    stub.reply('agent.run', { ok: true, answer: '已剪短', steps: [{ name: 'openvideo_trim_clip' }] })
+    stub.reply('openvideo.projects.get', { project: project(edited) })
+
+    const live: Array<string | null> = []
+    const tools: Array<string[]> = []
+    store.subscribe(() => {
+      live.push(store.get().ask.live)
+      tools.push([...store.get().ask.tools])
+    })
+
+    // busy is set synchronously; the deltas fire BEFORE the rpc stub resolves,
+    // so they land on the live facet exactly like real host notifications.
+    const running = store.ask('再剪短一点')
+    stub.handlers['agent.delta']?.({ run: 1, text: '正在' })
+    stub.handlers['agent.delta']?.({ run: 1, text: '剪短…' })
+    stub.handlers['agent.progress']?.({ run: 1, phase: 'tool-start', name: 'openvideo_trim_clip' })
+    await running
+
+    expect(live).toContain('正在剪短…') // the deltas were accumulated in order
+    expect(tools).toContainEqual(['openvideo_trim_clip']) // some mid-flight snapshot showed it
+    // the run finished: live is cleared, the answer replaces it
+    expect(store.get().ask.live).toBeNull()
+    expect(store.get().ask.answer).toContain('已剪短')
+    // the client owns the thread: this run's turn is on it
+    expect(store.get().ask.thread).toEqual([
+      { role: 'user', content: '再剪短一点' },
+      { role: 'assistant', content: '已剪短' },
+    ])
+
+    // the next ask passes the thread back as history
+    stub.reply('agent.run', { ok: true, answer: '好', steps: [] })
+    stub.reply('openvideo.projects.get', { project: project(edited) })
+    await store.ask('第三句')
+    const second = stub.calls.filter((c) => c.method === 'agent.run').at(-1)!
+    expect((second.params as { history: Array<{ role: string; content: string }> }).history).toEqual([
+      { role: 'user', content: '再剪短一点' },
+      { role: 'assistant', content: '已剪短' },
+    ])
+    // and the thread grew
+    expect(store.get().ask.thread).toHaveLength(4)
   })
 })

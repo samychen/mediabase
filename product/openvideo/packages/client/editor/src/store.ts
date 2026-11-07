@@ -13,7 +13,7 @@
 //     the timeline buttons use, so an instruction is always a valid document.
 
 import type { Context } from '@deepseek-ai/cordis'
-import type { AgentResult } from '@mediabase/protocol'
+import type { AgentResult, AgentTurn } from '@mediabase/protocol'
 import {
   captionTimeline,
   describeEdl,
@@ -63,7 +63,17 @@ export interface EditorState {
   playing: boolean
   /** Probed source durations in seconds, keyed by the full src ("asset:<id>"). */
   durations: Record<string, number>
-  ask: { busy: boolean; answer: string | null; error: string | null }
+  ask: {
+    busy: boolean
+    answer: string | null
+    error: string | null
+    /** The accumulated conversation (client-owned; passed back as history). */
+    thread: AgentTurn[]
+    /** Content streamed so far for the run in flight (agent.delta). */
+    live: string | null
+    /** Tools the model has entered during the run in flight (agent.progress). */
+    tools: string[]
+  }
   /** Per-asset decode verdict from a real probe ('fail' = container parsed,
     * stream undecodable in THIS browser). Shared by media list, timeline and
     * inspector so one lie cannot hide behind three panels. */
@@ -139,7 +149,7 @@ const initialState: EditorState = {
   playhead: 0,
   playing: false,
   durations: {},
-  ask: { busy: false, answer: null, error: null },
+  ask: { busy: false, answer: null, error: null, thread: [], live: null, tools: [] },
   decodeState: {},
   status: null,
   undoDepth: 0,
@@ -284,7 +294,7 @@ export function createEditorStore(ctx: Context): EditorStore {
           sel: null,
           playhead: 0,
           playing: false,
-          ask: { busy: false, answer: null, error: null },
+          ask: { busy: false, answer: null, error: null, thread: [], live: null, tools: [] },
           undoDepth: 0,
           redoDepth: 0,
         })
@@ -425,9 +435,9 @@ export function createEditorStore(ctx: Context): EditorStore {
     },
 
     async ask(instruction) {
-      const { openId, draft, assets, projectBrief } = state
+      const { openId, draft, assets, projectBrief, ask } = state
       if (openId === null || draft === null) return
-      set({ ask: { busy: true, answer: null, error: null } })
+      set({ ask: { ...ask, busy: true, answer: null, error: null, live: null, tools: [] } })
       try {
         const names = new Map<string, string>()
         for (const asset of assets) names.set(`asset:${asset.id}`, asset.name)
@@ -442,7 +452,13 @@ export function createEditorStore(ctx: Context): EditorStore {
           '用 openvideo_* 工具修改这个项目(工具直接生效并保存)。素材列表用 openvideo_assets_list 查。',
           '时间以秒计;主轨位置就是播放顺序;文字时间是成片时间轴上的。完成后用一句话说明改了什么。',
         ].filter((line) => line !== null).join('\n')
-        const result = await call<AgentResult>('agent.run', { prompt, maxSteps: 10 })
+        // The thread is OURS, not the host's: prior turns go in, this run's turn
+        // is appended to what comes back, and the next ask continues the chat.
+        const result = await call<AgentResult>('agent.run', {
+          prompt,
+          maxSteps: 10,
+          ...(ask.thread.length > 0 ? { history: ask.thread.slice(-20) } : {}),
+        })
         const { project } = await call<{ project: ProjectRow }>('openvideo.projects.get', { id: openId })
         adopt(project.edl)
         const steps = result.steps.map((s) => s.name).join(', ')
@@ -451,11 +467,14 @@ export function createEditorStore(ctx: Context): EditorStore {
             busy: false,
             answer: result.ok ? `${result.answer}${steps === '' ? '' : ` [${steps}]`}` : result.answer,
             error: null,
+            live: null,
+            tools: [],
+            thread: [...ask.thread, { role: 'user', content: instruction }, { role: 'assistant', content: result.answer }],
           },
         })
         await store.refresh()
       } catch (e) {
-        set({ ask: { busy: false, answer: null, error: fail(e) } })
+        set({ ask: { ...state.ask, busy: false, answer: null, error: fail(e), live: null, tools: [] } })
       }
     },
 
@@ -790,6 +809,25 @@ export function createEditorStore(ctx: Context): EditorStore {
       el.src = store.assetUrl(asset.id)
     })
   }
+
+  // The host agent streams: the connection client re-emits the host's
+  // JSON-RPC notifications on the event bus, so the ask panel can render while
+  // the model still talks. While an ask is in flight every delta belongs to it
+  // (a local, single-user tool); deltas outside a run are ignored.
+  ctx.events.on('agent.delta', (payload: unknown) => {
+    const { text } = (payload ?? {}) as { text?: unknown }
+    const current = state.ask
+    if (!current.busy || typeof text !== 'string') return
+    set({ ask: { ...current, live: (current.live ?? '') + text } })
+  })
+  ctx.events.on('agent.progress', (payload: unknown) => {
+    const { phase, name } = (payload ?? {}) as { phase?: unknown; name?: unknown }
+    const current = state.ask
+    if (!current.busy) return
+    if (phase === 'tool-start' && typeof name === 'string') {
+      set({ ask: { ...current, tools: [...current.tools, name] } })
+    }
+  })
 
   return store
 }

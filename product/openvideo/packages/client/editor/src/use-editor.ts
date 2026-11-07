@@ -20,7 +20,7 @@ const NOTHING: EditorState = {
   playhead: 0,
   playing: false,
   durations: {},
-  ask: { busy: false, answer: null, error: null },
+  ask: { busy: false, answer: null, error: null, thread: [], live: null, tools: [] },
   decodeState: {},
   status: null,
   undoDepth: 0,

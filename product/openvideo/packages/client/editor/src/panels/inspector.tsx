@@ -516,6 +516,12 @@ export function InspectorPanel({ ctx }: { ctx: Context }): ReactElement | null {
         >
           <IconSparkles size={13} />{state.ask.busy ? t('ov.inspector.askBusy') : t('ov.inspector.askButton')}
         </button>
+        {/* While the run streams: the latest tool the model entered, then the
+            answer text as it arrives (agent.delta / agent.progress). */}
+        {state.ask.busy && state.ask.tools.length > 0 && (
+          <div className="status">{`→ ${state.ask.tools.at(-1)}`}</div>
+        )}
+        {state.ask.busy && state.ask.live !== null && <div className="status">{state.ask.live}</div>}
         {state.ask.answer !== null && <div className="status">{state.ask.answer}</div>}
         {state.ask.error !== null && <div className="status ov-error">{state.ask.error}</div>}
       </section>
