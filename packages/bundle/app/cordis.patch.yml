@@ -73,6 +73,11 @@
         # 前缀不是给请求用的,是给「该设哪个变量」这句话用的:对消费者就是 CALC_LLM_KEY。
         envPrefix: !!js ctx.env.prefix
 
+    # MCP(Model Context Protocol)端点:把 ctx.tools 暴露给外部 agent(Claude/Cursor)。
+    # 默认 POST /mcp;${prefix}TOKEN 设置时与其他 /api/* 一样受 token 门控。
+    - id: mcp
+      name: '@mediabase/mcp'
+
     - id: plugins
       name: '@mediabase/plugins'
       config:

@@ -1,0 +1,44 @@
+{
+  "name": "@mediabase/mcp",
+  "version": "0.1.6",
+  "private": true,
+  "type": "module",
+  "description": "Capability package: exposes ctx.tools as an MCP (Model Context Protocol) Streamable HTTP endpoint — tools/list, tools/call, token-gated like the rest of the front door",
+  "main": "src/index.ts",
+  "types": "src/index.ts",
+  "exports": {
+    ".": "./src/index.ts"
+  },
+  "files": [
+    "src",
+    "dist",
+    "README.md",
+    "LICENSE"
+  ],
+  "dependencies": {
+    "@mediabase/api": "^0.1.6",
+    "@mediabase/boot": "^0.1.6",
+    "@mediabase/log": "^0.1.6",
+    "@mediabase/protocol": "^0.1.6",
+    "@mediabase/rpc": "^0.1.6",
+    "@mediabase/schema": "^0.1.6",
+    "@mediabase/tools": "^0.1.6",
+    "@deepseek-ai/cordis": "^4.0.2"
+  },
+  "license": "MIT",
+  "publishConfig": {
+    "access": "public",
+    "main": "dist/index.mjs",
+    "module": "dist/index.mjs",
+    "types": "dist/index.d.ts",
+    "exports": {
+      ".": {
+        "types": "./dist/index.d.ts",
+        "import": "./dist/index.mjs"
+      }
+    }
+  },
+  "scripts": {
+    "build": "node ../../../scripts/build-base.mjs"
+  }
+}

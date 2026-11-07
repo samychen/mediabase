@@ -8,17 +8,18 @@
     "start": "tsx src/index.ts"
   },
   "dependencies": {
-    "@mediabase/boot": "workspace:^",
-    "@mediabase/log": "workspace:^",
+    "@deepseek-ai/cordis": "^4.0.2",
     "@mediabase/agent": "workspace:^",
     "@mediabase/api": "workspace:^",
+    "@mediabase/boot": "workspace:^",
+    "@mediabase/bundle-app": "workspace:^",
+    "@mediabase/log": "workspace:^",
+    "@mediabase/mcp": "workspace:^",
     "@mediabase/plugins": "workspace:^",
     "@mediabase/protocol": "workspace:^",
     "@mediabase/server": "workspace:^",
     "@mediabase/settings": "workspace:^",
-    "@mediabase/tools": "workspace:^",
-    "@mediabase/bundle-app": "workspace:^",
-    "@deepseek-ai/cordis": "^4.0.2"
+    "@mediabase/tools": "workspace:^"
   },
   "license": "MIT"
 }

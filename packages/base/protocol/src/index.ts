@@ -56,16 +56,28 @@ export interface AgentStep {
   error?: string
 }
 
+/** One user-visible conversation turn — what a client accumulates across runs. */
+export interface AgentTurn {
+  role: 'user' | 'assistant'
+  content: string
+}
+
 export interface AgentResult {
   ok: boolean
   /** The model's final answer text. */
   answer: string
   steps: AgentStep[]
+  /**
+   * The turn to APPEND to the caller's thread: this run's user prompt and the
+   * final answer. Pass the accumulated array back as `history` to continue the
+   * conversation — the host stays stateless, the client owns the thread.
+   */
+  thread: AgentTurn[]
 }
 
 /** The `agent` service published by the host agent plugin. */
 export interface AgentService {
-  run(o: { prompt: string; maxSteps?: number }): Promise<AgentResult>
+  run(o: { prompt: string; maxSteps?: number; history?: AgentTurn[] }): Promise<AgentResult>
 }
 
 // ---- tool registry (route-B: capabilities register, cores only consume) ----
@@ -80,6 +92,13 @@ export interface RegistryTool {
   description: string
   params?: Schema<any, ToolArgs>
   execute(args: ToolArgs): unknown | Promise<unknown>
+  /**
+   * True when the tool CHANGES state (a write); false when it is a pure read.
+   * Absent = undeclared. Consumers that surface tools to other systems (the
+   * MCP endpoint's `readOnlyHint`) and policy layers use this; declare it on
+   * every tool so the annotation is honest.
+   */
+  mutates?: boolean
 }
 
 /** Validated tool arguments (defaults already applied by the schema). */
@@ -93,6 +112,8 @@ export interface RegistryToolView {
   parameters?: Record<string, unknown>
   /** Human/TS-readable signature of the same schema. */
   signature?: string
+  /** The tool's own `mutates` declaration (absent when undeclared). */
+  mutates?: boolean
 }
 
 /** The `registry` service published by the host registry plugin. */
@@ -168,7 +189,9 @@ export interface StreamChannelView {
  * against a mismatched host instead of failing method by method. Mirrors the
  * engine's `hello` handshake at the process boundary.
  */
-export const CONTROL_PROTOCOL_VERSION = 1
+// 2: agent.run gained history/thread (client-owned threads), agent.delta/
+//    agent.progress events, and tools carry a mutates declaration (MCP reads it).
+export const CONTROL_PROTOCOL_VERSION = 2
 
 /** What `server.info` (the host's handshake) reports. */
 export interface HostInfo {

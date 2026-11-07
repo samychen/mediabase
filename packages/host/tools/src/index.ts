@@ -30,6 +30,32 @@ export const name = 'tools'
 /** Services required before apply() runs. */
 export const inject = ['api', 'capabilities'] as const
 
+/** OpenAI/MCP tool names must match ^[a-zA-Z0-9_-]+$ — no dots. */
+function mangle(canonical: string): string {
+  return canonical.replace(/[^A-Za-z0-9_-]/g, '_')
+}
+
+/**
+ * Bind a wire name to each tool, disambiguating collisions deterministically:
+ * the mangling folds dots, so `a.b` and `a_b` would both want `a_b`. Both
+ * consumers of the registry's JSON-Schema surface (the LLM agent, the MCP
+ * endpoint) must use THIS mapping — the model calls the wire name, and the
+ * reverse map resolves it back to the canonical tool.
+ */
+export function wireNames(surface: RegistryToolView[]): Map<string, string> {
+  const wire = new Map<string, string>()
+  const taken = new Set<string>()
+  for (const tool of surface) {
+    const base = mangle(tool.name)
+    let candidate = base
+    let n = 2
+    while (taken.has(candidate)) candidate = `${base}_${n++}`
+    taken.add(candidate)
+    wire.set(tool.name, candidate)
+  }
+  return wire
+}
+
 export function apply(ctx: Context): void {
   const tools = new Map<string, RegistryTool>()
 
@@ -50,6 +76,7 @@ export function apply(ctx: Context): void {
           view.parameters = toJsonSchema(t.params) as Record<string, unknown>
           view.signature = describeSchema(t.params)
         }
+        if (t.mutates !== undefined) view.mutates = t.mutates
         return view
       })
     },

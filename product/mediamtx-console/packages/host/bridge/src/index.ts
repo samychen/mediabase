@@ -816,24 +816,28 @@ export function apply(ctx: Context, rawConfig: BridgeConfig): void {
 
   ctx.tools.register({
     name: 'mediamtx.info',
+    mutates: false,
     description: 'MediaMTX server identity: version, start time, API base.',
     execute: async () => (await mtx<{ version: string; started: string }>('GET', '/v3/info')),
   })
 
   ctx.tools.register({
     name: 'mediamtx.endpoints',
+    mutates: false,
     description: 'Where a viewer connects: absolute webrtc(WHEP)/hls/rtsp/rtmp/srt/metrics/playback URLs derived from the server config.',
     execute: async () => deriveEndpoints(),
   })
 
   ctx.tools.register({
     name: 'mediamtx.paths.list',
+    mutates: false,
     description: 'List stream paths with normalized runtime state: ready, source, readers, tracks, byte counters.',
     execute: async () => listPaths(),
   })
 
   ctx.tools.register({
     name: 'mediamtx.path.add',
+    mutates: true,
     description: 'Create a stream path. Give `source` (e.g. an rtsp:// camera URL) to make the server PULL it; omit source to create a publish-point that waits for a live push. This is how a camera goes on air.',
     params: z.object({
       name: z.string().min(1).max(200).description('path name, e.g. cam3').required(),
@@ -851,6 +855,7 @@ export function apply(ctx: Context, rawConfig: BridgeConfig): void {
 
   ctx.tools.register({
     name: 'mediamtx.path.delete',
+    mutates: true,
     description: 'Delete a stream path.',
     params: z.object({ name: z.string().min(1).required() }),
     execute: async (args) => {
@@ -861,6 +866,7 @@ export function apply(ctx: Context, rawConfig: BridgeConfig): void {
 
   ctx.tools.register({
     name: 'mediamtx.sessions.kick',
+    mutates: true,
     description: 'Kick one viewer/publisher session by protocol kind and id (ids come from mediamtx.paths.list readers or the sessions panel).',
     params: z.object({
       kind: z.string().description('rtsp|rtsps|hls|webrtc|srt|moq (rtmp cannot be kicked)').required(),
@@ -877,12 +883,14 @@ export function apply(ctx: Context, rawConfig: BridgeConfig): void {
 
   ctx.tools.register({
     name: 'mediamtx.servers.list',
+    mutates: false,
     description: 'List the managed MediaMTX servers (name, api url, auth kind — never credentials) and which one is ACTIVE. Every other tool routes to the active one.',
     execute: async () => ({ servers: servers.map(publicView), active: activeName }),
   })
 
   ctx.tools.register({
     name: 'mediamtx.servers.switch',
+    mutates: true,
     description: 'Switch which managed MediaMTX server the console talks to (names come from mediamtx.servers.list). Registration/removal of servers is operator-only RPC, not a tool: credentials are not model input.',
     params: z.object({ name: z.string().min(1).required() }),
     execute: async (args) => ({ active: await switchActive(String(args.name)) }),

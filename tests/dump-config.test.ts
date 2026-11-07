@@ -56,7 +56,7 @@ describe('the boot-free config dump', () => {
     // The rows, grouped under the layer that inserted them.
     const ids = [...out.matchAll(/^- id: (\S+)$/gm)].map((match) => match[1])
     expect(ids).toEqual([
-      'include', 'log', 'api', 'settings', 'tools', 'agent', 'plugins', 'server',
+      'include', 'log', 'api', 'settings', 'tools', 'agent', 'mcp', 'plugins', 'server',
     ])
 
     // A deployment value is printed as the EXPRESSION, not as this machine's environment —
@@ -98,7 +98,7 @@ describe('the boot-free config dump', () => {
     expect(out).toContain('(bundles only)')
     expect(out).toContain('# layers: 1')
     expect(out).not.toContain('overlay.yml')
-    expect([...out.matchAll(/^- id: (\S+)$/gm)]).toHaveLength(8)
+    expect([...out.matchAll(/^- id: (\S+)$/gm)]).toHaveLength(9)
   }, 60_000)
 
   it('round-trips: the printed text parses back into rows', () => {
@@ -108,7 +108,7 @@ describe('the boot-free config dump', () => {
 
     const rows = loadDump(file, IDENTITY.bin)
     expect(rows.map((row) => row.id)).toEqual([
-      'include', 'log', 'api', 'settings', 'tools', 'agent', 'plugins', 'server',
+      'include', 'log', 'api', 'settings', 'tools', 'agent', 'mcp', 'plugins', 'server',
     ])
     // An expression survives the round trip as an expression node, ready to be mounted.
     const settings = rows.find((row) => row.id === 'settings')

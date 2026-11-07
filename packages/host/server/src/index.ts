@@ -91,6 +91,8 @@ export function apply(ctx: Context, rawConfig: ServerConfig): void {
     // after boot (drop-in module, runtime plugin load) is immediately callable.
     methods: () => ctx.api.methodMap(),
     rawRoutes: () => ctx.api.routeMap(),
+    // Request/response POST endpoints (e.g. an MCP dialect): same live-registry rule.
+    postEndpoints: () => ctx.api.endpointMap(),
     health: () => ({
       ...ctx.api.healthPayload(),
       streams: ctx.api.streams().map((s) => ({ name: s.name, subscribers: s.subscribers, dropped: s.dropped })),
@@ -123,9 +125,11 @@ export function apply(ctx: Context, rawConfig: ServerConfig): void {
       const methods = ctx.api.list().length
       const channels = Object.keys(ctx.api.streamMap()).length
       const routes = ctx.api.routes().length
+      const endpoints = Object.keys(ctx.api.endpointMap()).length
       log.info(
         `宿主就绪: http://${config.host ?? '127.0.0.1'}:${gateway.port()}  ` +
-          `(ws /rpc ${methods} 方法, ws /stream ${channels} 通道, /api/* ${routes} 条数据面路由)${auth}`,
+          `(ws /rpc ${methods} 方法, ws /stream ${channels} 通道, /api/* ${routes} 条数据面路由` +
+          `${endpoints > 0 ? `, ${endpoints} 个 POST 端点` : ''})${auth}`,
       )
     })
     .catch((e) => {

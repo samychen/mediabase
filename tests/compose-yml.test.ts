@@ -41,6 +41,7 @@ import {
   loadPluginManifest,
 } from '@mediabase/boot'
 import { IDENTITY } from '../apps/cli/src/identity.ts'
+import { CONTROL_PROTOCOL_VERSION } from '../packages/base/protocol/src/index.ts'
 import { parse, type Schema } from '../packages/base/schema/src/index.ts'
 import * as log from '../packages/base/log/src/index.ts'
 import * as settings from '../packages/host/settings/src/index.ts'
@@ -544,7 +545,7 @@ describe('the composed host exposes the expected composition', () => {
       // Frozen on purpose: dropping a row (or renaming one) must fail here.
       const caps = await host.rpc.call<Array<{ id: string; ok: boolean }>>('capabilities.list', {})
       expect(caps.map((c) => c.id).sort()).toEqual(
-        ['agent', 'plugins', 'server', 'settings', 'tools'],
+        ['agent', 'mcp', 'plugins', 'server', 'settings', 'tools'],
       )
 
       // Every declaration matches what actually registered.
@@ -605,7 +606,7 @@ describe('the composed host exposes the expected composition', () => {
       const line = await waitFor(() => host.output().split('\n').find((l) => l.includes('DEBUG deployment-scope')) ?? false, 5_000)
       expect(line).toContain('DEBUG deployment-scope')
       // Everything else still ran: an override replaces one row's config, not the tree.
-      expect(await host.rpc.call('server.info')).toMatchObject({ protocol: 1 })
+      expect(await host.rpc.call('server.info')).toMatchObject({ protocol: CONTROL_PROTOCOL_VERSION })
     } finally {
       await host.stop()
     }

@@ -58,6 +58,7 @@ interface CapturedRequest {
   authorization: string | undefined
   body: {
     model?: string
+    stream?: boolean
     messages?: Array<{ role: string; content: string | null; tool_calls?: ToolCall[]; tool_call_id?: string }>
     tools?: Array<{ type: string; function: { name: string; description: string; parameters: Record<string, unknown> } }>
     tool_choice?: string
@@ -109,6 +110,25 @@ class MockLLM {
           res.end('endpoint said no')
           return
         }
+        if (body.stream === true) {
+          // Answer in the OpenAI SSE shape: content arrives in TWO chunks (so
+          // delta forwarding is observable), tool calls in one chunk each.
+          const message = next.message ?? { role: 'assistant', content: 'ok' }
+          const frames: string[] = []
+          if (typeof message.content === 'string' && message.content !== '') {
+            const mid = Math.max(1, Math.floor(message.content.length / 2))
+            frames.push(JSON.stringify({ choices: [{ delta: { role: 'assistant', content: message.content.slice(0, mid) } }] }))
+            frames.push(JSON.stringify({ choices: [{ delta: { content: message.content.slice(mid) } }] }))
+          }
+          (message.tool_calls ?? []).forEach((tc, i) => {
+            frames.push(JSON.stringify({ choices: [{ delta: { tool_calls: [{ index: i, id: tc.id, function: { name: tc.function.name, arguments: tc.function.arguments } }] } }] }))
+          })
+          res.writeHead(200, { 'content-type': 'text/event-stream' })
+          for (const frame of frames) res.write(`data: ${frame}\n\n`)
+          res.write('data: [DONE]\n\n')
+          res.end()
+          return
+        }
         res.writeHead(200, { 'content-type': 'application/json' })
         res.end(JSON.stringify({ choices: [{ message: next.message ?? { role: 'assistant', content: 'ok' } }] }))
       })
@@ -146,7 +166,7 @@ interface Fixture {
   toolCalls: Array<{ name: string; args: unknown }>
 }
 
-async function compose(baseUrl: string, opts: { apiKey?: string; model?: string } = {}): Promise<Fixture> {
+async function compose(baseUrl: string, opts: { apiKey?: string; model?: string; stream?: boolean; maxToolChars?: number } = {}): Promise<Fixture> {
   const ctx = new Context()
   const toolCalls: Array<{ name: string; args: unknown }> = []
   const file = join(mkdtempSync(join(tmpdir(), 'mediabase-agent-')), 'settings.json')
@@ -187,6 +207,8 @@ async function compose(baseUrl: string, opts: { apiKey?: string; model?: string 
     baseUrl,
     apiKey: opts.apiKey ?? 'sk-test-key',
     model: opts.model ?? 'test-model',
+    ...(opts.stream !== undefined ? { stream: opts.stream } : {}),
+    ...(opts.maxToolChars !== undefined ? { maxToolChars: opts.maxToolChars } : {}),
   })
   await settle()
   const agentService = ctx.get('agent')
@@ -216,7 +238,12 @@ describe('@mediabase/agent: what it sends', () => {
     const fx = await compose(llm.url)
     try {
       const result = await fx.agent.run({ prompt: '这个视频多长?' })
-      expect(result).toEqual({ ok: true, answer: 'done', steps: [] })
+      expect(result).toEqual({
+        ok: true,
+        answer: 'done',
+        steps: [],
+        thread: [{ role: 'user', content: '这个视频多长?' }, { role: 'assistant', content: 'done' }],
+      })
 
       const sent = llm.requests[0]!
       expect(sent.path).toBe('/v1/chat/completions')
@@ -390,6 +417,148 @@ describe('@mediabase/agent: what it does with the reply', () => {
   })
 })
 
+describe('@mediabase/agent: the conversation is the caller\'s', () => {
+  it('passes prior turns through and returns the thread to append', async () => {
+    const llm = new MockLLM().answer('第一答').answer('第二答')
+    await llm.start()
+    const fx = await compose(llm.url)
+    try {
+      const first = await fx.agent.run({ prompt: '第一句' })
+      expect(first.thread).toEqual([
+        { role: 'user', content: '第一句' },
+        { role: 'assistant', content: '第一答' },
+      ])
+      const second = await fx.agent.run({ prompt: '第二句', history: first.thread })
+      // The request carries system → prior turns → the new user turn, in order.
+      expect(second.answer).toBe('第二答')
+      expect(second.thread.map((t) => t.content)).toEqual(['第一句', '第一答', '第二句', '第二答'])
+      const sent = llm.requests[1]!
+      expect(sent.body.messages?.map((m) => m.role)).toEqual(['system', 'user', 'assistant', 'user'])
+      expect(sent.body.messages?.[1]?.content).toBe('第一句')
+      expect(sent.body.messages?.[2]?.content).toBe('第一答')
+      expect(sent.body.messages?.[3]?.content).toBe('第二句')
+    } finally {
+      await fx.ctx.fiber.dispose()
+      await llm.stop()
+    }
+  })
+
+  it('replaces an over-budget tool result with a marker for the model (the caller still gets the full value)', async () => {
+    const big = 'x'.repeat(50_000)
+    const llm = new MockLLM()
+      .calls(call('c1', 'big_tool', {}))
+      .answer('收到')
+    await llm.start()
+    const fx = await compose(llm.url, { maxToolChars: 100 })
+    try {
+      fx.ctx.tools.register({ name: 'big.tool', description: 'returns a big string', execute: () => big })
+      const result = await fx.agent.run({ prompt: '拿大结果' })
+      expect(result.steps[0]?.result).toBe(big) // the caller sees the whole thing
+      const toolMessage = llm.requests[1]?.body.messages?.at(-1)
+      const parsed = JSON.parse(toolMessage?.content ?? 'null') as { truncated?: boolean; totalChars?: number; preview?: string }
+      expect(parsed.truncated).toBe(true)
+      expect(parsed.totalChars).toBe(50_002) // the JSON.stringify'd form
+      expect(parsed.preview?.length).toBe(100)
+    } finally {
+      await fx.ctx.fiber.dispose()
+      await llm.stop()
+    }
+  })
+
+  it('disambiguates mangled-name collisions deterministically, both ways', async () => {
+    const seen: string[] = []
+    const llm = new MockLLM()
+      .calls(call('c1', 'a_b_2', { file: 'second' }))
+      .answer('ok')
+    await llm.start()
+    const fx = await compose(llm.url)
+    try {
+      fx.ctx.tools.register({
+        name: 'a.b',
+        description: 'first — mangles to a_b',
+        params: z.object({ file: z.string().required() }),
+        execute: (a) => { seen.push(`first:${String(a['file'])}`); return 1 },
+      })
+      fx.ctx.tools.register({
+        name: 'a_b',
+        description: 'second — collides with the mangled first',
+        params: z.object({ file: z.string().required() }),
+        execute: (a) => { seen.push(`second:${String(a['file'])}`); return 2 },
+      })
+      const result = await fx.agent.run({ prompt: 'x' })
+      const names = (llm.requests[0]?.body.tools ?? []).map((t) => t.function.name).filter((n) => n.startsWith('a_b')).sort()
+      expect(names).toEqual(['a_b', 'a_b_2'])
+      // The wire name resolved back to the SECOND tool, and the step reports its wire name.
+      expect(seen).toEqual(['second:second'])
+      expect(result.steps[0]?.name).toBe('a_b_2')
+      expect(result.steps[0]?.result).toBe(2)
+    } finally {
+      await fx.ctx.fiber.dispose()
+      await llm.stop()
+    }
+  })
+
+  it('routes tool execution through the control plane, so policy applies', async () => {
+    const llm = new MockLLM()
+      .calls(call('c1', 'media_probe', { file: '/tmp/x.mp4' }))
+      .answer('被拒了也知道原因')
+    await llm.start()
+    const fx = await compose(llm.url)
+    try {
+      fx.ctx.api.policy({ deny: ['tools.run'] })
+      const result = await fx.agent.run({ prompt: 'x' })
+      expect(result.steps[0]?.error).toContain('deny')
+      // The refusal also reached the model as a tool message.
+      const toolMessage = llm.requests[1]?.body.messages?.at(-1)
+      expect(JSON.parse(toolMessage?.content ?? 'null')).toMatchObject({ error: expect.stringContaining('deny') })
+    } finally {
+      await fx.ctx.fiber.dispose()
+      await llm.stop()
+    }
+  })
+})
+
+describe('@mediabase/agent: the loop streams', () => {
+  it('emits agent.delta per content chunk and agent.progress around each step', async () => {
+    const deltas: Array<{ run?: number; text?: string }> = []
+    const progress: Array<{ run?: number; phase?: string; name?: string }> = []
+    const llm = new MockLLM()
+      .calls(call('c1', 'media_probe', { file: '/tmp/x.mp4' }))
+      .answer('你好世界')
+    await llm.start()
+    const fx = await compose(llm.url)
+    fx.ctx.events.on('agent.delta', (p) => { deltas.push(p as { run?: number; text?: string }) })
+    fx.ctx.events.on('agent.progress', (p) => { progress.push(p as { run?: number; phase?: string }) })
+    try {
+      const result = await fx.agent.run({ prompt: '打个招呼' })
+      expect(result.answer).toBe('你好世界')
+      // The mock splits content in half — the agent forwarded both halves in order.
+      expect(deltas.map((d) => d.text)).toEqual(['你好', '世界'])
+      expect(deltas[0]?.run).toBe(deltas[1]?.run)
+      const phases = progress.map((p) => p.phase)
+      expect(phases).toEqual(['start', 'tool-start', 'tool-done', 'done'])
+      expect(progress.find((p) => p.phase === 'done')?.run).toBe(deltas[0]?.run)
+    } finally {
+      await fx.ctx.fiber.dispose()
+      await llm.stop()
+    }
+  })
+
+  it('still works without streaming (a row can turn it off)', async () => {
+    const llm = new MockLLM().answer('非流式')
+    await llm.start()
+    const fx = await compose(llm.url, { stream: false })
+    try {
+      const result = await fx.agent.run({ prompt: 'x' })
+      expect(result.answer).toBe('非流式')
+      expect(llm.requests[0]?.body.stream).toBeUndefined()
+    } finally {
+      await fx.ctx.fiber.dispose()
+      await llm.stop()
+    }
+  })
+})
+
 describe('@mediabase/agent: HTTP failure modes are distinguished', () => {
   const cases: Array<{ label: string; reply: ScriptedReply; code: number; contains: string }> = [
     { label: '401 is a credential problem', reply: { status: 401 }, code: RpcCode.UNAUTHORIZED, contains: '401' },
@@ -438,6 +607,8 @@ describe('@mediabase/agent: config vocabulary and registration', () => {
       baseUrl: 'https://api.deepseek.com/v1',
       apiKey: '',
       model: 'deepseek-chat',
+      stream: true,
+      maxToolChars: 24_000,
       // The prefix is not part of the request; it is how the "which variable do I set?"
       // message names the deployment's own variable (`CALC_LLM_KEY`, `AVSTUDIO_LLM_KEY`).
       envPrefix: 'MEDIABASE_',
@@ -446,6 +617,8 @@ describe('@mediabase/agent: config vocabulary and registration', () => {
       baseUrl: 'http://x/v1',
       apiKey: 'k',
       model: 'm',
+      stream: true,
+      maxToolChars: 24_000,
       envPrefix: 'MEDIABASE_',
     })
   })

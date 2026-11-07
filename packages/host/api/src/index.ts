@@ -87,10 +87,41 @@ export interface ApiRoute {
   }
 }
 
+/** What a POST endpoint receives: the (bounded) request body. */
+export interface ApiEndpointRequest {
+  body: Uint8Array
+  /** The request's content-type header, as sent. */
+  contentType: string
+}
+
+/** What a POST endpoint answers: status line, headers and body of its choice. */
+export interface ApiEndpointResponse {
+  /** Default 200. */
+  status?: number
+  headers?: Record<string, string>
+  /** String bodies are served as utf-8. */
+  body: Uint8Array | string
+}
+
+/**
+ * A request/response POST endpoint mounted at a fixed path by the front door —
+ * the shape a second protocol dialect needs (Model Context Protocol, a webhook
+ * receiver). Unlike byte routes these read the request body and pick their own
+ * status; they are token-gated exactly like `/api/*` when a token is set.
+ */
+export interface ApiEndpoint {
+  /** Absolute path, unique host-wide, e.g. `/mcp`. */
+  path: string
+  description: string
+  handler: (req: ApiEndpointRequest) => ApiEndpointResponse | Promise<ApiEndpointResponse>
+}
+
 export interface ApiService {
   register<S = Schema<any, any>, R = Schema<any, any>>(method: ApiMethod<S, R>): () => void
   /** Register a raw byte route (pull); the capability owns the payload format. */
   route(route: ApiRoute): () => void
+  /** Register a POST endpoint (request/response); token-gated like `/api/*`. */
+  endpoint(endpoint: ApiEndpoint): () => void
   /**
    * Register a byte STREAM channel (push). The gateway hands the producer a sink
    * when a client subscribes; `attach`'s disposer runs when the last one leaves,
@@ -118,6 +149,8 @@ export interface ApiService {
   has(name: string): boolean
   list(): ApiMethodView[]
   routes(): ApiRoute[]
+  /** Endpoint map for the front door's POST handlers. */
+  endpointMap(): Record<string, ApiEndpoint['handler']>
   /** Route map for `createGateway({ rawRoutes })`. */
   routeMap(): Record<string, ApiRoute['handler']>
   healthPayload(): Record<string, unknown>
@@ -191,6 +224,7 @@ export function apply(ctx: Context): void {
   const log = ctx.log.child(name)
   const methods = new Map<string, ApiMethod>()
   const routes = new Map<string, ApiRoute>()
+  const endpoints = new Map<string, ApiEndpoint>()
   const streams = new Map<string, StreamChannel>()
   // Live accounting per channel: how many sinks are attached and how many frames
   // the transport had to drop under backpressure.
@@ -237,6 +271,14 @@ export function apply(ctx: Context): void {
       routes.set(route.name, route)
       return () => {
         routes.delete(route.name)
+      }
+    },
+    endpoint(endpoint: ApiEndpoint): () => void {
+      if (!endpoint.path.startsWith('/')) throw new Error(`api: 端点路径必须以 "/" 开头: "${endpoint.path}"`)
+      if (endpoints.has(endpoint.path)) throw new Error(`api: 端点路径重复 "${endpoint.path}"`)
+      endpoints.set(endpoint.path, endpoint)
+      return () => {
+        endpoints.delete(endpoint.path)
       }
     },
     health(contributor: () => Record<string, unknown>): () => void {
@@ -293,6 +335,11 @@ export function apply(ctx: Context): void {
         })
     },
     routes: () => [...routes.values()],
+    endpointMap(): Record<string, ApiEndpoint['handler']> {
+      const map: Record<string, ApiEndpoint['handler']> = {}
+      for (const [path, endpoint] of endpoints) map[path] = endpoint.handler
+      return map
+    },
     routeMap(): Record<string, ApiRoute['handler']> {
       const map: Record<string, ApiRoute['handler']> = {}
       for (const [routeName, route] of routes) map[routeName] = route.handler
@@ -446,6 +493,7 @@ export function apply(ctx: Context): void {
   ctx.effect(() => () => {
     methods.clear()
     routes.clear()
+    endpoints.clear()
     streams.clear()
     streamStats.clear()
     healthFns.length = 0

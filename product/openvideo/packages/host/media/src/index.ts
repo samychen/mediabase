@@ -806,18 +806,21 @@ export function apply(ctx: Context, rawConfig: OpenvideoConfig): void {
 
   ctx.tools.register({
     name: 'openvideo.assets.list',
+    mutates: false,
     description: 'List the media library: [{ id, name, contentType, size, duration, hasTranscript }]. Projects reference a file as "asset:<id>".',
     execute: () => store.listAssets().map((a) => ({ id: a.id, name: a.name, contentType: a.contentType, size: a.size, duration: a.duration, hasTranscript: a.hasTranscript })),
   })
 
   ctx.tools.register({
     name: 'openvideo.projects.list',
+    mutates: false,
     description: 'List video projects: [{ id, name, brief, updatedAt }].',
     execute: () => store.listProjects().map((p) => ({ id: p.id, name: p.name, brief: p.brief, updatedAt: p.updatedAt })),
   })
 
   ctx.tools.register({
     name: 'openvideo.projects.get',
+    mutates: false,
     description: 'Read one project: its brief and the full EDL document (plain JSON — read it, transform it, save it back with openvideo_projects_save_edl).',
     params: z.object({ id: z.string().description('project id').required() }),
     execute: (args) => {
@@ -828,6 +831,7 @@ export function apply(ctx: Context, rawConfig: OpenvideoConfig): void {
 
   ctx.tools.register({
     name: 'openvideo.projects.create',
+    mutates: true,
     description: 'Create an empty video project (720p timeline) and return its id. `brief` says what the video is for.',
     params: z.object({
       name: z.string().min(1).max(200).required(),
@@ -845,6 +849,7 @@ export function apply(ctx: Context, rawConfig: OpenvideoConfig): void {
 
   ctx.tools.register({
     name: 'openvideo.projects.save_edl',
+    mutates: true,
     description: 'Save a whole EDL document back onto a project. Validation errors answer with `path`, a JSON pointer like /main/elements/2/trimStart — fix that node and save again.',
     params: z.object({
       id: z.string().description('project id').required(),
@@ -861,6 +866,7 @@ export function apply(ctx: Context, rawConfig: OpenvideoConfig): void {
 
   ctx.tools.register({
     name: 'openvideo.assets.fetch',
+    mutates: true,
     description: 'Download a network video/audio/image (http/https URL) into the media library and return its asset row — reference it afterwards as "asset:<id>". Subject to the host\'s upload ceiling.',
     params: z.object({
       url: z.string().pattern(/^https?:\/\/.+/).description('http(s) URL').required(),
@@ -878,12 +884,14 @@ export function apply(ctx: Context, rawConfig: OpenvideoConfig): void {
 
   ctx.tools.register({
     name: 'openvideo.proxy.info',
+    mutates: false,
     description: 'Whether this host can transcode playback proxies (ffmpeg present?) and how many jobs are running.',
     execute: () => ({ ...proxies.info(), jobs: proxies.activeJobs() }),
   })
 
   ctx.tools.register({
     name: 'openvideo.proxy.ensure',
+    mutates: true,
     description: 'Make a browser-friendly playback proxy for a library asset (webm VP9/Opus by default). Use it when a video cannot be decoded in the browser; preview and export switch to the proxy automatically once ready. Idempotent; poll openvideo.projects… assets list for status.',
     params: z.object({
       id: z.string().description('asset id').required(),

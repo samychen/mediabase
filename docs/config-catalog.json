@@ -85,9 +85,34 @@
             "default": "deepseek-chat",
             "type": "string"
           },
+          "stream": {
+            "description": "stream the LLM response and forward agent.delta events",
+            "default": true,
+            "type": "boolean"
+          },
+          "maxToolChars": {
+            "description": "longest tool result (JSON chars) fed back to the model",
+            "default": 24000,
+            "type": "number"
+          },
           "envPrefix": {
             "description": "env prefix in force; names the variable a user must set",
             "default": "MEDIABASE_",
+            "type": "string"
+          }
+        }
+      }
+    },
+    {
+      "id": "mcp",
+      "module": "@mediabase/mcp",
+      "stated": {},
+      "schema": {
+        "type": "object",
+        "properties": {
+          "path": {
+            "description": "absolute POST path of the MCP endpoint",
+            "default": "/mcp",
             "type": "string"
           }
         }

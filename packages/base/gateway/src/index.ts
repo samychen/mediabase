@@ -93,6 +93,12 @@ export interface GatewayOptions {
    */
   rawRoutes?: Record<string, RawRouteFn> | (() => Record<string, RawRouteFn>)
   /**
+   * Request/response POST endpoints at fixed paths (e.g. `/mcp`); same lazy rule.
+   * The request body is capped at `maxPayload` bytes (413 beyond it), and the
+   * paths are token-gated like `/api/*`.
+   */
+  postEndpoints?: Record<string, EndpointFn> | (() => Record<string, EndpointFn>)
+  /**
    * Optional shared-secret gate. When set, the data plane (`/api/*`), the WS
    * endpoints and `/api/health` require `?token=` (or `Authorization: Bearer`).
    * The static SPA shell stays public — it holds no data. This is a local
@@ -239,6 +245,31 @@ function presentedToken(url: URL, req: http.IncomingMessage): string | null {
   return null
 }
 
+/** What a POST endpoint receives: the (bounded) request body. */
+export interface EndpointRequest {
+  body: Uint8Array
+  /** The request's content-type header, as sent. */
+  contentType: string
+}
+
+/** What a POST endpoint answers: status line, headers and body of its choice. */
+export interface EndpointResponse {
+  /** Default 200. */
+  status?: number
+  headers?: Record<string, string>
+  /** String bodies are served as utf-8. */
+  body: Uint8Array | string
+}
+
+/**
+ * A request/response POST endpoint mounted at a fixed path — the shape a second
+ * protocol dialect needs (Model Context Protocol, a webhook receiver). Unlike
+ * byte routes these read the request body and choose their own status; a path
+ * registered here takes POST precedence over a same-named raw route, and is
+ * token-gated exactly like `/api/*` when `auth` is set.
+ */
+export type EndpointFn = (req: EndpointRequest) => EndpointResponse | Promise<EndpointResponse>
+
 export function createGateway(opts: GatewayOptions): Gateway {
   const host = opts.host ?? '127.0.0.1'
   const port = opts.port ?? 3088
@@ -248,6 +279,8 @@ export function createGateway(opts: GatewayOptions): Gateway {
   const drainTimeoutMs = opts.drainTimeoutMs ?? 2000
   const resolveRaw = (): Record<string, RawRouteFn> =>
     typeof opts.rawRoutes === 'function' ? opts.rawRoutes() : opts.rawRoutes ?? {}
+  const resolvePost = (): Record<string, EndpointFn> =>
+    typeof opts.postEndpoints === 'function' ? opts.postEndpoints() : opts.postEndpoints ?? {}
 
   // In-flight HTTP responses. close() waits for this to reach 0 (bounded) so a
   // restart does not cut a frame in half — the shell's boot handshake is an HTTP
@@ -283,11 +316,71 @@ export function createGateway(opts: GatewayOptions): Gateway {
   const handleRequest = (req: http.IncomingMessage, res: http.ServerResponse): void => {
     const url = new URL(req.url ?? '/', `http://${host}`)
     const pathname = decodeURIComponent(url.pathname)
+    const postEndpoints = resolvePost()
 
-    const needsAuth = opts.auth !== undefined && (pathname.startsWith('/api/'))
+    const needsAuth = opts.auth !== undefined && (pathname.startsWith('/api/') || pathname in postEndpoints)
     if (needsAuth && !tokenMatches(opts.auth!.token, presentedToken(url, req))) {
       res.writeHead(401, { 'content-type': 'application/json; charset=utf-8' })
       res.end(JSON.stringify({ error: 'unauthorized' }))
+      return
+    }
+
+    // ---- POST endpoints (request/response, e.g. MCP) --------------------------
+    // The body is collected here (bounded by maxPayload) and handed to the
+    // handler; the endpoint owns status line, headers and body of its response.
+    const endpointHandler = req.method === 'POST' ? postEndpoints[pathname] : undefined
+    if (pathname in postEndpoints && endpointHandler === undefined) {
+      // A registered endpoint speaks POST only; anything else is told so.
+      res.writeHead(405, { 'content-type': 'application/json; charset=utf-8', allow: 'POST' })
+      res.end(JSON.stringify({ error: 'method not allowed' }))
+      return
+    }
+    if (endpointHandler !== undefined) {
+      void (async () => {
+        const body = await new Promise<Buffer | 'too-large' | 'error'>((done) => {
+          const chunks: Buffer[] = []
+          let size = 0
+          req.on('data', (chunk: Buffer) => {
+            size += chunk.byteLength
+            if (size > maxPayload) {
+              req.removeAllListeners('data')
+              req.resume() // drain what is in flight, then discard the rest
+              done('too-large')
+              return
+            }
+            chunks.push(chunk)
+          })
+          req.on('end', () => done(Buffer.concat(chunks)))
+          req.on('error', () => done('error'))
+        })
+        if (body === 'too-large') {
+          res.writeHead(413, { 'content-type': 'application/json; charset=utf-8' })
+          res.end(JSON.stringify({ error: 'payload too large' }))
+          return
+        }
+        if (body === 'error') {
+          res.writeHead(400, { 'content-type': 'application/json; charset=utf-8' })
+          res.end(JSON.stringify({ error: 'request aborted' }))
+          return
+        }
+        let out: EndpointResponse
+        try {
+          out = await endpointHandler({ body: new Uint8Array(body), contentType: String(req.headers['content-type'] ?? '') })
+        } catch (e) {
+          // A broken endpoint must fail loudly but never take the host down.
+          opts.onError?.(e, `POST ${pathname}`)
+          if (!res.headersSent) res.writeHead(500, { 'content-type': 'application/json; charset=utf-8' })
+          res.end(JSON.stringify({ error: 'internal' }))
+          return
+        }
+        const outBody = typeof out.body === 'string' ? Buffer.from(out.body, 'utf-8') : Buffer.from(out.body)
+        res.writeHead(out.status ?? 200, {
+          'content-type': 'application/json; charset=utf-8',
+          'content-length': String(outBody.byteLength),
+          ...(out.headers ?? {}),
+        })
+        res.end(outBody)
+      })()
       return
     }
 

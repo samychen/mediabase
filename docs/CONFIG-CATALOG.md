@@ -8,7 +8,7 @@
 行表里的**本行陈述**(含 `!!js` 表达式)与能力导出的 **`Config` schema**(含默认值)。
 机器可读版本:`docs/config-catalog.json`。
 
-共 7 行。
+共 8 行。
 
 | 行 id | 模块 | 本行陈述的字段 |
 |---|---|---|
@@ -17,6 +17,7 @@
 | `settings` | `@mediabase/settings` | `file` |
 | `tools` | `@mediabase/tools` | (无,全部走默认) |
 | `agent` | `@mediabase/agent` | `baseUrl`, `apiKey`, `model`, `envPrefix` |
+| `mcp` | `@mediabase/mcp` | (无,全部走默认) |
 | `plugins` | `@mediabase/plugins` | `root`, `dataRoot`, `confinementRequired`, `envPrefix` |
 | `server` | `@mediabase/server` | `root`, `port`, `distIndex`, `token`, `crossOriginIsolation`, `acl` |
 
@@ -89,7 +90,23 @@ envPrefix: !!js ctx.env.prefix
 | `baseUrl` | string | no | "https://api.deepseek.com/v1" | OpenAI-compatible base URL |
 | `apiKey` | string | no | "" | LLM key; empty means "not configured" |
 | `model` | string | no | "deepseek-chat" | model name |
+| `stream` | boolean | no | true | stream the LLM response and forward agent.delta events |
+| `maxToolChars` | number | no | 24000 | longest tool result (JSON chars) fed back to the model |
 | `envPrefix` | string | no | "MEDIABASE_" | env prefix in force; names the variable a user must set |
+
+## `mcp` — `@mediabase/mcp`
+
+本行陈述:
+
+```yaml
+{}
+```
+
+`Config` 接受的字段:
+
+| 字段 | 类型 | 必填 | 默认 | 说明 |
+|---|---|---|---|---|
+| `path` | string | no | "/mcp" | absolute POST path of the MCP endpoint |
 
 ## `plugins` — `@mediabase/plugins`
 

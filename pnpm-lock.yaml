@@ -92,6 +92,9 @@ importers:
       '@mediabase/log':
         specifier: workspace:^
         version: link:../../packages/base/log
+      '@mediabase/mcp':
+        specifier: workspace:^
+        version: link:../../packages/host/mcp
       '@mediabase/plugins':
         specifier: workspace:^
         version: link:../../packages/host/plugins
@@ -201,6 +204,9 @@ importers:
       '@mediabase/log':
         specifier: ^0.1.6
         version: link:../../base/log
+      '@mediabase/mcp':
+        specifier: workspace:^
+        version: link:../../host/mcp
       '@mediabase/plugins':
         specifier: ^0.1.6
         version: link:../../host/plugins
@@ -373,6 +379,33 @@ importers:
         specifier: ^4.1.0
         version: 4.3.2
 
+  packages/host/mcp:
+    dependencies:
+      '@deepseek-ai/cordis':
+        specifier: ^4.0.2
+        version: 4.0.2(@deepseek-ai/cordis-plugin-include@1.0.7)(@deepseek-ai/cordis-plugin-loader@1.0.3)
+      '@mediabase/api':
+        specifier: ^0.1.6
+        version: link:../api
+      '@mediabase/boot':
+        specifier: ^0.1.6
+        version: link:../boot
+      '@mediabase/log':
+        specifier: ^0.1.6
+        version: link:../../base/log
+      '@mediabase/protocol':
+        specifier: ^0.1.6
+        version: link:../../base/protocol
+      '@mediabase/rpc':
+        specifier: ^0.1.6
+        version: link:../../base/rpc
+      '@mediabase/schema':
+        specifier: ^0.1.6
+        version: link:../../base/schema
+      '@mediabase/tools':
+        specifier: ^0.1.6
+        version: link:../tools
+
   packages/host/plugins:
     dependencies:
       '@deepseek-ai/cordis':
@@ -473,6 +506,9 @@ importers:
       '@mediabase/log':
         specifier: ^0.1.6
         version: link:../../../../packages/base/log
+      '@mediabase/mcp':
+        specifier: workspace:^
+        version: link:../../../../packages/host/mcp
       '@mediabase/plugins':
         specifier: ^0.1.6
         version: link:../../../../packages/host/plugins
@@ -636,6 +672,9 @@ importers:
       '@mediabase/log':
         specifier: ^0.1.6
         version: link:../../../../packages/base/log
+      '@mediabase/mcp':
+        specifier: workspace:^
+        version: link:../../../../packages/host/mcp
       '@mediabase/plugins':
         specifier: ^0.1.6
         version: link:../../../../packages/host/plugins
