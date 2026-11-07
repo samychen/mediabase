@@ -57,9 +57,15 @@ if (packages.length === 0) {
 }
 
 for (const { dir, pkg } of packages) {
+  if (!existsSync(join(dir, 'src'))) {
+    // Manifest-only packages (the bundles: cordis.patch.yml / client.yml) ship
+    // no code — nothing to build, and that is not an error.
+    console.log(`[build-base] ${pkg.name}: manifest-only (no src), skipped`)
+    continue
+  }
   const entry = ['src/index.ts', 'src/index.tsx'].map((f) => join(dir, f)).find(existsSync)
   if (!entry) {
-    console.error(`[build-base] ${pkg.name}: no src/index.ts`)
+    console.error(`[build-base] ${pkg.name}: src exists but no src/index.ts entry`)
     process.exit(1)
   }
   const dist = join(dir, 'dist')

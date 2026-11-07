@@ -360,6 +360,12 @@ importers:
       '@deepseek-ai/cordis-plugin-loader':
         specifier: 1.0.3
         version: 1.0.3(@deepseek-ai/cordis@4.0.2)
+      '@mediabase/api':
+        specifier: ^0.1.6
+        version: link:../api
+      '@mediabase/log':
+        specifier: ^0.1.6
+        version: link:../../base/log
       '@mediabase/protocol':
         specifier: ^0.1.6
         version: link:../../base/protocol

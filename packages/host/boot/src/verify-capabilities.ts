@@ -6,6 +6,12 @@
 // (CI, packaging) refuses to serve.
 
 import type { Context } from '@deepseek-ai/cordis'
+// The reconciled services are typed by their providing packages' Context
+// augmentations (`ctx.capabilities` ← api, `ctx.log` ← log). Type-only imports:
+// without them this package's own (isolated) d.ts build cannot see the fields
+// the whole-program host typecheck takes for granted.
+import type {} from '@mediabase/api'
+import type {} from '@mediabase/log'
 
 /**
  * Report every capability, and in strict mode refuse a lying declaration.
