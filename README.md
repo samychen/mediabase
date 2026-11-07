@@ -38,6 +38,7 @@ pnpm run verify:base   # 对已启动的 host 做中性冒烟
 - **不** publish 到公共 npm（`private: true`）；可用 `pnpm run build:base` + `pnpm pack`
 - **照着做一遍**：`docs/WALKTHROUGH.zh.md` —— 在基座旁边新建一个计算器，计算部分有 JS / Python / C++ 三种可换后端（参考实现 12 个文件，零改动基座）
 - **第一次接触本仓**：`docs/LEARNING-PATH.zh.md` —— 分阶段学习路径：每阶段给出读什么、做什么、怎么算过关
+- **把工具暴露给外部 agent**：`docs/MCP.zh.md` —— MCP Streamable HTTP 端点（`POST /mcp`）、stdio 桥、Claude/Cursor 接入
 - **仓内产品层实例**：`product/openvideo/`（视频剪辑）与 `product/mediamtx-console/`（流媒体服务器管理台，净室实现）—— 产品叠在基座上（各自的 `@scope` + 产品 bundle + 独立身份），基座零改动；见各自 `README.zh.md`
 
 ## 仓库内产品层：OpenVideo
