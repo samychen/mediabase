@@ -31,7 +31,8 @@
   `packages/base/gateway`(`@mediabase/gateway`)
 - `packages/host/plugins` 热加载(可跑子进程沙箱)、`packages/host/agent`:LLM 工具循环
   ——它自身不携带工具表,只规划 `ctx.tools` 暴露出来的能力,所以这两个是"能力无关"的通用层
-- 测试骨架(`tests/`,含 `tests/support/host.ts`)、`pnpm doctor`、CI、
+- 测试骨架(`tests/`;boot 原语在 `packages/host/test-host`(`@mediabase/test-host`),
+  基座与各产品的 `tests/support/host.ts` 都是它的薄壳)、`pnpm doctor`、CI、
   `build:host`/`package` 打包流程
 
 ## 2. 曾绑定业务、现已抽离的部分（原评估项 → 现状）
