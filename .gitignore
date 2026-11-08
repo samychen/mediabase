@@ -16,6 +16,10 @@ product/xmedia/engine/.cache/
 product/highlight/work/
 __pycache__/
 *.pyc
+# Optional model environment (see product/highlight/scripts/setup-models.sh):
+# a venv and a 34 MB checkpoint are local, not source.
+product/highlight/engine/.venv/
+product/highlight/engine/models/
 
 # Logs / runtime
 *.log

@@ -257,7 +257,8 @@ export interface HighlightEngineConfig {
 
 export const Config: Schema<HighlightEngineConfig, HighlightEngineConfig> = z.object({
   root: z.string().required().description('应用根目录(产物与脚本相对它解析)'),
-  python: z.string().default('python3').description('运行引擎桥的 Python 解释器'),
+  python: z.string().default(process.env.VHL_PYTHON ?? 'python3')
+    .description('运行引擎桥的 Python 解释器(默认读 VHL_PYTHON,否则 PATH 上的 python3)'),
   script: z.string().default('').description('engine/vhl_bridge.py 路径;空则用 <root>/engine/vhl_bridge.py'),
   pythonArgs: z.array(z.string()).default([]).description('解释器附加参数(如 -u)'),
   callTimeoutMs: z.natural().default(20_000).description('单条命令超时(ms)'),

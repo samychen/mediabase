@@ -80,6 +80,74 @@ pnpm run test:highlight:py        # 或 python3 -m unittest discover -s product/
 
 只用标准库 `unittest`：为一个文件引入 pytest，等于给运行环境多加一个测试依赖。
 
+## 可选模型环境
+
+**不装也能跑。** 缺哪个就退到哪个：没有 OpenCV 时视觉四项交给 FFmpeg `signalstats`，
+没有 checkpoint 时物体显著度退到 Sobel 边缘，`models.list` 的 `degraded` /
+`degradedReason` 与 `provenance.environment.signals` 逐项写清实际跑的是哪条路径。
+装齐是为了让那四项真正出力，不是为了让引擎能启动。
+
+```sh
+sh product/highlight/scripts/setup-models.sh
+```
+
+### 为什么是独立的 venv，而不是 `pip install` 到系统 Python
+
+三个理由是硬的，不是洁癖：
+
+- **版本天花板存在。** torch 的 macOS x86_64 wheel 停在 **2.2.2**（2.3+ 只发 arm64），
+  MediaPipe 停在 3.12。所以要用 **Python 3.11** —— 比"最新"更旧，但这是全套都有的版本。
+- **它不该污染宿主解释器。** 宿主壳（WorkBuddy 自带 Python、系统 `python3`）还有别的用途，
+  装进一份共享 site-packages，下一个项目的 numpy 版本就成了本次安装的附带损伤。
+- **可归还。** 删掉 `engine/.venv/` 就回到"只有 FFmpeg"的状态，没有残留。
+
+### 两个环境变量
+
+| 变量 | 作用 | 默认 |
+|---|---|---|
+| `VHL_PYTHON` | 宿主启动桥用的解释器 | PATH 上的 `python3` |
+| `VHL_ONNX_MODEL` | 检测 checkpoint（也可由任务选项 `onnxModelPath` 覆盖） | 空 = 无检测模型 |
+
+`VHL_ONNX_MODEL` 是**部署默认**，`onnxModelPath` 是**任务级选择**。两者都读：任务指定了就用任务的，
+因为分析用的是那个，报告若只看环境变量就会描述一台没跑过模型的机器。
+
+### 实测版本组合（macOS 15 / Intel x86_64）
+
+| 组件 | 版本 | 为什么钉这一个 |
+|---|---|---|
+| numpy | 1.26.4 | MediaPipe 0.10.9 与 torch 2.2.x 的 Intel wheel 都按 1.x 编译 |
+| opencv-python-headless | 4.10.0.84 | 无 GUI 依赖 |
+| onnxruntime | 1.23.2 | macOS x86_64 上带 `CoreMLExecutionProvider`；YOLOX-s 的 277 个节点它接走 276 个 |
+| protobuf | 4.25.8 | MediaPipe 的 `_pb2` 是 4.x 运行时生成的；5+ 导入即失败 |
+| mediapipe | 0.10.9 | 最后一个有 macOS x86_64 wheel 的版本 |
+| torch / torchvision | 2.2.2 / 0.17.2 | 最后一个有 macOS x86_64 wheel 的版本 |
+| open-clip-torch | 3.3.0 | — |
+| faster-whisper / ctranslate2 | 1.2.1 / 4.8.5 | — |
+
+两条安装期的坑，脚本里已处理：MediaPipe 的元数据写着 `protobuf<4`，而它实际需要的是 **4.x**
+—— 所以 `--no-deps` 装它、单独钉 protobuf；pip 24 在 macOS 上卸载 protobuf ≥5 时会先把目录
+改名成 `~upb` 再对目录调 `rm`，报 `EISDIR`，得手动清掉再装。
+
+### 这份环境的实际表现（本机实测）
+
+| 指标 | 值 |
+|---|---|
+| YOLOX-s 单帧推理 | 150–230 ms（CoreML，Intel Iris Plus 集成显卡） |
+| 6 秒 / 12fps 片段端到端 | 4.8 s |
+| Whisper base 加载 | 34 s（含下载 141 MB） |
+| `bus.jpg` 检测 | 1 bus 0.93 + 8 person 0.63–0.90 |
+
+**已知限制，先写在前面：**
+
+- **单目标显著度会饱和。** `saliency = Σ(类别权重 × 框面积占比 × 置信度)` 对多目标求和后
+  很容易越过 1.0 被截断 —— 上面那张图检出 9 个目标后 `saliency` 每帧恒为 1.0，这一项
+  因此失去区分度（权重 0.16 变成给所有帧加一个常数）。单目标场景下这是设计意图
+  （一个大而清晰的目标就该接近饱和），多目标场景下需要换聚合方式。
+- **NMS 用的是 IoU 0.45**，图上同一辆公交车的两个候选框 IoU 只有 0.417，两个都留了下来。
+  阈值是配置项 `onnxIouThreshold`。
+- **这台机器没有 GPU**，`torch.backends.mps.is_available()` 为 false。ONNX 走 CoreML，
+  torch 侧（OpenCLIP）是纯 CPU。
+
 ## 依赖与许可
 
 | 组件 | 用途 | 许可 | 是否随产品分发 |
