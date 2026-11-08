@@ -13,7 +13,7 @@
 // Run: pnpm run notice
 
 import { execFileSync } from 'node:child_process'
-import { existsSync, readFileSync, writeFileSync } from 'node:fs'
+import { existsSync, readFileSync, readdirSync, writeFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { fileURLToPath } from 'node:url'
 
@@ -58,9 +58,17 @@ function brewPrefix(pkg) {
   }
 }
 
-/** npm runtime dependencies, straight from the lockfile-aware pnpm command. */
+/** npm runtime dependencies, straight from the lockfile-aware pnpm command.
+ *
+ *  `-r` is load-bearing: the ROOT manifest has no `dependencies` at all — every
+ *  runtime package belongs to a workspace package (packages, apps, and each
+ *  product's own packages). Under pnpm 12 `licenses list --prod` at the root
+ *  therefore reports `{}` and an empty-but-plausible notice gets written. `-r`
+ *  aggregates every workspace project, which is the set that actually ships.
+ */
 function npmDeps() {
-  const raw = execFileSync('pnpm', ['licenses', 'list', '--prod', '--json'], { cwd: ROOT, encoding: 'utf8' })
+  const args = ['-r', 'licenses', 'list', '--prod', '--json']
+  const raw = execFileSync('pnpm', args, { cwd: ROOT, encoding: 'utf8' })
   const byLicense = JSON.parse(raw)
   const rows = []
   for (const [license, entries] of Object.entries(byLicense)) {
@@ -87,6 +95,26 @@ const npm = npmDeps()
 const hasEngine = existsSync(join(ROOT, 'engine'))
 const build = hasEngine ? engineBuild() : null
 
+// Fail BEFORE touching the file. The previous order wrote first and exited 1
+// afterwards, so a broken run replaced a correct NOTICE with an empty one and
+// then announced it had refused to write it. A generator that damages the
+// artifact it declines to produce is worse than one that does nothing.
+if (npm.length === 0) {
+  console.error('[notice] pnpm returned no runtime dependencies — NOTICE.md left untouched.')
+  console.error('[notice] 手动确认: pnpm -r licenses list --prod --json')
+  process.exit(1)
+}
+
+/** Product layers that carry their own native engine. The base has none, so this
+ *  file must not claim anything about them — but it also must not pretend they
+ *  do not exist, which is what a bare "this checkout has no engine" did once the
+ *  product trees landed. */
+const productEngines = existsSync(join(ROOT, 'product'))
+  ? readdirSync(join(ROOT, 'product'), { withFileTypes: true })
+      .filter((entry) => entry.isDirectory() && existsSync(join(ROOT, 'product', entry.name, 'engine')))
+      .map((entry) => `product/${entry.name}/engine`)
+  : []
+
 const lines = []
 lines.push('# Third-party notices')
 lines.push('')
@@ -99,7 +127,7 @@ lines.push('')
 
 lines.push('## npm runtime dependencies')
 lines.push('')
-lines.push('Source: `pnpm licenses list --prod --json` (the lockfile is the authority).')
+lines.push('Source: `pnpm -r licenses list --prod --json` (the lockfile is the authority).')
 lines.push('')
 lines.push('| Package | Version | License |')
 lines.push('|---|---|---|')
@@ -111,8 +139,24 @@ lines.push('')
 if (!hasEngine) {
   lines.push('## Native libraries / FFmpeg')
   lines.push('')
-  lines.push('This checkout has no `engine/` tree (base-only). Native attribution sections are')
-  lines.push('omitted; a product that adds an engine regenerates NOTICE after linking.')
+  lines.push('The **base** ships no native engine binary: analysis, encoding and publishing are')
+  lines.push('delegated to product layers and to FFmpeg invocations, and no FFmpeg is bundled.')
+  lines.push('')
+  if (productEngines.length > 0) {
+    lines.push(`Product layers in this checkout do carry engines (${productEngines.map((p) => `\`${p}\``).join(', ')}).`)
+    lines.push('Each one attributes its own native dependencies — they are NOT covered by this file,')
+    lines.push('because they are distributed separately from the base:')
+    lines.push('')
+    for (const dir of productEngines) {
+      const readme = join(ROOT, dir, 'README.zh.md')
+      const note = existsSync(readme) ? `\`${dir}/README.zh.md\`` : `\`${dir}\``
+      lines.push(`- ${note}`)
+    }
+    lines.push('')
+    lines.push('A distribution that bundles a product regenerates this file in that product\'s tree.')
+  } else {
+    lines.push('This checkout has no product engine either; native attribution sections are omitted.')
+  }
   lines.push('')
 } else {
   lines.push('## Native libraries linked into the engine binary')
@@ -171,8 +215,4 @@ if (!hasEngine) {
 
 writeFileSync(OUT, lines.join('\n'))
 console.log(`[notice] wrote ${OUT}`)
-console.log(`[notice] ${npm.length} npm runtime dependencies${hasEngine ? `, ${BREW_DEPS.length} native entries` : ' (engine absent — native sections skipped)'}`)
-if (npm.length === 0) {
-  console.error('[notice] no npm dependencies were collected — refusing to write an empty notice')
-  process.exit(1)
-}
+console.log(`[notice] ${npm.length} npm runtime dependencies${hasEngine ? `, ${BREW_DEPS.length} native entries` : ' (base ships no engine — native sections point at the products)'}`)

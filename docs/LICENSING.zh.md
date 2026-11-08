@@ -39,7 +39,7 @@
 
 | 命令 / 文件 | 作用 |
 |---|---|
-| `pnpm run notice` → `NOTICE.md` | 生成第三方归属清单:npm 运行时依赖取自 `pnpm licenses list --prod --json`(锁文件为准);基座没有原生条目,如果将来有了,这一节按**逐个读本机 license 文件核实**的规则补,确知不了就明说,不编 SPDX |
+| `pnpm run notice` → `NOTICE.md` | 生成第三方归属清单:npm 运行时依赖取自 `pnpm -r licenses list --prod --json`(锁文件为准)。**`-r` 不能省**:根清单没有 `dependencies`,运行时依赖都在工作区包里,pnpm 12 在根上跑 `--prod` 会返回 `{}`,于是写出一个"看起来正常"的空清单。基座没有原生条目;产品层的引擎各自归属(见 `NOTICE.md` 末尾指向);确知不了就明说,不编 SPDX |
 | `pnpm run check:native` | 扫描 app bundle / 引擎产物里有没有 nonfree 的 ffmpeg(加 `--gate` 时命中即退出码 1),给消费仓的打包流水线当门禁用 |
 | `MEDIABASE_BUNDLE_FFMPEG=0` | 打包时**不捆绑** ffmpeg(走上面路线 1),`prepare-ffmpeg.mjs` 会清掉 `vendor-ffmpeg/` 并说明运行时靠用户自带 |
 | `prepare-ffmpeg.mjs` | 默认捆绑,但会读源 ffmpeg 的构建参数并在带 GPL/nonfree 时告警;`MEDIABASE_FFMPEG` 可指定要打包的那份 |

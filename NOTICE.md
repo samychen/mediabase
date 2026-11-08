@@ -8,7 +8,7 @@ ends up in a build or a distributed package.
 
 ## npm runtime dependencies
 
-Source: `pnpm licenses list --prod --json` (the lockfile is the authority).
+Source: `pnpm -r licenses list --prod --json` (the lockfile is the authority).
 
 | Package | Version | License |
 |---|---|---|
@@ -31,5 +31,14 @@ All 14 runtime dependencies are permissive (MIT, Python-2.0).
 
 ## Native libraries / FFmpeg
 
-This checkout has no `engine/` tree (base-only). Native attribution sections are
-omitted; a product that adds an engine regenerates NOTICE after linking.
+The **base** ships no native engine binary: analysis, encoding and publishing are
+delegated to product layers and to FFmpeg invocations, and no FFmpeg is bundled.
+
+Product layers in this checkout do carry engines (`product/highlight/engine`, `product/xmedia/engine`).
+Each one attributes its own native dependencies — they are NOT covered by this file,
+because they are distributed separately from the base:
+
+- `product/highlight/engine/README.zh.md`
+- `product/xmedia/engine`
+
+A distribution that bundles a product regenerates this file in that product's tree.

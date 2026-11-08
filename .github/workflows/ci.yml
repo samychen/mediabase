@@ -146,3 +146,20 @@ jobs:
           set -euo pipefail
           pnpm run build:highlight
           pnpm run verify:highlight:fake
+
+      # The third product (product/xmedia) is a TS host over a C++ engine. CI
+      # runs the Node fake engine (no toolchain, no MediaMTX): the smoke then
+      # asserts the control plane, the retired-surface rules and the page, and
+      # skips only the live RTMP publish, which needs a real server. The real
+      # engine build stays a release step — same reason as highlight's `real`.
+      - name: Product typecheck (xmedia)
+        run: pnpm run typecheck:xmedia
+
+      - name: Product composition gate (xmedia)
+        run: pnpm run verify:xmedia:compose
+
+      - name: Product test (xmedia)
+        run: pnpm run test:xmedia
+
+      - name: Product smoke (xmedia · fake engine)
+        run: pnpm run verify:xmedia
