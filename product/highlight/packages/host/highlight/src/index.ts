@@ -19,12 +19,13 @@
 // itself: a job mid-render when the process died comes back as `interrupted`,
 // never as `running`, and the caller decides whether to resubmit.
 
+import { execFileSync } from 'node:child_process'
 import { randomUUID } from 'node:crypto'
 import {
   closeSync, existsSync, mkdirSync, openSync, readFileSync, readSync, realpathSync, rmSync, statSync,
 } from 'node:fs'
 import { homedir } from 'node:os'
-import { isAbsolute, join, relative } from 'node:path'
+import { dirname, isAbsolute, join, relative } from 'node:path'
 import type { Context } from '@deepseek-ai/cordis'
 import {
   assertProtocol,
@@ -156,6 +157,15 @@ export interface HighlightEngineState {
 }
 
 export interface HighlightModels {
+  /**
+   * The interpreter that produced this report.
+   *
+   * Not cosmetic: `degradedReason` is a fact about an INTERPRETER, and a
+   * machine with several Pythons usually has OpenCV in one of them. Without
+   * this, "opencv-missing" reads as "OpenCV is not installed on this machine",
+   * and the operator installs it a second time into the wrong interpreter.
+   */
+  interpreter: { executable: string; version: string }
   detector: { kind: string; path: string; present: boolean; license: string }
   face: { available: boolean; license: string }
   clip: { available: boolean; license: string }
@@ -223,7 +233,15 @@ export const inject = ['api', 'capabilities', 'tools', 'log'] as const
 export interface HighlightEngineConfig {
   /** Application root: the capability composes its own work directory from it. */
   root: string
-  /** Interpreter that runs the bridge (python3 on PATH by default). */
+  /**
+   * Interpreter that runs the bridge.
+   *
+   * Empty means "decide for me" — see `resolveInterpreter`. The default is
+   * deliberately EMPTY rather than `python3`: with `python3` as the default,
+   * an operator who explicitly wrote `python3` (to force the FFmpeg-only
+   * deployment) and an operator who said nothing look identical to the host,
+   * and only one of them meant it.
+   */
   python: string
   /** The bridge script (defaults to <root>/engine/vhl_bridge.py). */
   script: string
@@ -257,8 +275,8 @@ export interface HighlightEngineConfig {
 
 export const Config: Schema<HighlightEngineConfig, HighlightEngineConfig> = z.object({
   root: z.string().required().description('应用根目录(产物与脚本相对它解析)'),
-  python: z.string().default(process.env.VHL_PYTHON ?? 'python3')
-    .description('运行引擎桥的 Python 解释器(默认读 VHL_PYTHON,否则 PATH 上的 python3)'),
+  python: z.string().default('')
+    .description('运行引擎桥的 Python 解释器;空则自动挑选(优先仓库内 engine/.venv,其次 PATH 上的 python3)'),
   script: z.string().default('').description('engine/vhl_bridge.py 路径;空则用 <root>/engine/vhl_bridge.py'),
   pythonArgs: z.array(z.string()).default([]).description('解释器附加参数(如 -u)'),
   callTimeoutMs: z.natural().default(20_000).description('单条命令超时(ms)'),
@@ -447,6 +465,102 @@ function contentTypeOf(file: string): string {
 }
 
 /**
+ * Can this interpreter import the vision stack?
+ *
+ * Asks the ENGINE, not a copy of its rule: `opencv_issue()` is the only place
+ * that knows what "vision works" means for this build, and a second
+ * implementation here would drift from it the moment the engine's own rule
+ * changed. The engine answers in one line and exits.
+ *
+ * The bridge is loaded by path, so this works for any interpreter without
+ * needing the engine package importable by name.
+ */
+function interpreterHasVision(python: string, bridge: string): boolean {
+  try {
+    // The bridge is imported as a MODULE from its directory, not loaded by file
+    // path: `vhl_bridge.py` declares dataclasses, and a dataclass whose module
+    // is not in `sys.modules` fails at class-creation time with an unrelated
+    // AttributeError. Putting the directory on the path is also what the real
+    // engine process does, so the probe sees the same import graph.
+    const engineDir = dirname(bridge)
+    const probe = [
+      'import sys',
+      `sys.path.insert(0, ${JSON.stringify(engineDir)})`,
+      'import vhl_bridge as m',
+      'print(m.opencv_issue())',
+    ].join('; ')
+    const out = execFileSync(python, ['-c', probe], {
+      encoding: 'utf8',
+      timeout: 30_000,
+      stdio: ['ignore', 'pipe', 'ignore'],
+    })
+    // Empty means usable. A reason code means the vision stage will not run.
+    return out.trim() === ''
+  } catch {
+    return false
+  }
+}
+
+/**
+ * Pick the interpreter that will actually run the vision stack.
+ *
+ * The order is explicit-config > VHL_PYTHON > repository venv > PATH, and the
+ * third step is what this function exists for.
+ *
+ * Why it is needed: `python3` on PATH is whatever the machine happens to have
+ * first, and on a developer box that is often an interpreter nobody installed
+ * OpenCV into. The engine then reports `opencv-missing` and the panel says
+ * "OpenCV not installed" — which is FALSE. OpenCV is installed, in the venv
+ * that `scripts/setup-models.sh` created, three directories away. The operator
+ * reads that message, installs OpenCV a second time into the wrong interpreter,
+ * and the banner does not change.
+ *
+ * So: when nothing pins an interpreter, and the repository's own venv can do
+ * vision, use the venv.
+ *
+ * What is NEVER overridden: an explicit `python` in the config, and
+ * `VHL_PYTHON`. An operator who pinned an interpreter meant it, even if that
+ * interpreter is a deliberate downgrade to the FFmpeg-only deployment. Note
+ * that the schema default is '' rather than 'python3' precisely so that
+ * "explicitly wrote python3" and "said nothing" stay distinguishable.
+ *
+ * The venv is only preferred when it actually works, so a stale or half-built
+ * `.venv` cannot make things worse than the PATH default: the check asks the
+ * candidate interpreter itself.
+ */
+export function resolveInterpreter(
+  configured: string,
+  root: string,
+  bridge: string,
+  env: NodeJS.ProcessEnv = process.env,
+): { python: string; source: 'explicit' | 'env' | 'venv' | 'path' } {
+  // An explicit interpreter in the config wins over everything.
+  if (configured !== '') {
+    return { python: configured, source: 'explicit' }
+  }
+  // Then the environment variable, which is how an operator overrides the
+  // choice without touching the composition layer.
+  const fromEnv = env.VHL_PYTHON ?? ''
+  if (fromEnv !== '') {
+    return { python: fromEnv, source: 'env' }
+  }
+  const venvPython = join(root, 'engine', '.venv', 'bin', 'python')
+  if (!existsSync(venvPython)) {
+    return { python: 'python3', source: 'path' }
+  }
+  // The PATH interpreter already does vision: nothing to fix.
+  if (interpreterHasVision('python3', bridge)) {
+    return { python: 'python3', source: 'path' }
+  }
+  if (!interpreterHasVision(venvPython, bridge)) {
+    // The venv is present but cannot do vision either. Fall back to the PATH
+    // interpreter and let the engine report the honest reason.
+    return { python: 'python3', source: 'path' }
+  }
+  return { python: venvPython, source: 'venv' }
+}
+
+/**
  * SRT → WebVTT.
  *
  * The engine writes SRT because every editor and `ffmpeg -i` understands it. A
@@ -583,6 +697,13 @@ export function apply(ctx: Context, rawConfig: HighlightEngineConfig): void {
   const insideWork = (file: string): boolean => insideDir(workRoot, resolved(file))
   const script = config.script !== '' ? config.script : join(config.root, 'engine', 'vhl_bridge.py')
 
+  // Which interpreter runs the bridge. Resolved AFTER the script path, because
+  // the check asks the candidate interpreter about THIS bridge.
+  const interpreter = resolveInterpreter(config.python, config.root, script)
+  if (interpreter.source === 'venv') {
+    log.info('改用仓库内的引擎 venv', { from: 'python3', to: interpreter.python })
+  }
+
   const metrics: HighlightMetrics = {
     jobsStarted: 0, succeeded: 0, failed: 0, cancelled: 0, queueDepth: 0, avgElapsedMs: 0,
     segmentsTotal: 0, restoredJobs: 0, interruptedJobs: 0, recent: [],
@@ -658,7 +779,7 @@ export function apply(ctx: Context, rawConfig: HighlightEngineConfig): void {
   }
   refreshQueueDepth()
 
-  const client = new EngineClient(config.python, {
+  const client = new EngineClient(interpreter.python, {
     // The queue ceiling is set HERE, not left to the bridge's default, so the
     // number in the metric, the number in the refusal message and the number the
     // supervisor believes are the same number.
@@ -1190,7 +1311,12 @@ export function apply(ctx: Context, rawConfig: HighlightEngineConfig): void {
     // The reason exists only for a degraded machine: keeping a stale one on a
     // healthy host would let a panel print "install OpenCV" beside "working".
     const degraded = raw.degraded === true
+    const interp = group('interpreter')
     return {
+      interpreter: {
+        executable: str(interp.executable),
+        version: str(interp.version),
+      },
       detector: {
         kind: str(detector.kind, 'onnx'),
         path: str(detector.path),
@@ -1216,7 +1342,7 @@ export function apply(ctx: Context, rawConfig: HighlightEngineConfig): void {
       running: client.running,
       pid: client.pid,
       restarts,
-      python: config.python,
+      python: interpreter.python,
       script,
       protocol: helloInfo?.protocol ?? null,
       engine: helloInfo?.engine ?? null,

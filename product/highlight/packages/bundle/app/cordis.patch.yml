@@ -19,10 +19,15 @@
         # <root>/engine/vhl_bridge.py from it. Root ends with a separator
         # (it comes from a directory URL), which is why rows may concatenate.
         root: !!js ctx.appPaths.root
-        # A python3 on PATH is the documented minimum; VHL_PYTHON pins a venv
-        # interpreter when the optional model stack (opencv/onnxruntime) lives
-        # in one. A missing interpreter degrades to coded UNAVAILABLE errors —
-        # it never blocks the boot.
+        # Interpreter that runs the bridge. Empty means "the host decides": it
+        # resolves explicit-config > VHL_PYTHON > the repository's own
+        # engine/.venv > PATH python3. The empty default is load-bearing — with
+        # 'python3' as the default, an operator who explicitly wrote python3
+        # (to force the FFmpeg-only deployment) and one who said nothing look
+        # identical, and only the first of them meant it.
+        #
+        # The value below is VHL_PYTHON when it is set, so the host honours it
+        # (as an explicit choice) and never falls through to the venv.
         python: !!js ctx.env.str('PYTHON')
         # Point at a bridge outside the product tree (packaged engine, test
         # double). Empty = <root>/engine/vhl_bridge.py.
