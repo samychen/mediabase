@@ -24,7 +24,7 @@ import { spawn, type ChildProcess } from 'node:child_process'
 import type { Context } from '@deepseek-ai/cordis'
 import { RpcCode, RpcError, describeRpcError } from '@mediabase/rpc'
 import { serializeError, type SandboxChildMessage, type SandboxHostMessage } from './sandbox-protocol.ts'
-import { planConfinement, type Confinement, type ConfineRequest } from '@mediabase/confine'
+import { planConfinement, withoutInjectingEnv, type Confinement, type ConfineRequest } from '@mediabase/confine'
 
 export interface SandboxOptions {
   /** Absolute path of the sandbox entry script (bundled or TS via tsx). */
@@ -133,11 +133,23 @@ export class SandboxedPlugin {
     }
     const spawnPlan = this.confinement?.spawn(this.options.entry, nodeArgs)
       ?? { bin: this.options.execPath ?? process.execPath, args: [...nodeArgs, this.options.entry] }
+    // A CONFINED child must not inherit a preload. `NODE_OPTIONS=--require <file>`
+    // runs code at startup from a path the policy never declared — under
+    // `--permission` the read is simply denied, so the child exits before its first
+    // statement while the report claims a boundary it never ran under (measured: a
+    // host started from an environment with an ambient `--require` failed every
+    // confined load). The drop is REPORTED, because a variable the deployer set
+    // disappearing without a word is the same dishonesty as an unenforced denial.
+    const merged = { ...process.env, ...(this.options.env ?? {}) }
+    const ambient = this.confinement === null ? { env: merged, dropped: [] as string[] } : withoutInjectingEnv(merged)
+    if (ambient.dropped.length > 0) {
+      this.handlers.onLog('warn', `沙箱限制: 已丢弃注入型环境变量 ${ambient.dropped.join(', ')} —— 它们会在声明的根之外加载代码`)
+    }
     const proc = spawn(spawnPlan.bin, spawnPlan.args, {
       stdio: ['ignore', 'pipe', 'pipe', 'ipc'],
       // structured clone over IPC: Buffers/Uint8Array survive service calls
       serialization: 'advanced',
-      env: { ...process.env, ...(this.options.env ?? {}) },
+      env: ambient.env,
     })
     this.proc = proc
     this.startedAt = Date.now()

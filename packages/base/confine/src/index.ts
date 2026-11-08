@@ -210,17 +210,67 @@ export function bubblewrapArgs(roots: ResolvedRoots, request: ConfineRequest): s
 }
 
 /**
+ * Environment variables through which the AMBIENT environment makes a Node process
+ * load code, resolve modules, or write files the policy never agreed to.
+ *
+ * Two failure modes, both measured:
+ *   * `NODE_OPTIONS=--require <file>` (and `--import`, `--loader`) executes a module
+ *     at startup. Under `--permission` that read is denied — so a child spawned
+ *     under the policy dies before its first line, and the probe that decides
+ *     whether the policy is available dies too, reporting the machine as having no
+ *     Node layer at all. That is how a host started from an environment with an
+ *     ambient preload ended up confining NOTHING while its own report said the
+ *     mechanism was missing.
+ *   * `NODE_PATH` widens module resolution beyond the declared roots, and
+ *     `NODE_V8_COVERAGE` writes outside them — a denial the plan did not ask for,
+ *     failing a child for a reason the report cannot explain.
+ *
+ * `NODE_EXTRA_CA_CERTS` is deliberately NOT here: it is read by the TLS stack rather
+ * than at startup, and a confined child that cannot trust a corporate CA is a
+ * different (deployment) decision, not a policy leak.
+ */
+export const INJECTING_ENV = ['NODE_OPTIONS', 'NODE_PATH', 'NODE_REPL_EXTERNAL_MODULE', 'NODE_V8_COVERAGE'] as const
+
+/**
+ * The environment with the injecting variables removed, plus what was removed.
+ *
+ * `dropped` is not bookkeeping: callers REPORT it, because silently discarding a
+ * variable a user set is the same class of dishonesty as claiming a denial that is
+ * not enforced. An empty value is left alone — it injects nothing.
+ */
+export function withoutInjectingEnv(base: NodeJS.ProcessEnv = process.env): { env: NodeJS.ProcessEnv; dropped: string[] } {
+  const env: NodeJS.ProcessEnv = { ...base }
+  const dropped: string[] = []
+  for (const key of INJECTING_ENV) {
+    const value = env[key]
+    if (value !== undefined && value !== '') {
+      dropped.push(key)
+      delete env[key]
+    }
+  }
+  return { env, dropped }
+}
+
+/**
  * Run each mechanism to find out whether it is actually usable here, and keep the
  * failure text. Never throws: an unusable mechanism is data, not an exception.
+ *
+ * The probe runs with the injecting variables removed (see `INJECTING_ENV`): it asks
+ * what THIS BINARY can enforce, not what the caller's ambient preload happens to
+ * break. Inheriting the caller's environment here made the answer depend on how the
+ * host was started.
  */
-export function probeMechanisms(options: { platform?: NodeJS.Platform; execPath?: string } = {}): Probe {
+export function probeMechanisms(
+  options: { platform?: NodeJS.Platform; execPath?: string; env?: NodeJS.ProcessEnv } = {},
+): Probe {
   const platform = options.platform ?? process.platform
   const execPath = options.execPath ?? process.execPath
+  const { env } = withoutInjectingEnv(options.env ?? process.env)
   const available: ConfineMechanism[] = []
   const unavailable: Unavailable[] = []
   const attempt = (mechanism: ConfineMechanism, bin: string, args: string[]): void => {
     try {
-      execFileSync(bin, args, { stdio: ['ignore', 'ignore', 'pipe'], timeout: 5_000 })
+      execFileSync(bin, args, { stdio: ['ignore', 'ignore', 'pipe'], timeout: 5_000, env })
       available.push(mechanism)
     } catch (e) {
       const err = e as { stderr?: Buffer | string; message?: string; code?: string }

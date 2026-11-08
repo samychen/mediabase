@@ -24,8 +24,10 @@ import {
   defaultProbe,
   nodePermissionArgs,
   planConfinement,
+  probeMechanisms,
   resolveRoots,
   seatbeltProfile,
+  withoutInjectingEnv,
   type Probe,
 } from '../packages/base/confine/src/index.ts'
 import * as log from '../packages/base/log/src/index.ts'
@@ -227,6 +229,41 @@ describe('@mediabase/confine: the plan is the policy, as text', () => {
     // The Node layer is the portable one; if this Node lacks it, the suite below
     // would be meaningless, so make that failure explicit rather than silent.
     expect(here.available).toContain('node-permission')
+  })
+
+  it('drops the environment that injects code, and says what it dropped', () => {
+    // A preload is code the policy never agreed to: `--require <file>` reads a path
+    // outside every declared root, and under `--permission` that read is DENIED — so
+    // the child dies before its first statement. The drop is reported because a
+    // variable the deployer set vanishing without a word is the same dishonesty as
+    // claiming a denial that is not enforced.
+    const { env, dropped } = withoutInjectingEnv({
+      PATH: '/usr/bin',
+      HOME: '/home/u',
+      NODE_OPTIONS: '--require /somewhere/shim.cjs',
+      NODE_PATH: '/somewhere/modules',
+      NODE_REPL_EXTERNAL_MODULE: '/somewhere/repl.cjs',
+      NODE_V8_COVERAGE: '/tmp/cov',
+    })
+    expect(dropped.sort()).toEqual(['NODE_OPTIONS', 'NODE_PATH', 'NODE_REPL_EXTERNAL_MODULE', 'NODE_V8_COVERAGE'])
+    expect(env.NODE_OPTIONS).toBeUndefined()
+    // Everything else survives: the child still needs PATH to run and HOME to breathe.
+    expect(env.PATH).toBe('/usr/bin')
+    expect(env.HOME).toBe('/home/u')
+    // An empty value injects nothing, so it is not reported as dropped.
+    expect(withoutInjectingEnv({ NODE_OPTIONS: '' }).dropped).toEqual([])
+  })
+
+  it('probes the binary, not the caller\'s ambient preload', () => {
+    // The probe answers "what can THIS Node enforce", so its verdict must not depend
+    // on how the host was started. Measured: a host launched from an environment with
+    // an ambient `--require` failed the probe, and the plan then concluded — correctly
+    // for the flags it built, uselessly for the machine — that no Node layer existed,
+    // so every confined plugin ran with filesystem=inherit while the report blamed the
+    // runtime. Same binary, same answer, injected or not.
+    const hostile = probeMechanisms({ env: { ...process.env, NODE_OPTIONS: '--require /nonexistent/definitely-not-here.cjs' } })
+    expect(hostile.available).toContain('node-permission')
+    expect(hostile.available).toEqual(defaultProbe().available)
   })
 })
 

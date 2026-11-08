@@ -47,11 +47,17 @@ spawn(bin, args, { stdio: ['ignore', 'pipe', 'pipe', 'ipc'] })
 层=node-permission · 文件系统=读写(仅声明目录) · 子进程=禁止 · 网络=未限制 · 未生效=seatbelt: sandbox_apply: Operation not permitted
 ```
 
-## 两个必须知道的实现事实(实测)
+## 三个必须知道的实现事实(实测)
 
 - **路径按字面比较,不做符号链接解析。** Node 权限模型把子进程请求的路径与声明的根
   逐字比较:macOS 上 `/tmp/x` 与 `/private/tmp/x` 是同一目录、两个字符串。所以
   `resolveRoots()` **同时给出原样路径与 realpath 两种形式**,否则总有一半访问被静默拒绝。
+- **环境变量本身就是一条越权通道。** `NODE_OPTIONS=--require <file>` 会在启动时执行一个
+  策略之外的模块 —— 在 `--permission` 下那次读会被拒绝,于是**子进程与探测命令都在第一行
+  之前就死掉**,探测随之报告"本机没有 Node 层",而报告看上去完全合理。所以
+  `withoutInjectingEnv()` 去掉 `NODE_OPTIONS`/`NODE_PATH`/`NODE_REPL_EXTERNAL_MODULE`/
+  `NODE_V8_COVERAGE`,探测与受限子进程都用它的结果,并且**把丢弃的变量报出来**
+  (`dropped`)—— 偷偷删掉用户设过的变量,和宣称一个没生效的禁止是同一类不诚实。
 - **`tsx` 需要 worker 线程**(它用 worker 注册 ESM loader 钩子),而禁止 worker 正是限制的
   一部分。所以受限子进程优先用:打包后的 `build/sandbox.cjs` → 仓库内 `node entry.ts`
   (Node 自带类型剥离,无 loader) → 最后才是 `tsx`,并且此时把"放弃 worker 禁止"作为
