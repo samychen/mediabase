@@ -279,7 +279,8 @@ product/highlight/
 │  ├─ contract.py                contract.json → 动词表（缺失时退回生成模块）
 │  ├─ protocol_generated.py      (生成) contract.json → Python 常量
 │  ├─ highlight_core/            (同步) 引擎副本，禁止就地改
-│  └─ SYNC.json                  上游路径 / 提交 / 同步时间 / 文件表
+│  ├─ SYNC.json                  上游路径 / 提交 / 同步时间 / 文件表
+│  └─ tests/test_bridge.py       桥自身的单测（stdlib unittest，无额外依赖）
 ├─ packages/host/highlight/      @vhl/host-highlight（能力包 + protocol.ts + prometheus.ts + jobs-journal.ts）
 ├─ packages/client/panel/        @vhl/ui-highlight（两个面板 + timeline.ts）
 ├─ packages/bundle/app/          @vhl/bundle-app（cordis.patch.yml，端口 3093）
@@ -343,10 +344,17 @@ pnpm run host:highlight       # http://127.0.0.1:3093
 pnpm run typecheck:highlight
 pnpm run verify:highlight:compose     # 组合层（patch + 名册）
 pnpm run test:highlight               # 66 个用例，不需要 Python/FFmpeg/浏览器
+pnpm run test:highlight:py            # 46 个用例，桥自身（Python + stdlib unittest）
+pnpm run test:highlight:all           # 上面两组
 pnpm run verify:highlight:fake        # 端到端，Node 测试替身（无 Python 也能跑）
 pnpm run verify:highlight:real        # 端到端，真 Python 桥 + 真 FFmpeg
 pnpm run verify:highlight:ui          # 真 Chrome（CDP）+ 真引擎，截图断言
 ```
+
+**CI 跑哪些**（`.github/workflows/ci.yml` 的 `quality` job）：typecheck、组合闸门、契约漂移、
+66 个 TS 用例、46 个桥用例、build + 假引擎冒烟。**`real` 与 `ui` 不进 CI**：前者要有模型栈，
+缺了就降级跳过——一个会跳过的闸门等于没有闸门；后者要真 Chrome。它们是本机/发布前的验收，
+不是提交门禁。
 
 `verify:highlight` 走完整面：health → strict `capabilities.verify` → `api.list`/`tools.list`
 → 协议契约（生成表与替身是否覆盖全部动词、版本=1）→ `hello`/`engine.state`/`models`
@@ -378,7 +386,8 @@ pnpm run verify:highlight:ui          # 真 Chrome（CDP）+ 真引擎，截图�
 | 检查 | 结果 |
 |---|---|
 | `test:highlight` | ✅ **66/66**（6 个世界：正常 / 无解释器 / 崩溃监督 / 队列背压 / 保留窗口 / **重启** + 任务日志 17 + exposition 14 + 时间算术 4） |
-| 引擎仓 `pytest` | ✅ 11/11（含「取消 5s 内杀掉 30s 子进程」「进度单调收口 1.0」） |
+| `test:highlight:py` | ✅ **46/46**（桥自身：线协议折叠、权重四类拒绝、边界/枚举、依赖缺失、EDL 时码、文件指纹、`provenance` 归一与顺序无关、坏报告不炸任务） |
+| 引擎仓 `pytest` | ✅ 11/11（**上游仓**，不在本树；测的是算法，`highlight_core/` 是它的同源副本；含「取消 5s 内杀掉 30s 子进程」） |
 | `verify:highlight:fake` | ✅ **102 条断言**，0 失败 |
 | `verify:highlight:real` | ✅ **117 条断言**，0 失败；真分析：`[2.80s, 12.00s]` 分数 `0.4512`，信号 `{scene 0.19, audio 1.00, motion 0.22, saliency 0.98, face 0, clip 0}` |
 | 成片可解码 | ✅ `10.096s / 320×180 / h264+aac`（渲染路径为 stream copy，编码与片源一致） |

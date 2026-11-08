@@ -118,3 +118,31 @@ jobs:
           set -euo pipefail
           pnpm run build:mtxconsole
           pnpm run verify:mtxconsole
+
+      # The fourth product (product/highlight) is a TS host + a Python sidecar.
+      # The sidecar is only needed by the `real` smoke, which is deliberately NOT
+      # here: it needs a model stack to say anything the fake bridge cannot, and
+      # a gate that skips when OpenCV is absent teaches people to ignore it.
+      # What CI does enforce is that the bridge's OWN logic holds — it is product
+      # code with no upstream suite behind it — and that the end-to-end path over
+      # the protocol works against the Node fake.
+      - name: Product typecheck (highlight)
+        run: pnpm run typecheck:highlight
+
+      - name: Product composition gate (highlight)
+        run: pnpm run verify:highlight:compose
+
+      - name: Product contract gate (highlight)
+        run: pnpm run check:highlight-drift
+
+      - name: Product test (highlight · host, journal, metrics, timeline)
+        run: pnpm run test:highlight
+
+      - name: Product test (highlight · python bridge)
+        run: pnpm run test:highlight:py
+
+      - name: Product build + smoke (highlight · fake bridge)
+        run: |
+          set -euo pipefail
+          pnpm run build:highlight
+          pnpm run verify:highlight:fake

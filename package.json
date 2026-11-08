@@ -58,6 +58,8 @@
     "dev:highlight": "pnpm run build:highlight && pnpm run host:highlight",
     "typecheck:highlight": "tsc -p product/highlight/tsconfig.host.json && tsc -p product/highlight/tsconfig.client.json && tsc -p product/highlight/tsconfig.test.json",
     "test:highlight": "vitest run --config product/highlight/vitest.config.ts",
+    "test:highlight:py": "${VHL_PYTHON:-python3} -m unittest discover -s product/highlight/engine/tests -v",
+    "test:highlight:all": "pnpm run test:highlight && pnpm run test:highlight:py",
     "verify:highlight:compose": "node scripts/verify-composition.mjs packages/bundle/app/cordis.patch.yml product/highlight/packages/bundle/app/cordis.patch.yml product/highlight/packages/bundle/ui/client.yml",
     "verify:highlight": "node product/highlight/scripts/verify.mjs",
     "verify:highlight:fake": "node product/highlight/scripts/verify.mjs --engine=fake",

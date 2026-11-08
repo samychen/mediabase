@@ -47,6 +47,26 @@ node product/highlight/scripts/sync-engine.mjs --check
   用户会以为它生效了。
 - 长任务在 `ThreadPoolExecutor` 里跑（默认 1 个 worker），主循环继续应答 `status`/`cancel`。
 
+## 桥自己的测试
+
+`highlight_core/` 有上游的 pytest；**桥没有上游，测试得自己写**。`tests/test_bridge.py`
+覆盖的是那种"坏了不报错、只是结果不对"的地方：
+
+```sh
+pnpm run test:highlight:py        # 或 python3 -m unittest discover -s product/highlight/engine/tests -v
+```
+
+- **线协议折叠**：值里的制表符/换行必须变空格。漏一个，一条回复就被切成多列，后面每一列
+  都错位——回复仍能解析，只是全是错的。
+- **权重的四类拒绝**：未知子键、`true`（Python 里 `isinstance(True, int)` 为真）、越界、全零。
+- **`--doctor` 之外的 `provenance`**：指纹 16 位、与 recipe 的键序无关、权重按归一后的值入账、
+  坏报告只记日志不让任务失败。
+- **两个 API 面必须一致**：`models.degraded` 与 `provenance.environment.signals.visualMotion`
+  对 OpenCV 的判断不能各说一套（`find_spec('cv2')` 对装了但加载失败的 OpenCV 返回 True，
+  就踩过这个坑）。
+
+只用标准库 `unittest`：为一个文件引入 pytest，等于给运行环境多加一个测试依赖。
+
 ## 依赖与许可
 
 | 组件 | 用途 | 许可 | 是否随产品分发 |
