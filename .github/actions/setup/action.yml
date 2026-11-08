@@ -1,0 +1,22 @@
+name: setup
+description: >-
+  Toolchain + install, shared by every job. One copy of the pnpm/Node versions so
+  a job added later cannot drift from the others (a different pnpm major changes
+  `-r` semantics, which the NOTICE generator and the workspace filters depend on).
+
+runs:
+  using: composite
+  steps:
+    - uses: pnpm/action-setup@v4
+      with:
+        version: 11
+
+    - uses: actions/setup-node@v4
+      with:
+        node-version: 22
+        cache: pnpm
+
+    - run: pnpm install --no-frozen-lockfile
+      shell: bash
+      env:
+        CI: 'true'

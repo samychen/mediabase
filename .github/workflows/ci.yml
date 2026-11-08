@@ -4,25 +4,25 @@ on:
   push:
   pull_request:
 
+# One job per GREEN/RED UNIT — the base, then each product's own planes.
+#
+# These are separate jobs on purpose, and none of them `needs` another. When every
+# step lived in one `quality` job, a red base gate (a flaky timing test, say) turned
+# the whole run red BEFORE the product steps had even run, so a product regression
+# and a base regression looked identical from the outside: "ci failed". Split, the
+# failing job names the thing that failed, and the four products cannot hide each
+# other or be hidden by the base.
+#
+# What each job still shares is the toolchain: .github/actions/setup is the single
+# copy of the pnpm/Node versions, so a job added later cannot quietly install with a
+# different pnpm major (`-r` semantics, workspace filters).
 jobs:
-  quality:
+  base:
     runs-on: ubuntu-latest
-    timeout-minutes: 20
+    timeout-minutes: 25
     steps:
       - uses: actions/checkout@v4
-
-      - uses: pnpm/action-setup@v4
-        with:
-          version: 11
-
-      - uses: actions/setup-node@v4
-        with:
-          node-version: 22
-          cache: pnpm
-
-      - run: pnpm install --no-frozen-lockfile
-        env:
-          CI: 'true'
+      - uses: ./.github/actions/setup
 
       - name: Typecheck (host + client + tests)
         run: pnpm run typecheck
@@ -83,41 +83,62 @@ jobs:
           wait "$host" || true
           cat /tmp/host.log
 
+  product-openvideo:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - uses: ./.github/actions/setup
+
       # The in-repo product layer (product/openvideo) has its own planes, suite
-      # and smoke — the base gates above do not cover it, and it must not rot.
-      - name: Product typecheck (openvideo)
+      # and smoke — the base gates do not cover it, and it must not rot.
+      - name: Typecheck
         run: pnpm run typecheck:openvideo
 
-      - name: Product composition gate (openvideo)
+      - name: Composition gate
         run: pnpm run verify:openvideo:compose
 
-      - name: Product test (openvideo)
+      - name: Test
         run: pnpm run test:openvideo
 
-      - name: Product build + smoke (openvideo)
+      - name: Build + smoke
         run: |
           set -euo pipefail
           pnpm run build:openvideo
           pnpm run verify:openvideo
 
+  product-mediamtx-console:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - uses: ./.github/actions/setup
+
       # The second product (product/mediamtx-console) has the same gates. Its
       # live-server suites SKIP without a mediamtx binary (the smoke then runs
       # in DEGRADED mode: coded failures against an unreachable server), so CI
       # needs no extra download to stay green.
-      - name: Product typecheck (mediamtx-console)
+      - name: Typecheck
         run: pnpm run typecheck:mtxconsole
 
-      - name: Product composition gate (mediamtx-console)
+      - name: Composition gate
         run: pnpm run verify:mtxconsole:compose
 
-      - name: Product test (mediamtx-console)
+      - name: Test
         run: pnpm run test:mtxconsole
 
-      - name: Product build + smoke (mediamtx-console)
+      - name: Build + smoke
         run: |
           set -euo pipefail
           pnpm run build:mtxconsole
           pnpm run verify:mtxconsole
+
+  product-highlight:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+      - uses: ./.github/actions/setup
 
       # The fourth product (product/highlight) is a TS host + a Python sidecar.
       # The sidecar is only needed by the `real` smoke, which is deliberately NOT
@@ -126,40 +147,47 @@ jobs:
       # What CI does enforce is that the bridge's OWN logic holds — it is product
       # code with no upstream suite behind it — and that the end-to-end path over
       # the protocol works against the Node fake.
-      - name: Product typecheck (highlight)
+      - name: Typecheck
         run: pnpm run typecheck:highlight
 
-      - name: Product composition gate (highlight)
+      - name: Composition gate
         run: pnpm run verify:highlight:compose
 
-      - name: Product contract gate (highlight)
+      - name: Contract gate (engine copy + protocol + roster drift)
         run: pnpm run check:highlight-drift
 
-      - name: Product test (highlight · host, journal, metrics, timeline)
+      - name: Test (host, journal, metrics, timeline)
         run: pnpm run test:highlight
 
-      - name: Product test (highlight · python bridge)
+      - name: Test (python bridge)
         run: pnpm run test:highlight:py
 
-      - name: Product build + smoke (highlight · fake bridge)
+      - name: Build + smoke (fake bridge)
         run: |
           set -euo pipefail
           pnpm run build:highlight
           pnpm run verify:highlight:fake
+
+  product-xmedia:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+      - uses: ./.github/actions/setup
 
       # The third product (product/xmedia) is a TS host over a C++ engine. CI
       # runs the Node fake engine (no toolchain, no MediaMTX): the smoke then
       # asserts the control plane, the retired-surface rules and the page, and
       # skips only the live RTMP publish, which needs a real server. The real
       # engine build stays a release step — same reason as highlight's `real`.
-      - name: Product typecheck (xmedia)
+      - name: Typecheck
         run: pnpm run typecheck:xmedia
 
-      - name: Product composition gate (xmedia)
+      - name: Composition gate
         run: pnpm run verify:xmedia:compose
 
-      - name: Product test (xmedia)
+      - name: Test
         run: pnpm run test:xmedia
 
-      - name: Product smoke (xmedia · fake engine)
+      - name: Smoke (fake engine)
         run: pnpm run verify:xmedia
