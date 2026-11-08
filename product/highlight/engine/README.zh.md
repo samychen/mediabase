@@ -64,6 +64,12 @@ pnpm run test:highlight:py        # 或 python3 -m unittest discover -s product/
 - **两个 API 面必须一致**：`models.degraded` 与 `provenance.environment.signals.visualMotion`
   对 OpenCV 的判断不能各说一套（`find_spec('cv2')` 对装了但加载失败的 OpenCV 返回 True，
   就踩过这个坑）。
+- **降级要带原因**：`degradedReason` 是 `opencv-missing` / `numpy-missing` /
+  `opencv-import-failed`（可用时为 `''`），与 `degraded` 同生同灭。三种原因的修复不同——
+  没装、缺 numpy、装了但导入失败——混成一句"未装 OpenCV"会把后两种人送去装一个已经存在的
+  东西（`numpy-missing` 尤其隐蔽：分析器把 `import cv2` 与 `import numpy` 写在同一个 `try`
+  里，缺 numpy 会落进同一个标志）。（`find_spec` 在这里是对的问题，正好用来区分这几者；
+  `opencv_usable()` 里它才是错的问题。）
 
 只用标准库 `unittest`：为一个文件引入 pytest，等于给运行环境多加一个测试依赖。
 

@@ -191,8 +191,17 @@ avgElapsedMs / restoredJobs / interruptedJobs / recent[20]`，终态**幂等入�
 详见第十二节。
 
 **5. 诚实降级。** 没有 `python3` / 脚本时宿主照常启动，所有引擎调用回 `UNAVAILABLE`；
-没有 OpenCV 时 `models.list` 报 `degraded: true`，面板直接显示
-「降级模式：未装 OpenCV，仅 FFmpeg 信号分析」，不假装能力齐全。
+没有 OpenCV 时 `models.list` 报 `degraded: true` 并带 `degradedReason`，面板按原因显示
+「降级模式：未安装 OpenCV · 视觉信号回退到 FFmpeg signalstats」/「…缺少 numpy…」/
+「…OpenCV 已安装但导入失败…」，不假装能力齐全，也不把不同原因说成一种。
+
+> 这条最早写的是「未装 OpenCV，仅 FFmpeg 信号分析」—— 一句话对着**所有**降级机器说，而它们要
+> 做的修复完全不同：没装的该 `pip install`；装好了但 `libprotobuf` 挪走的（本机上一台机器就是）
+> 重装同一个包没用；`brew install opencv` 而解释器里没有 numpy 的，问题根本不在 OpenCV。
+> 对着这三种机器都说"未装"，等于让人去装一个已经存在的东西。而"仅 FFmpeg"也夸大了损失
+> （scene/audio 本来就走 FFmpeg）。所以原因变成了**代码**（`opencv-missing` /
+> `numpy-missing` / `opencv-import-failed`，见 `opencv_issue()`），措辞归 UI，未知代码
+> 回退到不指名的通用句。
 
 **6. 许可标识随能力一起返回。** `models.list` 每个模型带 `license`
 （detector `Apache-2.0`、face `Apache-2.0`、clip `MIT`、whisper `MIT`）。不打包任何模型权重，

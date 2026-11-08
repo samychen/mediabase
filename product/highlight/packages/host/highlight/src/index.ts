@@ -159,6 +159,15 @@ export interface HighlightModels {
   whisper: { available: boolean; license: string }
   runtime: { opencv: boolean; numpy: boolean; onnxruntime: boolean }
   degraded: boolean
+  /**
+   * Why vision is off, as a code the panel translates — `opencv-missing` (install
+   * it), `numpy-missing` (cv2 is there, its numeric dependency is not),
+   * `opencv-import-failed` (both installed, the import dies). '' when not degraded.
+   * A code rather than a sentence because the UI owns the wording; and empty rather
+   * than a guess when the engine did not say, so an older engine cannot make the
+   * panel accuse the wrong cause.
+   */
+  degradedReason: string
 }
 
 export interface HighlightService {
@@ -1167,6 +1176,9 @@ export function apply(ctx: Context, rawConfig: HighlightEngineConfig): void {
     const group = (key: string): Record<string, unknown> => isRecord(raw[key]) ? raw[key] as Record<string, unknown> : {}
     const detector = group('detector')
     const runtime = group('runtime')
+    // The reason exists only for a degraded machine: keeping a stale one on a
+    // healthy host would let a panel print "install OpenCV" beside "working".
+    const degraded = raw.degraded === true
     return {
       detector: {
         kind: str(detector.kind, 'onnx'),
@@ -1182,7 +1194,8 @@ export function apply(ctx: Context, rawConfig: HighlightEngineConfig): void {
         numpy: runtime.numpy === true,
         onnxruntime: runtime.onnxruntime === true,
       },
-      degraded: raw.degraded === true,
+      degraded,
+      degradedReason: degraded ? str(raw.degradedReason) : '',
     }
   }
 

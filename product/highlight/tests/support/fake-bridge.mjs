@@ -284,6 +284,10 @@ function handle(verb, args) {
         whisper: { available: false, license: 'MIT' },
         runtime: { opencv: false, numpy: false, onnxruntime: false },
         degraded: true,
+        // A double must answer the same QUESTIONS as the thing it doubles, or the
+        // host path that reads a reason is never exercised. `opencv-missing` is the
+        // honest code for this fake (nothing here is installed).
+        degradedReason: 'opencv-missing',
       })]
     case 'quit':
       return ['ok']

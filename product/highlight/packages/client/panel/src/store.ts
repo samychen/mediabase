@@ -79,6 +79,8 @@ export interface Models {
   whisper: { available: boolean; license: string }
   runtime: { opencv: boolean; numpy: boolean; onnxruntime: boolean }
   degraded: boolean
+  /** Why vision is off (`opencv-missing` / `numpy-missing` / `opencv-import-failed`), '' if healthy. */
+  degradedReason: string
 }
 
 export interface EngineState {

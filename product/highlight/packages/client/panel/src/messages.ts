@@ -20,7 +20,15 @@ export const HIGHLIGHT_MESSAGES = {
     'vhl.control.idle': '未提交任务',
     'vhl.control.engine': '引擎',
     'vhl.control.engineDown': '引擎未握手',
-    'vhl.control.degraded': '降级模式:未装 OpenCV,仅 FFmpeg 信号分析',
+    // One key per CAUSE, because each cause is a different fix: "install OpenCV" is
+    // wrong advice on a machine that has it and cannot import it (a Homebrew keg
+    // whose libprotobuf moved), and wrong again on one whose cv2 is fine but numpy
+    // is missing. The bare key is the fallback for a reason this build does not
+    // know, and it deliberately does not name a cause.
+    'vhl.control.degraded': '降级模式:视觉依赖不可用 · 视觉信号回退到 FFmpeg signalstats',
+    'vhl.control.degraded.opencv-missing': '降级模式:未安装 OpenCV · 视觉信号回退到 FFmpeg signalstats',
+    'vhl.control.degraded.numpy-missing': '降级模式:缺少 numpy · 视觉信号回退到 FFmpeg signalstats',
+    'vhl.control.degraded.opencv-import-failed': '降级模式:OpenCV 已安装但导入失败 · 视觉信号回退到 FFmpeg signalstats',
     'vhl.control.media': '媒体',
     'vhl.control.jobs': '任务',
     'vhl.control.noJobs': '本进程内暂无任务',
@@ -117,7 +125,10 @@ export const HIGHLIGHT_MESSAGES = {
     'vhl.control.idle': 'No job submitted',
     'vhl.control.engine': 'Engine',
     'vhl.control.engineDown': 'engine not handshaken',
-    'vhl.control.degraded': 'Degraded: no OpenCV, FFmpeg signal analysis only',
+    'vhl.control.degraded': 'Degraded: vision dependencies unavailable — visual signals fall back to FFmpeg signalstats',
+    'vhl.control.degraded.opencv-missing': 'Degraded: OpenCV not installed — visual signals fall back to FFmpeg signalstats',
+    'vhl.control.degraded.numpy-missing': 'Degraded: numpy is missing — visual signals fall back to FFmpeg signalstats',
+    'vhl.control.degraded.opencv-import-failed': 'Degraded: OpenCV is installed but fails to import — visual signals fall back to FFmpeg signalstats',
     'vhl.control.media': 'Media',
     'vhl.control.jobs': 'Jobs',
     'vhl.control.noJobs': 'No job in this process yet',
@@ -210,4 +221,19 @@ export function stageKey(stage: string): string {
 /** Map a job state identifier to its message key. */
 export function stateKey(state: string): string {
   return `vhl.state.${state}`
+}
+
+/**
+ * Map the engine's degradation code onto its message key.
+ *
+ * Unknown codes fall back to the bare key, which names no cause: a panel that
+ * guessed "not installed" for a machine that has OpenCV sends the operator to
+ * install what is already there. The engine's codes are the contract
+ * (`opencv-missing` / `numpy-missing` / `opencv-import-failed`, see
+ * `opencv_issue()`), and it sends '' when nothing is degraded.
+ */
+export function degradedKey(reason: string): string {
+  return reason === 'opencv-missing' || reason === 'numpy-missing' || reason === 'opencv-import-failed'
+    ? `vhl.control.degraded.${reason}`
+    : 'vhl.control.degraded'
 }

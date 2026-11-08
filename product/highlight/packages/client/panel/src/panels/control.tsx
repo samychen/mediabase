@@ -7,7 +7,7 @@
 import type { ReactElement } from 'react'
 import type { Context } from '@deepseek-ai/cordis'
 import { useI18n } from '@mediabase/i18n'
-import { stageKey, stateKey } from '../messages.ts'
+import { degradedKey, stageKey, stateKey } from '../messages.ts'
 import type { HighlightOption } from '../store.ts'
 import { useHighlight } from '../use-highlight.ts'
 
@@ -269,7 +269,7 @@ export function ControlPanel({ ctx }: { ctx: Context }): ReactElement | null {
       )}
 
       {state.models?.degraded === true && (
-        <div className="status">{t('vhl.control.degraded')}</div>
+        <div className="status">{t(degradedKey(state.models.degradedReason))}</div>
       )}
       {state.error !== null && <div className="status vhl-error">{state.error}</div>}
 

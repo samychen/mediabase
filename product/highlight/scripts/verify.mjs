@@ -384,6 +384,14 @@ try {
       checks.expect('信号后端与 models.degraded 对 OpenCV 的判断一致',
         (models?.degraded === true) === (signals.visualMotion === 'ffmpeg-signalstats'),
         `degraded=${models?.degraded} visualMotion=${signals.visualMotion}`)
+      // ...and the panel cannot say WHY without a code. A reason on a healthy host,
+      // or no reason on a reduced one, would put "install OpenCV" next to "working".
+      const DEGRADED_REASONS = ['opencv-missing', 'numpy-missing', 'opencv-import-failed']
+      checks.expect('降级原因与 degraded 同生同灭,且是面板认识的代码',
+        models?.degraded === true
+          ? DEGRADED_REASONS.includes(models?.degradedReason)
+          : models?.degradedReason === '',
+        `degraded=${models?.degraded} reason=${JSON.stringify(models?.degradedReason)}`)
       // Two records of the same decision live in one document; if they disagree,
       // one of them is lying and a reader cannot tell which.
       const recorded = prov?.recipe?.weights ?? {}

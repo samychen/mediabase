@@ -272,9 +272,15 @@ describe('the highlight host with a working engine', () => {
     expect(jobs.length).toBeGreaterThan(0)
     const models = await rpc().call('highlight.models') as {
       detector: { license: string }; clip: { license: string }
+      degraded: boolean; degradedReason: string
     }
     expect(models.detector.license).toContain('Apache-2.0')
     expect(models.clip.license).toContain('MIT')
+    // The panel picks its sentence from this code, so the host must not eat it: a
+    // reduced machine with no reason falls back to wording that names no cause, and
+    // the operator is left guessing which of two opposite fixes to apply.
+    expect(models.degraded).toBe(true)
+    expect(models.degradedReason).toBe('opencv-missing')
   })
 
   it('publishes engine diagnostics on health', async () => {

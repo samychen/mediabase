@@ -548,6 +548,34 @@ def opencv_usable() -> bool:
     return bool(getattr(vision_analyzer, "_HAS_OPENCV", False))
 
 
+def opencv_issue() -> str:
+    """Why the vision stage will not run — as a CODE the UI translates.
+
+    `degraded` on its own conflates machines that need different fixes, and each
+    wrong name sends the operator to install something they already have:
+
+      * `opencv-missing`  — no module named cv2 (`pip install opencv-python-headless`);
+      * `numpy-missing`   — cv2 is there but numpy is not. The analyzer imports cv2
+        AND numpy in ONE `try`, so this lands in the same flag as a broken OpenCV —
+        "reinstall OpenCV" would be the same wrong advice, one level down. Real on a
+        macOS box with `brew install opencv` and no pip numpy;
+      * `opencv-import-failed` — both are installed and the import still dies (a keg
+        whose libprotobuf moved, a wheel that cannot dlopen).
+
+    `find_spec` is the right question HERE, unlike in `opencv_usable()`: "does a
+    module with this name exist" is exactly the difference between absent and
+    unimportable. Empty when OpenCV is usable, so `degraded` and this field cannot
+    disagree.
+    """
+    if opencv_usable():
+        return ""
+    if not _has_module("cv2"):
+        return "opencv-missing"
+    if not _has_module("numpy"):
+        return "numpy-missing"
+    return "opencv-import-failed"
+
+
 def models_report() -> Dict[str, Any]:
     """What this deployment can actually score with, and under which licence."""
     onnx_path = os.environ.get("VHL_ONNX_MODEL", "")
@@ -577,6 +605,8 @@ def models_report() -> Dict[str, Any]:
             "onnxruntime": _has_module("onnxruntime"),
         },
         "degraded": not cv2,
+        # Why, not just whether — each cause is a different fix.
+        "degradedReason": opencv_issue(),
     }
 
 

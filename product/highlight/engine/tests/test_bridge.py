@@ -26,6 +26,7 @@ import re
 import sys
 import tempfile
 import unittest
+from unittest import mock
 
 sys.path.insert(0, str(pathlib.Path(__file__).resolve().parents[1]))
 
@@ -414,6 +415,45 @@ class AttachProvenanceTests(unittest.TestCase):
 
     def test_empty_path_is_a_no_op(self):
         b.attach_provenance("", HighlightConfig())  # jobs without a report
+
+
+# --------------------------------------------------------------------------- #
+# Capability report: WHY it is reduced, not just THAT it is
+# --------------------------------------------------------------------------- #
+
+class CapabilityReportTests(unittest.TestCase):
+    def test_reason_and_degraded_flag_cannot_disagree(self):
+        # Two fields describing one state will eventually describe two states. The
+        # UI branches on `degraded` and prints the reason, so a mismatch shows a
+        # healthy machine's reason or an empty reason on a broken one.
+        report = b.models_report()
+        self.assertEqual(report["degraded"], report["degradedReason"] != "")
+        self.assertEqual(report["degraded"], not report["runtime"]["opencv"])
+
+    def test_absent_and_unimportable_are_named_separately(self):
+        # Different machines, different fixes. "Install OpenCV" is wrong advice for
+        # one that has it: a Homebrew keg whose libprotobuf moved imports with
+        # `Library not loaded`, and find_spec still says the module is there.
+        def issue(has_cv2, has_numpy, usable=False):
+            with mock.patch.object(b, "opencv_usable", return_value=usable), \
+                    mock.patch.object(b, "_has_module", side_effect=lambda name: {"cv2": has_cv2, "numpy": has_numpy}[name]):
+                return b.opencv_issue()
+
+        self.assertEqual(issue(False, False), "opencv-missing")
+        self.assertEqual(issue(True, True), "opencv-import-failed")
+        # cv2 present, numpy absent: the analyzer imports BOTH in one try, so this
+        # would otherwise be reported as a broken OpenCV — and "reinstall OpenCV"
+        # is the same wrong advice one level down. Real with a Homebrew opencv and
+        # a python that has no pip numpy.
+        self.assertEqual(issue(True, False), "numpy-missing")
+        self.assertEqual(issue(True, True, usable=True), "")
+        self.assertEqual(issue(False, False, usable=True), "")
+
+    def test_the_reason_is_a_stable_code(self):
+        # The panel maps these values onto message keys and falls back to a generic
+        # sentence for anything else, so this list is the contract.
+        self.assertIn(b.opencv_issue(), {"", "opencv-missing", "numpy-missing", "opencv-import-failed"})
+        self.assertEqual(b.doctor()["models"]["degradedReason"], b.opencv_issue())
 
 
 if __name__ == "__main__":
