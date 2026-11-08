@@ -30,6 +30,7 @@ SPDX-License-Identifier: Apache-2.0
 from __future__ import annotations
 
 import argparse
+import hashlib
 import importlib.util
 import json
 import os
@@ -42,7 +43,7 @@ import time
 import traceback
 import uuid
 from concurrent.futures import ThreadPoolExecutor
-from dataclasses import dataclass, field
+from dataclasses import asdict, dataclass, field
 from typing import Any, Dict, List, Optional, Sequence, Tuple
 
 HERE = pathlib.Path(__file__).resolve().parent
@@ -59,6 +60,9 @@ from highlight_core import (  # noqa: E402
     ScoringWeights,
 )
 from highlight_core.ffmpeg_engine import FFmpegEngine  # noqa: E402
+# Read only for `_HAS_OPENCV` — see `opencv_usable()` for why the analyzer's own
+# import flag is the only trustworthy answer here.
+from highlight_core import vision_analyzer  # noqa: E402
 
 ENGINE_NAME = "vhl-engine"
 ENGINE_VERSION = "2.1.0"
@@ -473,6 +477,10 @@ class Runtime:
             job.segments = [_segment(h) for h in result.highlights]
             job.output_srt = result.output_srt or ""
             job.report_path = result.timeline_report_json
+            # Stamp before declaring success: a client that reads the report the
+            # moment the job turns `succeeded` must already find the fingerprint,
+            # otherwise "the artifact is complete" would be a race.
+            attach_provenance(job.report_path, job.config)
             job.duration_sec = float(result.metadata.duration_sec)
             job.fps = float(result.metadata.fps or 25.0)
             job.state = "succeeded"
@@ -522,9 +530,28 @@ def _has_module(name: str) -> bool:
         return False
 
 
+def opencv_usable() -> bool:
+    """Whether the vision stage will actually run — not whether cv2 exists.
+
+    `importlib.util.find_spec('cv2')` answers "is there a module named cv2", and
+    it says YES for a wheel whose native library fails to dlopen: a Homebrew
+    opencv whose libprotobuf moved does exactly that, and the import dies with
+    `Library not loaded`. Anything that reports capability from find_spec will
+    therefore claim "motion + saliency available" on a machine that silently runs
+    the FFmpeg-only path — the one lie this product cannot afford, because honest
+    degradation is the whole reason `degraded` exists.
+
+    The analyzer imports cv2 for real at import time and records the outcome, so
+    its flag cannot disagree with the run. Reading it costs nothing: the module is
+    already loaded by the time this process answers anything.
+    """
+    return bool(getattr(vision_analyzer, "_HAS_OPENCV", False))
+
+
 def models_report() -> Dict[str, Any]:
     """What this deployment can actually score with, and under which licence."""
     onnx_path = os.environ.get("VHL_ONNX_MODEL", "")
+    cv2 = opencv_usable()
     return {
         "detector": {
             "kind": "onnx",
@@ -545,11 +572,11 @@ def models_report() -> Dict[str, Any]:
             "license": "MIT (faster-whisper / CTranslate2)",
         },
         "runtime": {
-            "opencv": _has_module("cv2"),
+            "opencv": cv2,
             "numpy": _has_module("numpy"),
             "onnxruntime": _has_module("onnxruntime"),
         },
-        "degraded": not _has_module("cv2"),
+        "degraded": not cv2,
     }
 
 
@@ -562,8 +589,225 @@ def doctor() -> Dict[str, Any]:
         "ffmpegPath": shutil.which(os.environ.get("VHL_FFMPEG_BIN", "ffmpeg")) or "",
         "protocol": contract.describe(),
         "models": models_report(),
+        "environment": environment(),
         "cwd": os.getcwd(),
     }
+
+
+# --------------------------------------------------------------------------- #
+# Provenance — who computed these numbers
+# --------------------------------------------------------------------------- #
+#
+# The engine's own report payload records the RECIPE (weights, thresholds) but
+# nothing about the MACHINERY — and the machinery is where a disagreement comes
+# from: a different ONNX checkpoint, a different OpenCV build (optical flow moved
+# between minor versions), a missing model that silently dropped one of the seven
+# signals to zero. Same input, same parameters, different clip — the report as it
+# stood could not name a cause, so the only available explanation was "the tool is
+# inconsistent".
+#
+# It is NOT a registry and NOT a validation gate. Nothing here rejects a run,
+# compares against a whitelist, or fails a job: recording is the whole job. A gate
+# would stand between the operator and the new checkpoint they are trying to
+# evaluate, which is the one thing this product must keep easy. So the recipe
+# travels WITH the artifact, and two reports can be diffed after the fact.
+#
+# Canonicalisation matters because the fingerprint claims "these two runs are the
+# same run". Every value in `environment` is therefore a string, an int or a bool,
+# and mtime is an ISO string rather than float epoch seconds: a float's JSON form
+# is not portable across languages and its human form is unreadable. `recipe`
+# keeps the engine's own floats untouched — those are the engine's numbers, not
+# ours to round for the comfort of a hash.
+
+_ENV_CACHE: Optional[Dict[str, Any]] = None
+# Keyed by (path, size, mtime): re-reading a 90MB checkpoint on every job to
+# produce the same 16 hex chars would be a real cost for no new information.
+_DIGEST_CACHE: Dict[Tuple[str, int, int], str] = {}
+
+
+def _dist_version(*names: str) -> str:
+    """Installed version of the first matching distribution, '' when absent.
+
+    Distribution names, not import names: `cv2` ships as `opencv-python` (or
+    `-headless` / `-contrib`), and `import cv2` would pay a full OpenCV import
+    just to read a string.
+    """
+    try:
+        from importlib import metadata
+    except Exception:  # pragma: no cover - stdlib always has it on 3.8+
+        return ""
+    for name in names:
+        try:
+            return metadata.version(name)
+        except Exception:
+            continue
+    return ""
+
+
+def _opencv_version() -> str:
+    """The OpenCV that will run, or the version installed on disk when there is one.
+
+    Best effort by design: a broken wheel still reports its version ("4.12.0, will
+    not import" is a diagnosis), while a Homebrew keg with a dead dylib has no
+    wheel metadata at all and yields "". When both fail, `signals.visualMotion`
+    is the fact that matters — it names the code path that actually ran.
+    """
+    if opencv_usable():
+        version = getattr(getattr(vision_analyzer, "cv2", None), "__version__", "")
+        if version:
+            return str(version)
+    return _dist_version(
+        "opencv-python", "opencv-python-headless", "opencv-contrib-python"
+    )
+
+
+def _file_identity(model_id: str, path: str) -> Dict[str, Any]:
+    """Identity of a checkpoint file: what it is, how big, and a content digest."""
+    entry: Dict[str, Any] = {"id": model_id, "kind": "file", "path": path, "present": False}
+    try:
+        stat = os.stat(path)
+    except OSError:
+        # Absence is a fact worth recording, not an omission: "the detector was
+        # not there" explains a score of 0 far better than a missing key.
+        return entry
+    entry["present"] = True
+    entry["bytes"] = int(stat.st_size)
+    entry["mtime"] = time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime(stat.st_mtime))
+    key = (path, int(stat.st_size), int(stat.st_mtime))
+    digest = _DIGEST_CACHE.get(key)
+    if digest is None:
+        try:
+            hasher = hashlib.sha256()
+            with open(path, "rb") as handle:
+                for chunk in iter(lambda: handle.read(1 << 20), b""):
+                    hasher.update(chunk)
+            digest = hasher.hexdigest()[:16]
+        except OSError:
+            digest = ""
+        _DIGEST_CACHE[key] = digest
+    entry["sha256_16"] = digest
+    return entry
+
+
+def _module_identity(model_id: str, module: str, dists: Sequence[str]) -> Dict[str, Any]:
+    """Identity of a model that ships inside a Python distribution."""
+    present = _has_module(module)
+    return {
+        "id": model_id,
+        "kind": "module",
+        "module": module,
+        "present": present,
+        "version": _dist_version(*dists) if present else "",
+    }
+
+
+def environment() -> Dict[str, Any]:
+    """The machinery: versions, checkpoints, and which signals can run here."""
+    global _ENV_CACHE
+    if _ENV_CACHE is not None:
+        return _ENV_CACHE
+
+    detector_path = os.environ.get("VHL_ONNX_MODEL", "")
+    models: List[Dict[str, Any]] = []
+    if detector_path:
+        models.append(_file_identity("detector", detector_path))
+    else:
+        models.append({"id": "detector", "kind": "file", "path": "", "present": False})
+    models.append(_module_identity("face", "mediapipe", ("mediapipe",)))
+    models.append(_module_identity("clip", "open_clip", ("open_clip_torch", "open-clip-torch")))
+    models.append(_module_identity("whisper", "faster_whisper", ("faster-whisper",)))
+    detector_present = any(m.get("id") == "detector" and m.get("present") for m in models)
+
+    cv2 = opencv_usable()
+    _ENV_CACHE = {
+        "engine": {"name": ENGINE_NAME, "version": ENGINE_VERSION},
+        "protocol": int(contract.PROTOCOL_VERSION),
+        "python": sys.version.split()[0],
+        "ffmpeg": ffmpeg_version(),
+        "runtime": {
+            "opencv": _opencv_version(),
+            "numpy": _dist_version("numpy"),
+            "onnxruntime": _dist_version("onnxruntime", "onnxruntime-silicon"),
+        },
+        "models": models,
+        # Which IMPLEMENTATION each signal runs on — not whether it "exists".
+        # Two machines can both produce a motion score and still measure
+        # different things: OpenCV optical flow and FFmpeg's `signalstats` YDIF
+        # both land in [0,1] and are not comparable. A boolean would hide exactly
+        # the difference this block was added to expose, so the value is the
+        # backend. `none` is the one value that means "this signal is 0 here".
+        #
+        # Truth grades differ, deliberately: motion/saliency come from the
+        # analyzer's real import (it is what picks the code path), while
+        # face/clip/whisper are lazy imports probed at spec level — theirs is an
+        # upper bound ("importable"), not "loaded this run". Importing torch here
+        # to tighten that would cost seconds of start-up and hundreds of MB to
+        # gain one string, so the bound is documented instead.
+        "signals": {
+            "sceneCut": "ffmpeg-scene",
+            "audioRms": "ffmpeg-astats",
+            "visualMotion": "opencv-optflow" if cv2 else "ffmpeg-signalstats",
+            "objectSaliency": "onnx-detector"
+            if (cv2 and detector_present)
+            else "ffmpeg-signalstats",
+            "faceSaliency": "mediapipe" if (cv2 and _has_module("mediapipe")) else "none",
+            "clipGuidance": "open_clip" if (cv2 and _has_module("open_clip")) else "none",
+            "keywordMatch": "faster-whisper" if _has_module("faster_whisper") else "none",
+        },
+    }
+    return _ENV_CACHE
+
+
+def provenance(recipe: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
+    """Environment + recipe, plus one short digest to compare two reports by."""
+    body: Dict[str, Any] = {"environment": environment(), "recipe": recipe or {}}
+    canonical = json.dumps(
+        body, sort_keys=True, separators=(",", ":"), ensure_ascii=False, default=str
+    )
+    # Digest the pair, not the environment: "same numbers or not" is a question
+    # about the whole recipe, and a reader should not have to compare two blocks
+    # field by field to answer it. Truncated to 16 hex chars — this is a
+    # fingerprint for humans and diffs, not a security primitive.
+    body["fingerprint"] = hashlib.sha256(canonical.encode("utf-8")).hexdigest()[:16]
+    return body
+
+
+def attach_provenance(report_path: str, config: HighlightConfig) -> None:
+    """Stamp an existing timeline report in place. Never fails the job.
+
+    The pipeline owns the report's shape and is a synced copy of the upstream
+    engine — adding a field there would be overwritten on the next sync, so the
+    bridge augments the file after the fact. Provenance is deployment-scoped
+    (env vars choose the models), which is exactly why it belongs here.
+    """
+    if not report_path:
+        return
+    target = pathlib.Path(report_path)
+    try:
+        payload = json.loads(target.read_text(encoding="utf-8"))
+        if not isinstance(payload, dict):
+            return
+        recipe = asdict(config)
+        # Normalised, not raw: weights of 0.5/0.5 and 1.0/1.0 are the same scoring
+        # recipe, so a fingerprint that told them apart would send someone hunting
+        # for a difference that does not exist. These are exactly the numbers the
+        # engine writes into its own `config.weights`, which makes the two blocks
+        # cross-checkable instead of merely parallel.
+        recipe["weights"] = asdict(config.weights.normalized())
+        payload["provenance"] = provenance(recipe)
+        # tmp + rename: the report route serves this file to a browser that may
+        # be reading it right now. A reader must see the old file or the new one,
+        # never half of either.
+        staged = target.with_name(target.name + ".staged")
+        staged.write_text(
+            json.dumps(payload, indent=2, ensure_ascii=False), encoding="utf-8"
+        )
+        os.replace(staged, target)
+    except Exception as exc:  # noqa: BLE001 - bookkeeping must not fail the job
+        # The render is already on disk and correct; a missing stamp is a smaller
+        # problem than a failed job, and it is visible in the log.
+        log(f"provenance 未写入 {report_path}: {type(exc).__name__}: {exc}")
+
 
 
 # --------------------------------------------------------------------------- #

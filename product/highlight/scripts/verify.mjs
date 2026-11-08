@@ -299,6 +299,7 @@ try {
     }
 
     // ---- weights reach the scorer, not just the validator ----------------- //
+    let weightedReport = null
     if (useReal) {
       // One signal, everything else zero: the normalised weights in the report
       // then have exactly one true statement, so "the knob was applied" is
@@ -324,10 +325,87 @@ try {
         JSON.stringify({ state: wjob?.state, error: wjob?.error }))
       if (typeof wjob?.reportUrl === 'string' && wjob.reportUrl !== '') {
         const report = await (await fetch(`${base}${wjob.reportUrl}`)).json()
+        weightedReport = report
         const applied = report?.config?.weights ?? {}
         checks.expect('报告回显归一后的权重(参数真的进了评分)',
           Math.abs((applied.audio_rms ?? -1) - 1) < 1e-6 && (applied.scene_cut ?? -1) === 0,
           JSON.stringify(applied))
+      }
+    }
+
+    // ---- provenance: can the report name the machine that made it? ------ //
+    // The claim under test is not "a field exists" but "two reports can be told
+    // apart for the right reason": the environment must be identical across jobs
+    // (no per-job contamination) while the fingerprint must move when the recipe
+    // moves. That is what turns "same input, different clip" into a diagnosis.
+    if (useReal && typeof job?.reportUrl === 'string' && job.reportUrl !== '') {
+      const first = await (await fetch(`${base}${job.reportUrl}`)).json()
+      const prov = first?.provenance
+      const env = prov?.environment ?? {}
+      checks.expect('报告带 provenance 指纹(16 位十六进制)',
+        typeof prov?.fingerprint === 'string' && /^[0-9a-f]{16}$/.test(prov.fingerprint),
+        String(prov?.fingerprint))
+      checks.expect('provenance 记录引擎/协议/解释器/FFmpeg',
+        env?.engine?.name === 'vhl-engine' && typeof env?.engine?.version === 'string' && env.engine.version !== '' &&
+        env?.protocol === 1 && typeof env?.python === 'string' && env.python !== '' &&
+        typeof env?.ffmpeg === 'string' && env.ffmpeg.startsWith('ffmpeg version'),
+        JSON.stringify(env?.engine ?? null) + ` protocol=${env?.protocol} python=${env?.python}`)
+      // Absence is recorded, not omitted: "the detector was not there" explains a
+      // zero far better than a missing key would.
+      const modelEntries = Array.isArray(env?.models) ? env.models : []
+      checks.expect('provenance 记录四个模型的身份(缺失也写明)',
+        ['detector', 'face', 'clip', 'whisper'].every((id) => {
+          const entry = modelEntries.find((m) => m?.id === id)
+          return entry && typeof entry.present === 'boolean'
+        }),
+        JSON.stringify(modelEntries.map((m) => `${m?.id}:${m?.present}`)))
+      const detector = modelEntries.find((m) => m?.id === 'detector') ?? {}
+      checks.expect('有模型文件时有内容摘要(sha256 前 16 位)',
+        detector.present !== true || (typeof detector.sha256_16 === 'string' && /^[0-9a-f]{16}$/.test(detector.sha256_16) && detector.bytes > 0),
+        JSON.stringify(detector))
+      const signals = env?.signals ?? {}
+      // The backend, not a boolean: OpenCV optical flow and FFmpeg signalstats
+      // both yield a motion score in [0,1] and they are not comparable, so "has
+      // motion: true" would describe two different measurements with one word.
+      const SIGNAL_BACKENDS = {
+        sceneCut: ['ffmpeg-scene'],
+        audioRms: ['ffmpeg-astats'],
+        visualMotion: ['opencv-optflow', 'ffmpeg-signalstats'],
+        objectSaliency: ['onnx-detector', 'ffmpeg-signalstats'],
+        faceSaliency: ['mediapipe', 'none'],
+        clipGuidance: ['open_clip', 'none'],
+        keywordMatch: ['faster-whisper', 'none'],
+      }
+      checks.expect('provenance 记录七个信号各自的后端',
+        Object.keys(SIGNAL_BACKENDS).every((key) => SIGNAL_BACKENDS[key].includes(signals[key])),
+        JSON.stringify(signals))
+      // Two surfaces describing the same machine must agree about whether OpenCV
+      // runs, or one of them is lying and a reader cannot tell which.
+      checks.expect('信号后端与 models.degraded 对 OpenCV 的判断一致',
+        (models?.degraded === true) === (signals.visualMotion === 'ffmpeg-signalstats'),
+        `degraded=${models?.degraded} visualMotion=${signals.visualMotion}`)
+      // Two records of the same decision live in one document; if they disagree,
+      // one of them is lying and a reader cannot tell which.
+      const recorded = prov?.recipe?.weights ?? {}
+      const engineSaid = first?.config?.weights ?? {}
+      checks.expect('provenance 的权重与引擎自述的权重一致',
+        Object.keys(recorded).length === 7 &&
+        Object.keys(recorded).every((key) => typeof engineSaid[key] === 'number' && Math.abs(engineSaid[key] - recorded[key]) < 1e-9),
+        JSON.stringify({ provenance: recorded, engine: engineSaid }))
+      checks.expect('provenance 里没有任务级数据(不能每跑一次就变)',
+        !JSON.stringify(env).includes(job.jobId) && !JSON.stringify(env).includes('.mp4'),
+        Object.keys(env).join(','))
+      if (weightedReport?.provenance) {
+        checks.expect('同机两次任务的 environment 完全一致',
+          JSON.stringify(weightedReport.provenance.environment) === JSON.stringify(env),
+          JSON.stringify(weightedReport.provenance.environment?.runtime ?? null))
+        // Only the weights differed, so a same fingerprint would mean the recipe
+        // is not covered — and then "same fingerprint" would promise nothing.
+        checks.expect('配方不同则指纹不同(权重发生了变化)',
+          weightedReport.provenance.fingerprint !== prov.fingerprint,
+          `${weightedReport.provenance.fingerprint} vs ${prov.fingerprint}`)
+      } else {
+        checks.expect('第二个任务的报告可用于指纹对比', false, 'weightedReport 为空')
       }
     }
 

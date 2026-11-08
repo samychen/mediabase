@@ -112,7 +112,7 @@ srtPath, reportPath`。宿主在其上只加一个字段：`clipUrl`（数据面
 |---|---|---|
 | `clip` | 成片 `video/mp4` | 带 `Range` 回 `206` + `Content-Range`，`Accept-Ranges: bytes` |
 | `subtitle` | 字幕 `text/vtt` | 引擎落盘是 SRT（编辑器通用），**出口转 WebVTT**：Chrome 的 `<track>` 不收 SRT |
-| `report` | 可解释性报告 `application/json` | 逐窗口信号序列、权重、被选片段——分数为什么高，可复查 |
+| `report` | 可解释性报告 `application/json` | 逐窗口信号序列、权重、被选片段，外加 `provenance` 指纹——分数为什么高、是谁算的，都可复查 |
 
 路由名带任务 ID，没有路径参数可穿越；路由表**有界**（24 条，最旧淘汰）——无界路由表在长跑
 进程里就是内存泄漏。注册前要求文件真实存在且落在工作目录内（`insideDir` + `realpath`，
@@ -203,7 +203,7 @@ avgElapsedMs / restoredJobs / interruptedJobs / recent[20]`，终态**幂等入�
 成片 URL 一律在 store（持有插件 ctx）里解析成绝对地址，面板只读快照。
 **这条是浏览器验收抓出来的**，不是猜的。
 
-**8. 参数契约只有一份。** 22 个可调参数的字段名、类型、上下界、枚举、依赖能力都写在
+**8. 参数契约只有一份。** 23 个可调参数的字段名、类型、上下界、枚举、依赖能力都写在
 `contract.json`，Python 由 `gen-protocol.mjs` 生成，TS 直接 import。宿主在 `start` 之前
 校验，拼错/越界/枚举外都在**创建任务前**返回 `INVALID_PARAMS`，并列出可用键——不是让任务
 跑一秒后失败在日志里。
@@ -228,13 +228,31 @@ avgElapsedMs / restoredJobs / interruptedJobs / recent[20]`，终态**幂等入�
 工作的依赖。同理，末行被截断（进程在 write 中途被杀）是**预期**而非异常：回放丢掉那一行并
 计数，其余照常恢复。
 
+**13. 报告要能指名道姓。** 报告原本只记录**配方**（权重、阈值、信号序列），不记录**机器**。
+于是"同一素材，换台机器重跑，片段不一样"这件事没有任何解释入口——报告一个字都说不出原因。
+现在任务成功时报告多一个 `provenance`：引擎/协议/解释器/FFmpeg 版本、四个模型的路径+大小+
+mtime+sha256 前 16 位（**缺失也写明**，缺席比缺键更能解释一个 0）、七个信号**由哪个后端算**、
+归一后的完整配方，以及一个 16 位指纹。它不是注册表也不是校验闸门：从不拒绝运行。闸门会挡在
+你和新 checkpoint 之间，而"换个模型试试"正是这个产品必须保持容易的事。
+
+**信号记的是后端，不是布尔值。** 这一条是实测逼出来的：本机 OpenCV 因 `libprotobuf` 缺失导入
+失败，运动/显著性走 FFmpeg `signalstats`，同样给出 `motion 0.22 / saliency 0.98`。若写成
+`visualMotion: true`，两台机器上**两个不可比的测量**会被同一个词盖住。所以报告里是
+`opencv-optflow` / `ffmpeg-signalstats` / `onnx-detector` / `mediapipe` / `none` 这样的实现名。
+
+**这条顺带抓出一个真 bug。** `find_spec('cv2')` 只回答"有没有这个模块"，对**装了但 dylib 加载
+失败**的 OpenCV 照样返回 `True`——本机 Homebrew 的 opencv 就因为 `libprotobuf` 缺失而导入失败，
+旧的 `models.list.degraded` 在这台机器上会谎报"没有降级"，而那正是本产品最不该撒的谎（"诚实
+降级"是它存在的理由）。现在改用分析器自己**真实导入**后记下的 `_HAS_OPENCV`：那个标志不可能
+与实际执行路径不一致，而且零成本——模块早就加载了。
+
 ---
 
 ## 六、Python 引擎侧
 
 `engine/vhl_bridge.py` 是唯一的 Python 入口：stdin 逐行读、stdout 逐行答、**所有日志走
-stderr**（写 stdout 会毁掉 FIFO 匹配）。`--doctor` 打印解释器/FFmpeg/OpenCV 情况后退出，
-便于现场排查。
+stderr**（写 stdout 会毁掉 FIFO 匹配）。`--doctor` 打印解释器/FFmpeg/模型/`environment`
+（与报告里 `provenance` 同一块）后退出，便于现场排查——两台机器要对比，不必先各跑一遍分析。
 
 - 分析核心是 `highlight_core/`（从独立引擎仓同步的副本，`engine/SYNC.json` 记录来源与文件表）。
   **不要在副本里改代码**：改上游，跑 `pnpm run sync:highlight-engine`。
@@ -336,7 +354,10 @@ pnpm run verify:highlight:ui          # 真 Chrome（CDP）+ 真引擎，截图�
 → **非法选项在创建任务前被拒**（越界/类型/枚举/未知权重子键/全零权重/权重越界）
 → `probe`（真引擎还断言编码一致）→ `start/status`（进度收口、片段非空）
 → **成片可被解码且与片源同编码** → 三条数据面路由（成片 `200`/`206`、报告 JSON 含
-`selected_highlights`/`timeline_series`、字幕 `text/vtt`）→ **任务日志落盘 + 两条恢复指标
+`selected_highlights`/`timeline_series`、字幕 `text/vtt`）→ **报告指纹**（16 位格式、四个模型
+身份含"缺失也写明"、七个信号各自后端、与 `models.degraded` 对 OpenCV 判断一致、与引擎自述
+权重一致、不含任务级数据、同机两次 `environment` 逐字节相同而 `fingerprint` 必须不同）
+→ **任务日志落盘 + 两条恢复指标
 在干净 home 上为 0 且不谎报历史** → EDL（CMX3600 形态 + 事件数=片段数）
 → 取消（无半成品 + metrics）→ **队列满回 CONFLICT + `queueDepth` 可见** → 两道漂移闸门 → 页面。
 
@@ -359,10 +380,11 @@ pnpm run verify:highlight:ui          # 真 Chrome（CDP）+ 真引擎，截图�
 | `test:highlight` | ✅ **66/66**（6 个世界：正常 / 无解释器 / 崩溃监督 / 队列背压 / 保留窗口 / **重启** + 任务日志 17 + exposition 14 + 时间算术 4） |
 | 引擎仓 `pytest` | ✅ 11/11（含「取消 5s 内杀掉 30s 子进程」「进度单调收口 1.0」） |
 | `verify:highlight:fake` | ✅ **102 条断言**，0 失败 |
-| `verify:highlight:real` | ✅ **107 条断言**，0 失败；真分析：`[2.80s, 12.00s]` 分数 `0.4515`，信号 `{scene 0.19, audio 1.00, motion 0.22, saliency 0.98, face 0, clip 0}` |
+| `verify:highlight:real` | ✅ **117 条断言**，0 失败；真分析：`[2.80s, 12.00s]` 分数 `0.4512`，信号 `{scene 0.19, audio 1.00, motion 0.22, saliency 0.98, face 0, clip 0}` |
 | 成片可解码 | ✅ `10.096s / 320×180 / h264+aac`（渲染路径为 stream copy，编码与片源一致） |
 | 数据面路由 | ✅ 成片 `200 video/mp4`、`Range: bytes=0-1023` → `206 bytes 0-1023/191366`；报告 `200 application/json`；字幕 `200 text/vtt`（假引擎路径） |
-| 选项目录 | ✅ 22 项，含 `frameAccurate`/`enableClipGuidance`/`whisperModelSize` 等；越界/错类型/枚举外均在创建任务前被拒 |
+| 报告指纹 | ✅ `provenance.fingerprint dff2cb67d724a3ee`；`environment.signals` = `{sceneCut ffmpeg-scene, audioRms ffmpeg-astats, visualMotion ffmpeg-signalstats, objectSaliency ffmpeg-signalstats, face/clip/keyword none}`——**本机 OpenCV 导入失败，走的就是降级路径**，`models.degraded` 与之一致；两个任务的 `environment` 逐字节相同、`fingerprint` 因权重不同而不同（`41c6f98921768ae1`） |
+| 选项目录 | ✅ 23 项，含 `frameAccurate`/`enableClipGuidance`/`whisperModelSize` 等；越界/错类型/枚举外均在创建任务前被拒 |
 | 队列背压 | ✅ 上限 1 时第二个并发任务回 `CONFLICT -32004`；`queueDepth` 从 0 → 1 |
 | 保留窗口 | ✅ `retainJobs=1` 时最旧任务目录被清理，新目录保留 |
 | 任务日志 / 重启 | ✅ 宿主在任务运行中被杀 → 同一 home 重启后该任务为 `interrupted`（错误文本含中断时进度）、`fromDisk: true`、`queueDepth 0`、新任务照常成功；第三次启动 `interruptedJobs 0`（同一次死亡不重复计数） |
@@ -387,12 +409,17 @@ pnpm run verify:highlight:ui          # 真 Chrome（CDP）+ 真引擎，截图�
 5. **路由名即任务 ID。** 没有路径参数就没有穿越面；表有界，最旧淘汰。
 6. **面板不碰 ctx.net。** 外壳只 inject `ui`/`i18n`，绝对 URL 在 store 里解析（见第五节第 7 条）。
 7. **边界 / 未做**：任务历史是**单机追加式 JSONL**（重启可恢复、可读、可 diff，但没有跨机
-   共享、没有事务、没有并发写者保护——一个 home 只能有一个宿主进程，这是它的前提）；不做多租户、
-   鉴权配额、优先级队列、长稳 soak；不做逐帧精确 seek 的默认路径（默认 stream copy 会吸附到
+   共享、没有事务、没有并发写者保护——一个 home 只能有一个宿主进程，这是它的前提）；
+   多租户/配额/鉴权与分布式队列/GPU 池是**非目标**而非欠债，重新考虑的触发条件写在第十二节；
+   优先级队列与长稳 soak 不做；不做逐帧精确 seek 的默认路径（默认 stream copy 会吸附到
    关键帧，需要精确请开 `frameAccurate` 重编码）；不做云端转码编排、缩略图/时间轴可视化；
    UI 只有中文/英文两套文案。要跨机或要事务，换成 PostgreSQL 是明确的下一个工程（见第十二节）。
 8. **许可**：引擎与产品包 Apache-2.0；基座 MIT。捆绑/分发 FFmpeg 与模型权重的义务由部署方
    按自己的二进制承担，`models.list` 会把每个模型的许可标识随能力一起报出来。
+   根 `NOTICE.md` 是**发布前置件，不是待办**：它现在 35 行，因为 `pnpm licenses list --prod`
+   在本机返回空、生成脚本拒绝写空文件（脚本在保护自己，不是在偷懒）。要对外发布或交付客户前，
+   在一台能正常输出许可证列表的机器上跑 `pnpm run notice` 重生成；在那之前，许可 posture 以
+   本节与 `engine/README.zh.md` 为准——那两处是**手写的事实**，NOTICE 只是它们的聚合表。
 
 ---
 
@@ -433,18 +460,37 @@ pnpm run verify:highlight:ui          # 真 Chrome（CDP）+ 真引擎，截图�
 | 队列 / 背压 | ✅ | ✅ | 有界队列 + `CONFLICT` + `queueDepth` |
 | 产物与可解释性 | ✅ | ✅ | 成片 / SRT（转 VTT）/ timeline.json 三条路由 + 面板信号 chips |
 | 剪辑互操作（EDL） | ✅ | ✅ | CMX3600 导出，事件数=片段数已断言 |
-| 许可证标识 / SBOM 可核对 | ✅ | ✅ | `models.list` 带 `license`；根 NOTICE 需在 `pnpm licenses` 正常的机器上重生成 |
-| 模型注册表 / 版本化 | ⚠️ | ⚠️ | 只报路径与可用性，没有版本表与权重校验脚本 |
+| 许可证标识 / SBOM 可核对 | ✅ | ✅ | `models.list` 带 `license`；根 `NOTICE.md` 是**发布前置**（见下方），当前 35 行是脚本在本机取不到列表，不是内容缺失 |
+| 模型/环境指纹（可复现） | — | ✅ | 报告带 `provenance`：引擎/协议/运行时版本、模型 path+大小+sha256、七个信号**各自的后端**、归一后配方、16 位指纹。**记录，不校验**（第五节第 13 条） |
 | Prometheus 指标 | — | ✅ | `GET /api/metrics`：文本 0.0.4，抓取零 I/O，标签有界，含耗时直方图 |
 | 任务持久化 | ❌ | ✅ | 单机追加式 JSONL（`<VHL_HOME>/jobs.jsonl`）：重启后历史仍在、在跑的任务报 `interrupted`；**不是 PostgreSQL**，不跨机、不并发写 |
-| 鉴权 / 多租户 / 配额 | ❌ | ❌ | 由部署方前置网关承担（基座有 token/ACL，产品不重复造） |
-| 分布式队列（Celery/Temporal）/ GPU 节点池 | ❌ | ❌ | 单机侧车是 v1 的边界；扩展点见第十节 |
+| 模型注册表 / 强制版本闸门 | ❌ | — | **非目标**（1）：要解决的是"把一套模型分发给多台机器"，本项目模型来自部署方固定位置，没有分发渠道 |
+| 鉴权 / 多租户 / 配额 | ❌ | — | **非目标**（2）：由部署方前置网关承担，基座已有 token/ACL，产品不重复造 |
+| 分布式队列（Celery/Temporal）/ GPU 节点池 | ❌ | — | **非目标**（3）：与"单机侧车 + 按 jobId 的字节路由"直接冲突，是换架构不是加功能 |
 
-一句话回答"能力是否补齐了"：**方案里所有"模型/推理/交付"能力都接上了，包括逐信号权重、
-Prometheus 与任务持久化。剩下的三项不是"接一下"，是另一个工程**：模型注册表与权重版本校验、
-多租户/配额/鉴权、分布式队列与 GPU 节点池。它们在本文里明确标为未交付，不靠措辞假装齐全。
+一句话回答"能力是否补齐了"：**方案里所有"模型/推理/交付"能力都接上了**，包括逐信号权重、
+Prometheus、任务持久化与报告指纹。剩下三项**不是欠债，是明确不做的非目标**——判断标准和
+"什么时候该重新考虑"写在下节。把设计决策写成 ❌ 未完成，会让真正缺的那一个淹在噪声里。
 
-### 这一轮补的三项（有断言兜着）
+### 三项非目标（以及重新考虑的触发条件）
+
+**1. 模型注册表 / 强制版本闸门。** 报告指纹已经回答了真问题（"为什么两台机器给出不同片段"）。
+注册表要解决的是另一个问题：**把一套模型资产分发给多台机器**。本项目的模型来自部署方的固定
+位置（`VHL_ONNX_MODEL` + site-packages），没有分发渠道，注册表只会登记空气。强制闸门更糟：
+它挡在你与一个新 checkpoint 之间，而"换个模型试试"正是这个产品必须保持容易的动作。
+**触发条件**：出现第二台需要与第一台共用同一套模型资产的机器——那时先做的是分发，不是校验。
+
+**2. 多租户 / 配额 / 鉴权。** 部署形态是一个 home、一个宿主进程、一个侧车。多租户要求共享
+存储、身份贯穿每个请求、verify 全链路带上租户上下文——做了只有负债。"配额"这个需求其实已经
+以另一种形式存在：`maxQueue` 就是并发上限，满了回 `CONFLICT`。
+**触发条件**：同一份部署要对不同客户隔离数据或计费。
+
+**3. 分布式队列 / GPU 节点池。** v1 的三个决策都与它冲突：宿主不管像素、侧车是单机子进程、
+字节路由的 key 是 jobId 且文件必须落在本机 work 根内。分布式要换掉这三样（共享对象存储、
+状态外置、跨主机取字节），前置条件恰恰是本条 1/2 和非目标之外的真缺口。
+**触发条件**：单机吞吐成为真实瓶颈，且已有真实的多机需求。
+
+### 这一轮补的四项（有断言兜着）
 
 **逐信号权重 `weights`。** 做成一个复合参数而不是七个独立滑杆：引擎在评分时按总和归一，
 七个独立控件会暗示"每个都调到 0.9 会更强"，而归一化立刻把它抵消。契约里声明 7 个子键，
@@ -477,3 +523,19 @@ Prometheus 与任务持久化。剩下的三项不是"接一下"，是另一个�
 另外两条工程细节：**压实用 tmp+rename**（唯一可能丢失全部数据的操作，截断式重写中途崩溃
 会留下空文件，而 rename 要么发生要么不发生）；**写失败不让任务失败**（只读 home 是部署问题，
 不是任务问题）。
+
+**报告指纹 `provenance`。** 见第五节第 13 条。四个刻意的决定：
+
+1. **写在桥里，不写在算法副本里。** `highlight_core/` 是上游同步副本，改它会在下次
+   `sync:highlight-engine` 被覆盖、并让漂移闸门变红；而且"这个部署选了哪个模型"本来就是
+   部署侧的事实（模型由环境变量选），归桥管才对。
+2. **权重存归一后的值。** 原始值 1/0/0… 与 2/0/0… 是同一份配方、产生完全相同的片段；
+   存原始值会让两个等价运行得到不同指纹，把人送去追一个不存在的差异。
+3. **`environment` 里不许有任务级数据。** 有的话每个任务都会"环境不同"，指纹就退化成
+   时间戳。verify 用同一台机器上的两个任务断言 `environment` **逐字节相同**、`fingerprint`
+   **必须不同**（它们的权重不同）——两条一起才证明指纹覆盖了配方而不是覆盖了噪声。
+4. **取 16 个十六进制字符（64 bit），不是完整 sha256。** 它是给人看和 diff 的，不是安全
+   原语；verify 断言它随配方变化，而不是一个被随手写死的常量。
+
+顺带一条跨块自检：`provenance.recipe.weights` 必须等于引擎自己写进报告的 `config.weights`。
+同一个决定被两处记录，不一致就说明有一处在撒谎，而读者无法判断是哪一处。
