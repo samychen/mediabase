@@ -42,6 +42,8 @@ pnpm run verify:base   # 对已启动的 host 做中性冒烟
 - **第一次接触本仓**：
   - 已会 TypeScript / 基本 React → `docs/LEARNING-PATH.zh.md`
   - 以 C++ 为主、弱前端 → `docs/LEARNING-PATH.cpp.zh.md`
+- **把工具暴露给外部 agent**：`docs/MCP.zh.md` —— MCP Streamable HTTP 端点（`POST /mcp`）、stdio 桥、Claude/Cursor 接入
+- **仓内产品层实例**：`product/openvideo/`（视频剪辑）、`product/mediamtx-console/`（流媒体服务器管理台，净室实现）、`product/xmedia/`（C++20 转码/推流服务）、`product/highlight/`（视频高光引擎）—— 产品叠在基座上（各自的 `@scope` + 产品 bundle + 独立身份），基座零改动；见各自 `README.zh.md`
 
 ## 仓库内产品层：OpenVideo
 
@@ -102,14 +104,15 @@ Whisper 字幕、多模态加权融合与 FFmpeg 渲染。身份 `VHL_` / `~/.vh
 
 宿主**不碰像素**：只监督一个进程、转发命令、把成片挂到一条按 `jobId` 命名的字节路由上
 （`Range` 直读），分析在引擎、播放在浏览器。`protocol/contract.json` 是线协议唯一真源
-（TS 直接 import，Python 由脚本生成），22 个参数与逐信号权重由引擎自报目录、UI 动态渲染。
+（TS 直接 import，Python 由脚本生成），23 个参数与逐信号权重由引擎自报目录、UI 动态渲染。
 任务历史落在 `<VHL_HOME>/jobs.jsonl`：重启后仍在，进程死时仍在跑的任务如实报 `interrupted`。
 
 ```sh
 pnpm run build:highlight       # 名册 + 页面
 pnpm run dev:highlight         # http://127.0.0.1:3093
 pnpm run test:highlight        # 66 个用例，不需要 Python/FFmpeg/浏览器
-pnpm run verify:highlight:all  # 端到端（替身 + 真引擎，209 条断言）
+pnpm run test:highlight:py     # 46 个用例，桥自身（Python，stdlib unittest）
+pnpm run verify:highlight:all  # 端到端（替身 + 真引擎，219 条断言）
 ```
 
 详见 `product/highlight/README.zh.md`（分层、线协议、企业级约束、能力矩阵与未交付边界）。
