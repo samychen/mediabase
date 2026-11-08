@@ -128,14 +128,47 @@ sh product/highlight/scripts/setup-models.sh
 —— 所以 `--no-deps` 装它、单独钉 protobuf；pip 24 在 macOS 上卸载 protobuf ≥5 时会先把目录
 改名成 `~upb` 再对目录调 `rm`，报 `EISDIR`，得手动清掉再装。
 
+第三条坑不是安装期的，是运行期的，但同样致命：**torch 与 ctranslate2 各自带一份
+`libiomp5.dylib`**，同时进到一个进程就会 abort（`OMP: Error #15`）。它不在导入时炸，
+而在**第二份 runtime 初始化**的那一刻炸 —— 也就是 torch 已经算过一次、Whisper 第一次
+建模的时候，正好落在分析中途：
+
+```
+import torch; (x @ x).sum()               # torch 的 runtime 初始化
+from faster_whisper import WhisperModel   # <- abort
+```
+
+Intel 自己给的 `KMP_DUPLICATE_LIB_OK=TRUE` 被它标注为"unsafe, unsupported, undocumented"，
+会放过两份 runtime 并警告"可能崩溃或静默算错"，所以没用它。实际做法是**把重复的那份换成
+指向幸存者的软链**，让 dyld 只加载一份 —— `DYLD_PRINT_LIBRARIES` 确认进程里只剩
+`functorch/.dylibs/libiomp5.dylib` 一个路径。安装脚本会做这件事，引擎在转写前也会
+自查一次（`highlight_core/openmp_guard.py`），所以手动 `pip install` 也不会踩到。
+
 ### 这份环境的实际表现（本机实测）
 
 | 指标 | 值 |
 |---|---|
 | YOLOX-s 单帧推理 | 150–230 ms（CoreML，Intel Iris Plus 集成显卡） |
 | 6 秒 / 12fps 片段端到端 | 4.8 s |
+| 43 秒 / 1920×1080 / 60fps 真实素材端到端 | 192 s（七路全开） |
 | Whisper base 加载 | 34 s（含下载 141 MB） |
+| OpenCLIP ViT-B-32 加载 | 617 s（含下载 350 MB） |
 | `bus.jpg` 检测 | 1 bus 0.93 + 8 person 0.63–0.90 |
+
+**七路信号在真实素材上的区分度**（43 秒游戏录像，88 个采样点，`composite` 0.15–0.67）：
+
+| 信号 | 范围 | 说明 |
+|---|---|---|
+| `scene` | 0 – 1.00 | 切点密集，开采录 |
+| `audio` | 0 – 1.00 | 语音段与静音段分明 |
+| `motion` | 0.005 – 0.66 | 战斗与静止交替 |
+| `saliency` | 0 – 0.91 | 角色出现时抬升 |
+| `face` | 0 – 1.00 | 部分片段无人脸时为 0 |
+| `clip` | 0.949 – 0.994 | 整段都是游戏画面，所以区间窄 |
+| `keyword` | 0 – 0.67 | 命中 15/88 段 |
+
+`keyword` 用的是转写文本里真实出现的词（如"贴脸"），换成不存在的词就是全零 —— 这说明
+它读的是 Whisper 的实际输出，不是常量。
 
 **已知限制，先写在前面：**
 

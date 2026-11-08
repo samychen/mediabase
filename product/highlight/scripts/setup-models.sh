@@ -98,6 +98,23 @@ say "PyTorch 2.2.2 + OpenCLIP"
 run "torch==2.2.2" "torchvision==0.17.2"
 run "open-clip-torch"
 
+# --- one OpenMP runtime -----------------------------------------------------
+# torch and ctranslate2 each ship their own libiomp5.dylib. Two copies in one
+# process abort the interpreter ("OMP: Error #15") the moment the second one
+# initialises — which is why it surfaces mid-analysis, on the first Whisper
+# call, and only when OpenCLIP already ran. Merging them here means the
+# problem is gone before it can happen; the engine also repairs it at runtime
+# for anyone who installs by hand.
+say "合并重复的 OpenMP runtime"
+"$VENV/bin/python" -c "
+import sys, os
+sys.path.insert(0, os.path.join('$ENGINE', 'highlight_core'))
+import importlib.util
+spec = importlib.util.spec_from_file_location('omp_guard', os.path.join('$ENGINE', 'highlight_core', 'openmp_guard.py'))
+mod = importlib.util.module_from_spec(spec); spec.loader.exec_module(mod)
+print('  ', mod.repair_duplicate_openmp() or '无需合并（只有一份或非 macOS）')
+"
+
 # --- checkpoints ------------------------------------------------------------
 # Weights are not pip packages. YOLOX-s is Apache-2.0, 34 MB, COCO 80 classes,
 # and its ONNX layout is the one `_postprocess_yolox` decodes.
@@ -121,6 +138,16 @@ WhisperModel("base", device="cpu", compute_type="int8")
 print("   Whisper base 就绪")
 PY
 
+# Same reasoning for OpenCLIP, except this one is 350 MB and took 10 minutes on
+# this machine — far too long to leave inside the first analysis. The Hub caches
+# by repo id, so this is a no-op once it has landed.
+say "OpenCLIP ViT-B-32 权重"
+HF_ENDPOINT="$HF" "$VENV/bin/python" - <<'PY'
+import open_clip
+open_clip.create_model_and_transforms("ViT-B-32", pretrained="laion2b_s34b_b79k")
+print("   ViT-B-32 就绪")
+PY
+
 say "完成"
 cat <<EOF
 实测环境:
@@ -135,6 +162,6 @@ cat <<EOF
 确认引擎自己怎么看这份环境:
   VHL_ONNX_MODEL="$MODEL" "$VENV/bin/python" "$ENGINE/vhl_bridge.py" --doctor
 
-OpenCLIP 的 ViT-B-32 权重（约 350 MB）未在脚本内拉取: clipGuidance 默认关闭,
-需要时设 HF_ENDPOINT=$HF 再以 pretrained='laion2b_s34b_b79k' 首次加载即可。
+OpenCLIP 的 clipGuidance 默认关闭; 需要时在任务配置里设 clipPrompt 即可,
+权重已在上面拉好, 不会在第一次分析时卡住。
 EOF
