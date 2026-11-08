@@ -99,11 +99,23 @@ describe('@mediabase/shm: zero-copy frame ring', () => {
     const ring = SharedRing.create({ slots: 1, slotBytes: 4 })
     const other = attachRing(ring.toTransferable())
     const started = Date.now()
+    // The consumer re-arms until it OBSERVES the closed flag, which `close()` sets
+    // BEFORE it notifies. Snapshotting the sequence once and blocking on that value
+    // was a lost wakeup: under load the worker could start after `close()` and then
+    // wait the full 5s for a change that had already happened — a red suite that said
+    // nothing about `close()` (it failed on this machine only when the full suite ran
+    // in parallel; alone it always passed).
     const worker = new Worker(`
       const { parentPort, workerData } = require('node:worker_threads')
       const control = new Int32Array(workerData.buffer, 0, 8)
+      const CLOSED = 3
       const NOTIFY_SEQ = 6
-      const result = Atomics.wait(control, NOTIFY_SEQ, Atomics.load(control, NOTIFY_SEQ), 5000)
+      let result = 'timed-out'
+      for (let i = 0; i < 100; i++) {
+        if (Atomics.load(control, CLOSED) === 1) { result = 'ok'; break }
+        const expected = Atomics.load(control, NOTIFY_SEQ)
+        if (Atomics.wait(control, NOTIFY_SEQ, expected, 5000) === 'timed-out') break
+      }
       parentPort.postMessage(result)
     `, { eval: true, workerData: { buffer: ring.buffer } })
     const woke = new Promise<string>((resolve) => worker.on('message', (m: string) => resolve(m)))
@@ -111,6 +123,7 @@ describe('@mediabase/shm: zero-copy frame ring', () => {
     return woke.then(async (result) => {
       await worker.terminate()
       expect(result).toBe('ok')
+      // And it stopped because of the close, not by exhausting the 5s wait.
       expect(Date.now() - started).toBeLessThan(2_000)
       expect(ring.stats().closed).toBe(true)
     })
