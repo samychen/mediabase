@@ -101,7 +101,14 @@ class OnnxDetector:
 
         h0, w0 = frame_bgr.shape[:2]
         resized, ratio, (dw, dh) = self._letterbox(frame_bgr, self.input_size)
-        blob = resized.transpose(2, 0, 1)[None].astype("float32") / 255.0
+        # YOLOX's exported graph folds the 0-1 normalisation INTO the network: its
+        # own demo_onnx.py feeds raw 0-255 pixels. Dividing here scales the input
+        # down twice and the head goes quiet — measured on a frame holding a bus,
+        # obj_conf max 0.0002 normalised vs 0.998 raw, and that frame went from 0
+        # detections to 1 bus @ 0.93. RT-DETR exports do expect 0-1, so the factor
+        # follows the declared format rather than being hard-coded.
+        scale = 1.0 if self.format == "yolox" else 255.0
+        blob = resized.transpose(2, 0, 1)[None].astype("float32") / scale
 
         outputs = self.session.run(None, {self.input_name: blob})
         raw = outputs[0]
@@ -128,9 +135,40 @@ class OnnxDetector:
         canvas[dh:dh + nh, dw:dw + nw] = resized
         return canvas, scale, (dw, dh)
 
+    def _decode_yolox(self, raw, np):
+        """Turn grid-relative head output into pixel cx/cy/w/h.
+
+        YOLOX exports the *raw* head: columns 0-1 are offsets INSIDE a grid cell
+        and 2-3 are log-scales. Reading them as pixel xyxy — which this did —
+        yields boxes a few pixels wide near the origin, so every frame scored 0
+        detections while the head was in fact confident (bus @ 0.93 once decoded).
+        Same arithmetic as YOLOX's own `demo_postprocess`.
+        """
+        size = self.input_size
+        grids: List = []
+        strides: List = []
+        for stride in (8, 16, 32):
+            cells = max(1, size // stride)
+            yv, xv = np.meshgrid(np.arange(cells), np.arange(cells))
+            grid = np.stack((xv, yv), 2).reshape(1, -1, 2)
+            grids.append(grid)
+            strides.append(np.full((1, grid.shape[1], 1), stride, dtype=np.float32))
+        if raw.shape[0] != sum(g.shape[1] for g in grids):
+            # A different stride set (p6, a custom export) would be misaligned by a
+            # silent reshape. Leaving the boxes untouched at least keeps the failure
+            # visible as implausible boxes rather than confident nonsense.
+            return raw
+        grid = np.concatenate(grids, 1)
+        stride_arr = np.concatenate(strides, 1)
+        out = raw.copy()
+        out[:, :2] = (out[:, :2] + grid) * stride_arr
+        out[:, 2:4] = np.exp(out[:, 2:4]) * stride_arr
+        return out
+
     def _postprocess_yolox(self, raw, ratio, dw, dh, w0, h0) -> List[Detection]:
         import numpy as np  # type: ignore
 
+        raw = self._decode_yolox(raw, np)
         conf = self.config.onnx_conf_threshold
         obj_conf = raw[:, 4]
         cls_scores = raw[:, 5:]
@@ -149,14 +187,20 @@ class OnnxDetector:
         cls_k = cls_ids[keep]
 
         # boxes are cx, cy, w, h in letterboxed-input pixels -> original frame.
-        x1 = boxes[:, 0] - dw
-        y1 = boxes[:, 1] - dh
-        x2 = boxes[:, 2] - dw
-        y2 = boxes[:, 3] - dh
-        x1 /= ratio
-        y1 /= ratio
-        x2 /= ratio
-        y2 /= ratio
+        # Undo the padding and the resize, then split the centre into corners.
+        cx = (boxes[:, 0] - dw) / ratio
+        cy = (boxes[:, 1] - dh) / ratio
+        bw = boxes[:, 2] / ratio
+        bh = boxes[:, 3] / ratio
+        # Clip to the frame: a box the model extends past the edge otherwise keeps
+        # negative coordinates, which inflates `area_fraction` and — worse — depresses
+        # the IoU against a competing box for the same object, so NMS lets both
+        # through (measured: the second bus sat at x1=-135 and survived at IoU 0.37;
+        # clipped, it reached 0.52 and was suppressed).
+        x1 = np.clip(cx - bw / 2, 0, w0)
+        y1 = np.clip(cy - bh / 2, 0, h0)
+        x2 = np.clip(cx + bw / 2, 0, w0)
+        y2 = np.clip(cy + bh / 2, 0, h0)
         dets: List[Detection] = []
         for i in range(len(scores_k)):
             xx1, yy1, xx2, yy2 = x1[i], y1[i], x2[i], y2[i]

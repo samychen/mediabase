@@ -2,7 +2,7 @@
   "package": "highlight_core",
   "upstream": "../../../video_highlight_engine/highlighter",
   "upstreamCommit": null,
-  "syncedAt": "2026-11-07T18:08:10.096Z",
+  "syncedAt": "2026-11-08T08:30:05.875Z",
   "files": [
     "__init__.py",
     "cancel.py",
