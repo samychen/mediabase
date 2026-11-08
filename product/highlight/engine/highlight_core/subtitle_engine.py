@@ -50,6 +50,13 @@ class SubtitleEngine:
             return []
 
         try:
+            # Before CTranslate2 loads its own OpenMP runtime: if torch already
+            # initialised a different copy in this process, the second one
+            # aborts the interpreter mid-analysis. See openmp_guard.py.
+            from .openmp_guard import repair_duplicate_openmp
+
+            repair_duplicate_openmp()
+
             from faster_whisper import WhisperModel  # type: ignore
 
             device = self.config.whisper_device

@@ -26,6 +26,7 @@ import re
 import sys
 import tempfile
 import unittest
+from typing import Optional
 from unittest import mock
 
 sys.path.insert(0, str(pathlib.Path(__file__).resolve().parents[1]))
@@ -33,6 +34,7 @@ sys.path.insert(0, str(pathlib.Path(__file__).resolve().parents[1]))
 import contract  # noqa: E402
 import vhl_bridge as b  # noqa: E402
 from highlight_core import HighlightConfig, ScoringWeights  # noqa: E402
+from highlight_core import openmp_guard  # noqa: E402,F401  (submodule import)
 
 
 def codes(callable_, *args, **kwargs):
@@ -533,6 +535,107 @@ class UnknownVerbTest(unittest.TestCase):
         with self.assertRaises(b.EngineError) as caught:
             b.handle(Quiet(), "nalyze.status", [])  # type: ignore[arg-type]
         self.assertIn("'nalyze.status'", caught.exception.message)
+
+
+class OpenMpGuardTests(unittest.TestCase):
+    """The duplicate-OpenMP-runtime repair (`highlight_core/openmp_guard.py`).
+
+    Two copies of Intel's OpenMP runtime in one process abort the interpreter
+    ("OMP: Error #15") the first time the second one initialises. Since the
+    engine loads torch (OpenCLIP) and CTranslate2 (Whisper) in the same
+    process, this is reachable in normal use — and the crash lands mid-analysis
+    rather than at startup, which makes it expensive to diagnose.
+
+    The tests below build a fake site-packages tree instead of relying on the
+    wheels being installed: the logic is about path shapes and file identity,
+    and a CI runner may be Linux, may have no torch at all, or may have only one
+    of the two wheels.
+    """
+
+    def _fake_site(self, tmp: str) -> pathlib.Path:
+        """A site-packages tree holding the copies torch and ctranslate2 ship."""
+        site = pathlib.Path(tmp) / "site-packages"
+        for rel in ("ctranslate2/.dylibs", "functorch/.dylibs", "torch/lib"):
+            (site / rel).mkdir(parents=True, exist_ok=True)
+        # Distinct contents, so "resolved to the same file" is a real claim.
+        for rel, payload in (
+            ("ctranslate2/.dylibs/libiomp5.dylib", b"ctranslate2"),
+            ("functorch/.dylibs/libiomp5.dylib", b"functorch"),
+            ("torch/lib/libiomp5.dylib", b"torch"),
+        ):
+            (site / rel).write_bytes(payload)
+        return site
+
+    def _repair(self, site: pathlib.Path) -> Optional[str]:
+        with mock.patch.object(openmp_guard, "_site_packages", return_value=site):
+            with mock.patch.object(openmp_guard.sys, "platform", "darwin"):
+                return openmp_guard.repair_duplicate_openmp()
+
+    def test_it_merges_the_duplicates(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            site = self._fake_site(tmp)
+            message = self._repair(site)
+            assert message is not None
+            # Every copy must now BE the survivor, not merely point at it.
+            resolved = {
+                (site / rel).resolve()
+                for rel in (
+                    "ctranslate2/.dylibs/libiomp5.dylib",
+                    "functorch/.dylibs/libiomp5.dylib",
+                    "torch/lib/libiomp5.dylib",
+                )
+            }
+            self.assertEqual(len(resolved), 1)
+            self.assertEqual(resolved.pop(), (site / "functorch/.dylibs/libiomp5.dylib").resolve())
+
+    def test_it_keeps_the_original_aside(self):
+        # The wheel can be restored without reinstalling it.
+        with tempfile.TemporaryDirectory() as tmp:
+            site = self._fake_site(tmp)
+            self._repair(site)
+            backup = site / "ctranslate2/.dylibs/libiomp5.dylib.orig"
+            self.assertTrue(backup.exists())
+            self.assertEqual(backup.read_bytes(), b"ctranslate2")
+
+    def test_it_is_idempotent(self):
+        # The engine calls this on every transcription; the second call must
+        # find the work already done and stay quiet.
+        with tempfile.TemporaryDirectory() as tmp:
+            site = self._fake_site(tmp)
+            self.assertIsNotNone(self._repair(site))
+            self.assertIsNone(self._repair(site))
+            self.assertIsNone(self._repair(site))
+
+    def test_it_does_nothing_off_macos(self):
+        # Linux wheels resolve to one system OpenMP; touching them would be
+        # a no-op at best and a broken venv at worst.
+        with tempfile.TemporaryDirectory() as tmp:
+            site = self._fake_site(tmp)
+            with mock.patch.object(openmp_guard, "_site_packages", return_value=site):
+                with mock.patch.object(openmp_guard.sys, "platform", "linux"):
+                    self.assertIsNone(openmp_guard.repair_duplicate_openmp())
+            # Untouched.
+            self.assertFalse((site / "ctranslate2/.dylibs/libiomp5.dylib.orig").exists())
+            self.assertFalse((site / "ctranslate2/.dylibs/libiomp5.dylib").is_symlink())
+
+    def test_it_leaves_a_single_copy_alone(self):
+        # Only ctranslate2 installed: nothing to merge, and the file it owns
+        # must not be touched.
+        with tempfile.TemporaryDirectory() as tmp:
+            site = pathlib.Path(tmp) / "site-packages"
+            (site / "ctranslate2/.dylibs").mkdir(parents=True)
+            (site / "ctranslate2/.dylibs/libiomp5.dylib").write_bytes(b"only")
+            self.assertIsNone(self._repair(site))
+            self.assertFalse((site / "ctranslate2/.dylibs/libiomp5.dylib").is_symlink())
+
+    def test_the_links_stay_relative(self):
+        # An absolute path breaks the moment the project directory moves.
+        with tempfile.TemporaryDirectory() as tmp:
+            site = self._fake_site(tmp)
+            self._repair(site)
+            link = site / "ctranslate2/.dylibs/libiomp5.dylib"
+            self.assertTrue(link.is_symlink())
+            self.assertFalse(pathlib.Path(os.readlink(link)).is_absolute())
 
 
 if __name__ == "__main__":
