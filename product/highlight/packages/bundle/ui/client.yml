@@ -1,0 +1,31 @@
+# @vhl/bundle-ui — the product's browser roster (mount order).
+#
+# Base rows first (the registries everything registers into), the product panels
+# next, the SHELL LAST — it mounts React and renders whatever ctx.ui holds by
+# then. The roster is data: product/highlight/scripts/gen-client-roster.mjs
+# turns it into apps/web/src/roster.generated.ts.
+#
+# The shell is the BASE shell (@mediabase/ui-web): this product adds two panels
+# and no chrome of its own, so a product shell would be pure duplication.
+
+- id: connection
+  name: '@mediabase/connection'
+
+- id: i18n
+  name: '@mediabase/i18n'
+
+- id: ui
+  name: '@mediabase/ui'
+
+# Skins: the studio skin (warm-neutral dark) is the deployment default for a
+# video-review tool; the header picker can still switch it.
+- id: theme
+  name: '@mediabase/theme'
+  config:
+    theme: studio
+
+- id: highlight
+  name: '@vhl/ui-highlight'
+
+- id: shell
+  name: '@mediabase/ui-web'

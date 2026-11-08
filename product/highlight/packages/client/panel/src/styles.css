@@ -1,0 +1,87 @@
+/* @vhl/ui-highlight — layout only.
+   The element recipes (buttons, fields, badges, .status, .row, code) come from
+   @mediabase/theme/chrome.css, imported by the page entry: one source, tokenized,
+   with literal fallbacks so a theme-less composition still renders. What lives
+   here is what only these panels own. */
+
+.vhl-control, .vhl-result { display: flex; flex-direction: column; gap: 10px; }
+
+.vhl-head { display: flex; align-items: center; gap: 8px; font-size: 13px; }
+.vhl-head strong { font-weight: 600; letter-spacing: -0.01em; }
+
+.vhl-line { display: flex; align-items: center; gap: 8px; font-size: 13px; flex-wrap: wrap; }
+.vhl-k { color: var(--muted, #8b949e); font-size: 12px; min-width: 64px; }
+.vhl-muted { color: var(--muted, #8b949e); font-size: 12px; }
+.vhl-error { color: var(--danger, #f85149); }
+
+/* progress: a thin track, not a spinner — the engine reports a real fraction */
+.vhl-bar { flex: 1; height: 6px; border-radius: 999px; background: var(--inset, #0d1117);
+  box-shadow: inset 0 0 0 1px var(--border, #30363d); overflow: hidden; min-width: 80px; }
+.vhl-bar > span { display: block; height: 100%; background: var(--accent, #58a6ff);
+  transition: width .25s ease; }
+.vhl-pct { font-variant-numeric: tabular-nums; font-size: 12px; color: var(--muted, #8b949e); }
+
+.vhl-job { display: flex; flex-direction: column; gap: 6px;
+  padding: 10px; border-radius: calc(var(--radius, 10px) * 0.8);
+  background: var(--panel, #161b22); box-shadow: inset 0 0 0 1px var(--border, #30363d); }
+
+.vhl-jobs ul { list-style: none; margin: 6px 0 0; padding: 0; display: flex;
+  flex-direction: column; gap: 4px; max-height: 168px; overflow: auto; }
+.vhl-jobs li { display: flex; align-items: center; gap: 8px; font-size: 12px; }
+
+/* A job row is a control (adopt it for review), not decoration: bare button so
+   it keeps the row layout while staying keyboard-reachable. */
+.vhl-pick { display: flex; align-items: center; gap: 8px; width: 100%; text-align: left;
+  padding: 2px 4px; margin: 0; height: auto; min-height: 22px; border-radius: 6px;
+  background: transparent; box-shadow: none; color: inherit; font: inherit; cursor: pointer; }
+.vhl-pick:hover { background: var(--inset, #0d1117); }
+
+.vhl-empty { display: flex; align-items: center; justify-content: center;
+  min-height: 160px; color: var(--muted, #8b949e); font-size: 13px;
+  border-radius: calc(var(--radius, 10px) * 0.8);
+  background: var(--inset, #0d1117); box-shadow: inset 0 0 0 1px var(--border, #30363d); }
+
+.vhl-player { display: flex; justify-content: center; }
+.vhl-player video { width: 100%; max-height: 52vh; background: #000; border-radius: calc(var(--radius, 10px) * 0.8);
+  box-shadow: inset 0 0 0 1px var(--border, #30363d); }
+
+.vhl-segments table { width: 100%; border-collapse: collapse; font-size: 12.5px; margin-top: 6px; }
+.vhl-segments th { text-align: left; color: var(--muted, #8b949e); font-weight: 500;
+  font-size: 11px; text-transform: uppercase; letter-spacing: .04em; padding: 4px 6px; }
+.vhl-segments td { padding: 5px 6px; border-top: 1px solid var(--border, #30363d);
+  font-variant-numeric: tabular-nums; }
+.vhl-segments td button { margin: 0; height: 24px; font-size: 12px; }
+
+.vhl-actions { display: flex; gap: 6px; }
+.vhl-artifacts { display: flex; flex-direction: column; gap: 4px; }
+.vhl-artifacts code { word-break: break-all; }
+.vhl-artifacts a { font-size: 12px; color: var(--accent, #58a6ff); text-decoration: none; }
+.vhl-artifacts a:hover { text-decoration: underline; }
+
+/* Advanced knobs: rendered from the engine's catalogue, so the section is a
+   grid of rows rather than hand-placed inputs. */
+.vhl-advanced { font-size: 12.5px; }
+.vhl-advanced > summary { cursor: pointer; color: var(--muted, #8b949e); font-size: 12px;
+  list-style: none; padding: 2px 0; }
+.vhl-advanced > summary::-webkit-details-marker { display: none; }
+.vhl-advanced > summary::before { content: '▸ '; }
+.vhl-advanced[open] > summary::before { content: '▾ '; }
+.vhl-opt-group { display: flex; flex-direction: column; gap: 5px; margin-top: 8px; }
+.vhl-opt-row { display: grid; grid-template-columns: 1fr minmax(0, 96px); align-items: center;
+  gap: 8px; font-size: 12px; }
+.vhl-opt-row input[type="checkbox"] { grid-column: 2; grid-row: 1; justify-self: start; }
+.vhl-opt-row input, .vhl-opt-row select { height: 24px; font-size: 12px; padding: 0 6px; }
+.vhl-opt-row span:first-child { color: var(--fg, #e6edf3); }
+.vhl-opt-row em { font-style: normal; }
+/* Sub-rows of a composite knob: indented by a rule instead of padding soup, so
+   the group reads as one control with seven parts. */
+.vhl-opt-weights { display: flex; flex-direction: column; gap: 4px; }
+.vhl-opt-caption { display: flex; flex-direction: column; gap: 1px; font-size: 12px; }
+.vhl-opt-caption .vhl-muted { font-size: 11px; }
+.vhl-opt-sub { padding-left: 10px; border-left: 2px solid var(--border, #30363d); }
+.vhl-opt-sub span:first-child { color: var(--muted, #8b949e); }
+
+.vhl-signals { display: flex; flex-wrap: wrap; gap: 4px; max-width: 220px; }
+.vhl-chip { font-size: 11px; padding: 1px 6px; border-radius: 999px;
+  background: var(--inset, #0d1117); box-shadow: inset 0 0 0 1px var(--border, #30363d);
+  color: var(--muted, #8b949e); font-variant-numeric: tabular-nums; white-space: nowrap; }

@@ -12,6 +12,11 @@ product/xmedia/engine/build/
 # clangd's index cache lands next to the sources when it opens them.
 product/xmedia/engine/.cache/
 
+# VHL job artifacts (clips / srt / report / edl) and the vendored engine's bytecode
+product/highlight/work/
+__pycache__/
+*.pyc
+
 # Logs / runtime
 *.log
 # runtime state a running host creates (confined plugins get a data dir here)
@@ -19,6 +24,7 @@ product/xmedia/engine/.cache/
 .openvideo/
 .mtxconsole/
 .xmedia/
+.vhl/
 .vscode/
 .workbuddy/
 .DS_Store

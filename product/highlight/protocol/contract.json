@@ -1,0 +1,236 @@
+{
+  "protocolVersion": 1,
+  "comment": "Single source of truth for the vhl-bridge line protocol. Consumed by TS (packages/host/highlight/src/protocol.ts, imported directly) and by Python (engine/vhl_bridge.py, which reads this file through engine/contract.py) so the two sides cannot drift. INDEX SEMANTICS: request/response arrays list PAYLOAD columns only, so index i means the (i+1)-th tab-separated field on the wire — field 0 is always the framing token ('<verb>' for hello/ping, 'ok' for ok-framed replies). Every payload column is single-line: JSON is emitted compact and any tab/newline inside a plain string is folded to a space. Framing: 'verb' = reply starts with the verb token (hello/ping), 'ok' = reply starts with 'ok'. A refusal is always 'err\\t<CODE>\\t<message>'.",
+  "verbs": {
+    "hello": {
+      "framing": "verb",
+      "request": [],
+      "response": ["protocol", "engine", "python", "ffmpeg"]
+    },
+    "ping": {
+      "framing": "verb",
+      "request": [],
+      "response": ["verdict"]
+    },
+    "probe": {
+      "framing": "ok",
+      "request": ["path"],
+      "response": ["mediaJson"]
+    },
+    "analyze.start": {
+      "framing": "ok",
+      "request": ["jobId", "input", "output", "optionsJson"],
+      "response": ["jobJson"]
+    },
+    "analyze.status": {
+      "framing": "ok",
+      "request": ["jobId"],
+      "response": ["jobJson"]
+    },
+    "analyze.cancel": {
+      "framing": "ok",
+      "request": ["jobId"],
+      "response": ["jobJson"]
+    },
+    "jobs.list": {
+      "framing": "ok",
+      "request": [],
+      "response": ["jobsJson"]
+    },
+    "export.edl": {
+      "framing": "ok",
+      "request": ["jobId", "path"],
+      "response": ["path"]
+    },
+    "models.list": {
+      "framing": "ok",
+      "request": [],
+      "response": ["modelsJson"]
+    },
+    "options.list": {
+      "framing": "ok",
+      "request": [],
+      "response": ["optionsJson"]
+    },
+    "quit": {
+      "framing": "ok",
+      "request": [],
+      "response": []
+    }
+  },
+  "options": {
+    "comment": "The knob table for analyze.start's optionsJson. Declared HERE rather than duplicated in the bridge and the host: a knob the host validates but the engine does not implement (or the reverse) is a silent lie. field = HighlightConfig attribute; type is the coercion; min/max/enum are enforced on BOTH sides; requires names the capability (a models.list key) that an EXPLICIT opt-in needs — defaults may degrade silently, explicit requests may not; special = handled by the bridge itself and never passed to HighlightConfig; group is a UI section hint.",
+    "clipDurationSec": {
+      "field": "clip_duration_sec",
+      "type": "float",
+      "default": 6,
+      "min": 0.5,
+      "max": 120,
+      "group": "output"
+    },
+    "maxHighlights": {
+      "field": "max_highlights",
+      "type": "int",
+      "default": 5,
+      "min": 1,
+      "max": 50,
+      "group": "output"
+    },
+    "minGapSec": {
+      "field": "min_gap_sec",
+      "type": "float",
+      "default": 1.5,
+      "min": 0,
+      "max": 60,
+      "group": "selection"
+    },
+    "timeBinSec": {
+      "field": "time_bin_sec",
+      "type": "float",
+      "default": 0.5,
+      "min": 0.1,
+      "max": 5,
+      "group": "selection"
+    },
+    "sceneThreshold": {
+      "field": "scene_threshold",
+      "type": "float",
+      "default": 0.25,
+      "min": 0,
+      "max": 1,
+      "group": "analysis"
+    },
+    "frameSkip": {
+      "field": "frame_skip",
+      "type": "int",
+      "default": 5,
+      "min": 1,
+      "max": 60,
+      "group": "analysis"
+    },
+    "contextLeadInSec": {
+      "field": "context_lead_in_sec",
+      "type": "float",
+      "default": 1.2,
+      "min": 0,
+      "max": 15,
+      "group": "selection"
+    },
+    "contextLeadOutSec": {
+      "field": "context_lead_out_sec",
+      "type": "float",
+      "default": 1.2,
+      "min": 0,
+      "max": 15,
+      "group": "selection"
+    },
+    "contextMergeGapSec": {
+      "field": "context_merge_gap_sec",
+      "type": "float",
+      "default": 0.75,
+      "min": 0,
+      "max": 30,
+      "group": "selection"
+    },
+    "keywords": {
+      "field": "keywords",
+      "type": "strs",
+      "default": [],
+      "group": "text"
+    },
+    "enableWhisper": {
+      "field": "enable_whisper",
+      "type": "bool",
+      "default": true,
+      "group": "text",
+      "requires": "whisper"
+    },
+    "whisperModelSize": {
+      "field": "whisper_model_size",
+      "type": "str",
+      "default": "base",
+      "enum": ["tiny", "base", "small", "medium", "large-v3"],
+      "group": "text",
+      "requires": "whisper"
+    },
+    "subtitleLanguage": {
+      "field": "subtitle_language",
+      "type": "str",
+      "default": "zho",
+      "group": "text"
+    },
+    "translateToLang": {
+      "field": "translate_to_lang",
+      "type": "str",
+      "default": "",
+      "group": "text"
+    },
+    "fastStreamCopy": {
+      "field": "fast_stream_copy",
+      "type": "bool",
+      "default": true,
+      "group": "output"
+    },
+    "frameAccurate": {
+      "field": "frame_accurate",
+      "type": "bool",
+      "default": false,
+      "group": "output"
+    },
+    "embedSoftSubtitles": {
+      "field": "embed_soft_subtitles",
+      "type": "bool",
+      "default": true,
+      "group": "output"
+    },
+    "onnxModelPath": {
+      "field": "onnx_model_path",
+      "type": "str",
+      "default": "",
+      "group": "analysis",
+      "requires": "onnxruntime"
+    },
+    "enableFaceDetection": {
+      "field": "enable_face_detection",
+      "type": "bool",
+      "default": false,
+      "group": "analysis",
+      "requires": "face"
+    },
+    "enableClipGuidance": {
+      "field": "enable_clip_guidance",
+      "type": "bool",
+      "default": false,
+      "group": "analysis",
+      "requires": "clip"
+    },
+    "clipPrompt": {
+      "field": "clip_prompt",
+      "type": "str",
+      "default": "",
+      "group": "analysis",
+      "requires": "clip"
+    },
+    "srtPath": {
+      "field": "",
+      "type": "str",
+      "default": "",
+      "group": "text",
+      "special": true
+    },
+    "weights": {
+      "field": "weights",
+      "type": "weights",
+      "group": "scoring",
+      "fields": {
+        "sceneCut": { "field": "scene_cut", "default": 0.18 },
+        "audioRms": { "field": "audio_rms", "default": 0.22 },
+        "visualMotion": { "field": "visual_motion", "default": 0.18 },
+        "objectSaliency": { "field": "object_saliency", "default": 0.16 },
+        "faceSaliency": { "field": "face_saliency", "default": 0.1 },
+        "clipGuidance": { "field": "clip_guidance", "default": 0.1 },
+        "keywordMatch": { "field": "keyword_match", "default": 0.06 }
+      }
+    }
+  }
+}

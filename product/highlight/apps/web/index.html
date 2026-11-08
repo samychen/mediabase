@@ -1,0 +1,27 @@
+<!doctype html>
+<html lang="zh">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>VHL · 视频高光引擎</title>
+    <style>
+      /* LAYOUT ONLY. The element recipes (buttons/fields/badges/status/…) are
+         shared with every page through @mediabase/theme/chrome.css, imported by
+         src/main.tsx — one source, tokenized, with literal fallbacks so a
+         theme-less composition still renders. What remains here is what only
+         THIS page owns: the two-pane grid and its panel cards. */
+      :root { color-scheme: dark; }
+      .app { display: grid; grid-template-columns: 340px 1fr; gap: 16px; padding: 16px; min-height: 100vh; }
+      .panel { background: var(--panel, #161b22); border: 1px solid var(--border, #30363d);
+             border-radius: var(--radius, 10px); padding: 16px; box-shadow: var(--shadow, none);
+             display: flex; flex-direction: column; gap: 12px; min-width: 0; }
+      h1 { font-size: 15px; font-weight: 600; letter-spacing: -0.01em; margin: 0;
+             display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+      .monitor { min-width: 0; }
+    </style>
+  </head>
+  <body>
+    <div id="root"></div>
+    <script type="module" src="/src/main.tsx"></script>
+  </body>
+</html>

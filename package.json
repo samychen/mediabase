@@ -48,7 +48,22 @@
     "typecheck:xmedia": "tsc -p product/xmedia/tsconfig.host.json && tsc -p product/xmedia/tsconfig.test.json",
     "test:xmedia": "vitest run --config product/xmedia/vitest.config.ts",
     "verify:xmedia:compose": "node scripts/verify-composition.mjs packages/bundle/app/cordis.patch.yml product/xmedia/packages/bundle/app/cordis.patch.yml",
-    "verify:xmedia": "node product/xmedia/scripts/verify.mjs"
+    "verify:xmedia": "node product/xmedia/scripts/verify.mjs",
+    "sync:highlight-engine": "node product/highlight/scripts/sync-engine.mjs",
+    "gen:highlight-protocol": "node product/highlight/scripts/gen-protocol.mjs",
+    "gen:highlight-roster": "node product/highlight/scripts/gen-client-roster.mjs",
+    "check:highlight-drift": "node product/highlight/scripts/sync-engine.mjs --check && node product/highlight/scripts/gen-protocol.mjs --check && node product/highlight/scripts/gen-client-roster.mjs --check",
+    "build:highlight": "node product/highlight/scripts/gen-client-roster.mjs && pnpm --filter @vhl/web run build",
+    "host:highlight": "tsx product/highlight/apps/cli/src/index.ts",
+    "dev:highlight": "pnpm run build:highlight && pnpm run host:highlight",
+    "typecheck:highlight": "tsc -p product/highlight/tsconfig.host.json && tsc -p product/highlight/tsconfig.client.json && tsc -p product/highlight/tsconfig.test.json",
+    "test:highlight": "vitest run --config product/highlight/vitest.config.ts",
+    "verify:highlight:compose": "node scripts/verify-composition.mjs packages/bundle/app/cordis.patch.yml product/highlight/packages/bundle/app/cordis.patch.yml product/highlight/packages/bundle/ui/client.yml",
+    "verify:highlight": "node product/highlight/scripts/verify.mjs",
+    "verify:highlight:fake": "node product/highlight/scripts/verify.mjs --engine=fake",
+    "verify:highlight:real": "node product/highlight/scripts/verify.mjs --engine=real",
+    "verify:highlight:all": "pnpm run verify:highlight:fake && pnpm run verify:highlight:real",
+    "verify:highlight:ui": "pnpm run build:highlight && node product/highlight/scripts/verify-ui.mjs"
   },
   "devDependencies": {
     "@mediabase/boot": "workspace:^",

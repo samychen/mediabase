@@ -1,0 +1,67 @@
+# @vhl/bundle-app — the VHL HOST composition layer.
+#
+# Stacked AFTER @mediabase/bundle-app (the profile's bundle order says so): the
+# base layer brings the infrastructure, the agent, the MCP endpoint and the front
+# door; this layer inserts the ONE capability that owns the Python engine.
+#
+# Rows resolve from THIS bundle's manifest (@vhl/host-highlight is its
+# dependency). Registries are live, so `highlight` mounting after `server` is not
+# a problem — the gateway resolves the method/route map per request.
+#
+# SHORT env names: the identity prefix (VHL_) is applied by the boot layer, so
+# `ctx.env.str('PYTHON')` reads VHL_PYTHON. Nothing here spells a product prefix.
+
+- insert:
+    - id: highlight
+      name: '@vhl/host-highlight'
+      config:
+        # Application root: the capability composes <root>/work and
+        # <root>/engine/vhl_bridge.py from it. Root ends with a separator
+        # (it comes from a directory URL), which is why rows may concatenate.
+        root: !!js ctx.appPaths.root
+        # A python3 on PATH is the documented minimum; VHL_PYTHON pins a venv
+        # interpreter when the optional model stack (opencv/onnxruntime) lives
+        # in one. A missing interpreter degrades to coded UNAVAILABLE errors —
+        # it never blocks the boot.
+        python: !!js ctx.env.str('PYTHON')
+        # Point at a bridge outside the product tree (packaged engine, test
+        # double). Empty = <root>/engine/vhl_bridge.py.
+        script: !!js ctx.env.str('ENGINE_SCRIPT')
+        # Comma-separated interpreter argv, e.g. "-u" for unbuffered stderr.
+        pythonArgs: !!js ctx.env.list('PYTHON_ARGS')
+        # analyze.start returns immediately, so the per-call budget only has to
+        # cover probe/status round trips (a cold Python start included).
+        callTimeoutMs: !!js ctx.env.num('ENGINE_TIMEOUT_MS')
+        autoRestart: !!js ctx.env.flag('ENGINE_AUTO_RESTART')
+        maxRestarts: !!js ctx.env.num('ENGINE_MAX_RESTARTS')
+        restartDelayMs: !!js ctx.env.num('ENGINE_RESTART_DELAY_MS')
+        # Job artifacts (clip, srt, report, edl). Empty = <root>/work.
+        workDir: !!js ctx.env.str('WORK_DIR')
+        # How many job artifact directories to keep under workDir. 0 = never
+        # prune (a deployment that manages its own storage lifecycle).
+        retainJobs: !!js ctx.env.num('RETAIN_JOBS')
+        # Admission control: jobs queued+running above this are refused with
+        # CONFLICT (retryable) instead of piling up behind one worker. Passed to
+        # the engine explicitly so the metric, the refusal text and the config
+        # all name the same number.
+        maxQueue: !!js ctx.env.num('MAX_QUEUE')
+        # Prometheus exposition at /api/metrics. On by default; a deployment
+        # whose scrape path is elsewhere turns it off rather than leaving an
+        # unmonitored endpoint open.
+        metricsRoute: !!js ctx.env.flag('METRICS_ROUTE')
+
+# A patch replaces the WHOLE config of the row it targets, so this override
+# restates every field the base `server` row carried — only the default port
+# differs (:3088 base / :3090 openvideo / :3091 mtxconsole / :3092 xmedia /
+# :3093 VHL), still overridable by the environment's own PORT.
+- id: server
+  config:
+    root: !!js ctx.appPaths.root
+    port: !!js ctx.env.rawNum('PORT') ?? 3093
+    distIndex: !!js ctx.env.str('DIST_INDEX')
+    token: !!js ctx.env.str('TOKEN')
+    crossOriginIsolation: !!js ctx.env.flag('CROSS_ORIGIN_ISOLATION')
+    acl:
+      readonly: !!js ctx.env.flag('READONLY')
+      allow: !!js ctx.env.list('ACL_ALLOW')
+      deny: !!js ctx.env.list('ACL_DENY')
