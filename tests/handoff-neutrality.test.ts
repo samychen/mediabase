@@ -170,7 +170,16 @@ describe('handoff neutrality', () => {
     expect(notice).not.toMatch(ABSOLUTE_PATH)
     expect(notice).not.toMatch(/\/opt\/homebrew/)
     expect(notice).not.toMatch(/AVSTUDIO|MEDIACOMPONENT|MediaComponent|fdk-aac|x264/)
-    expect(notice).toContain('base-only')
+    // The invariant is the CLAIM, not a word: the base attributes no native binary.
+    // (This used to match the literal "base-only"; the sentence had to change once
+    // product layers with engines landed in this repo — the NOTICE now names them
+    // to say their attribution is out of scope, which is the opposite of claiming
+    // it. A literal-word assertion would have forced the doc to keep a phrasing
+    // that had become misleading.)
+    expect(notice).toContain('ships no native engine binary')
+    // …and the shape that would betray the claim: a per-library attribution table
+    // is what a product engine's notice looks like.
+    expect(notice).not.toMatch(/\| Library \| License \|/)
 
     // The packaged distribution notice must describe the default (no native binaries)
     // and tell a consumer where THEIR obligations start — never claim a GPL distribution
