@@ -741,30 +741,33 @@ export function apply(ctx: Context, rawConfig: HighlightEngineConfig): void {
     range?: { start: number; end: number },
   ) {
     const size = data.byteLength
-    const start = range === undefined ? 0 : Math.max(0, Math.min(range.start, size))
-    const end = range === undefined ? size - 1 : Math.max(start, Math.min(range.end, size - 1))
-    const body = size === 0 ? new Uint8Array(0) : data.subarray(start, end + 1)
+    // `from`/`to` rather than `start`/`end`: the range object already names its
+    // bounds `start`/`end`, and a local with the same name reads as a bug even
+    // when it is correct (the linter flags it, and it is right to).
+    const from = range === undefined ? 0 : Math.max(0, Math.min(range.start, size))
+    const to = range === undefined ? size - 1 : Math.max(from, Math.min(range.end, size - 1))
+    const body = size === 0 ? new Uint8Array(0) : data.subarray(from, to + 1)
     const headers: Record<string, string> = {
       'content-type': contentType,
       'accept-ranges': 'bytes',
       'content-length': String(body.byteLength),
     }
     if (range !== undefined) {
-      headers['content-range'] = `bytes ${start}-${end}/${size}`
+      headers['content-range'] = `bytes ${from}-${to}/${size}`
     }
     return { body, headers, totalSize: size }
   }
 
   function serveFile(file: string, range?: { start: number; end: number }) {
     const size = statSync(file).size
-    const start = range === undefined ? 0 : Math.max(0, Math.min(range.start, size))
-    const end = range === undefined ? size - 1 : Math.max(start, Math.min(range.end, size - 1))
-    const length = size === 0 ? 0 : end - start + 1
+    const from = range === undefined ? 0 : Math.max(0, Math.min(range.start, size))
+    const to = range === undefined ? size - 1 : Math.max(from, Math.min(range.end, size - 1))
+    const length = size === 0 ? 0 : to - from + 1
     const body = new Uint8Array(length)
     if (length > 0) {
       const fd = openSync(file, 'r')
       try {
-        readSync(fd, body, 0, length, start)
+        readSync(fd, body, 0, length, from)
       } finally {
         closeSync(fd)
       }
@@ -775,7 +778,7 @@ export function apply(ctx: Context, rawConfig: HighlightEngineConfig): void {
       'content-length': String(length),
     }
     if (range !== undefined) {
-      headers['content-range'] = `bytes ${start}-${end}/${size}`
+      headers['content-range'] = `bytes ${from}-${to}/${size}`
     }
     return { body, headers, totalSize: size }
   }
@@ -967,12 +970,12 @@ export function apply(ctx: Context, rawConfig: HighlightEngineConfig): void {
     return value
   }
 
-  function capabilityOf(models: HighlightModels, requires: string): boolean {
-    if (requires === 'face') return models.face.available
-    if (requires === 'clip') return models.clip.available
-    if (requires === 'whisper') return models.whisper.available
-    if (requires === 'onnxruntime') return models.runtime.onnxruntime
-    if (requires === 'onnx') return models.detector.present
+  function capabilityOf(report: HighlightModels, requires: string): boolean {
+    if (requires === 'face') return report.face.available
+    if (requires === 'clip') return report.clip.available
+    if (requires === 'whisper') return report.whisper.available
+    if (requires === 'onnxruntime') return report.runtime.onnxruntime
+    if (requires === 'onnx') return report.detector.present
     return true
   }
 
@@ -985,28 +988,30 @@ export function apply(ctx: Context, rawConfig: HighlightEngineConfig): void {
    * explanation has been lied to — a coded UNAVAILABLE naming the package is the
    * honest answer. The engine enforces the same rule from the same table.
    */
-  async function assertRequirements(options: Record<string, unknown>): Promise<void> {
+  async function assertRequirements(values: Record<string, unknown>): Promise<void> {
     const required = new Set<string>()
-    for (const [key, raw] of Object.entries(options)) {
+    for (const [key, raw] of Object.entries(values)) {
       const requires = OPTION_SPECS[key]?.requires
       if (requires === undefined) continue
       if (raw === false || raw === '' || raw === null) continue
       required.add(requires)
     }
     if (required.size === 0) return
-    let models: HighlightModels
+    let report: HighlightModels
     try {
-      models = await modelsCached()
+      report = await modelsCached()
     } catch {
       // The engine is down; the start call itself will fail with the right code.
       return
     }
     for (const requires of required) {
-      if (capabilityOf(models, requires)) continue
+      if (capabilityOf(report, requires)) continue
       throw new RpcError(
         RpcCode.UNAVAILABLE,
         `highlight: 当前部署缺少 ${requires} 能力,无法开启需要它的选项`,
-        { requires, models },
+        // The wire key stays `models` — renaming the local must not rename the
+        // payload a client already reads.
+        { requires, models: report },
         { messageKey: 'highlight.capabilityMissing', messageParams: { requires } },
       )
     }
@@ -1039,18 +1044,18 @@ export function apply(ctx: Context, rawConfig: HighlightEngineConfig): void {
     return rows
   }
 
-  async function start(input: string, options: HighlightStartOptions = {}): Promise<HighlightJobView> {
+  async function start(input: string, request: HighlightStartOptions = {}): Promise<HighlightJobView> {
     const source = requireAbsolute(input, 'input')
-    const jobId = options.jobId !== undefined && options.jobId.trim() !== ''
-      ? options.jobId.trim()
+    const jobId = request.jobId !== undefined && request.jobId.trim() !== ''
+      ? request.jobId.trim()
       : randomUUID()
-    const output = options.output !== undefined && options.output.trim() !== ''
-      ? requireAbsolute(options.output, 'output')
+    const output = request.output !== undefined && request.output.trim() !== ''
+      ? requireAbsolute(request.output, 'output')
       : join(workDir, jobId, 'highlight.mp4')
 
-    const merged: Record<string, unknown> = { ...(options.options ?? {}) }
-    if (options.topK !== undefined) merged.maxHighlights = options.topK
-    if (options.clipDurationSec !== undefined) merged.clipDurationSec = options.clipDurationSec
+    const merged: Record<string, unknown> = { ...(request.options ?? {}) }
+    if (request.topK !== undefined) merged.maxHighlights = request.topK
+    if (request.clipDurationSec !== undefined) merged.clipDurationSec = request.clipDurationSec
     // Same table, same rules as the engine (see validateOptions): a typo fails
     // here, with the list of valid keys, before a job id is burned.
     const engineOptions = validateOptions(merged)

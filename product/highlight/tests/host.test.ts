@@ -323,7 +323,8 @@ describe('the highlight host without a usable interpreter', () => {
   })
 
   it('composes and keeps the control plane up', async () => {
-    const methods = (await host?.rpc.call('api.list') as Array<{ name: string }>).map((m) => m.name)
+    if (host === null) throw new Error('host not booted')
+    const methods = (await host.rpc.call('api.list') as Array<{ name: string }>).map((m) => m.name)
     expect(methods).toContain('highlight.status')
   })
 
