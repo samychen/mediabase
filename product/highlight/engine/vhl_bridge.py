@@ -576,9 +576,14 @@ def opencv_issue() -> str:
     return "opencv-import-failed"
 
 
-def models_report() -> Dict[str, Any]:
-    """What this deployment can actually score with, and under which licence."""
-    onnx_path = os.environ.get("VHL_ONNX_MODEL", "")
+def models_report(onnx_model_path: str = "") -> Dict[str, Any]:
+    """What this deployment can actually score with, and under which licence.
+
+    `onnx_model_path` is the per-job choice; `VHL_ONNX_MODEL` is the deployment
+    default. Reading only the env var meant a job that named its own checkpoint was
+    reported as having no detector at all.
+    """
+    onnx_path = onnx_model_path or os.environ.get("VHL_ONNX_MODEL", "")
     cv2 = opencv_usable()
     return {
         "detector": {
@@ -650,6 +655,9 @@ def doctor() -> Dict[str, Any]:
 # ours to round for the comfort of a hash.
 
 _ENV_CACHE: Optional[Dict[str, Any]] = None
+# Which checkpoint path the cache describes. A job may name its own model (the
+# contract's `onnxModelPath`), so the cache is only reusable for the same path.
+_ENV_CACHE_PATH: str = ""
 # Keyed by (path, size, mtime): re-reading a 90MB checkpoint on every job to
 # produce the same 16 hex chars would be a real cost for no new information.
 _DIGEST_CACHE: Dict[Tuple[str, int, int], str] = {}
@@ -731,13 +739,20 @@ def _module_identity(model_id: str, module: str, dists: Sequence[str]) -> Dict[s
     }
 
 
-def environment() -> Dict[str, Any]:
-    """The machinery: versions, checkpoints, and which signals can run here."""
-    global _ENV_CACHE
-    if _ENV_CACHE is not None:
-        return _ENV_CACHE
+def environment(onnx_model_path: str = "") -> Dict[str, Any]:
+    """The machinery: versions, checkpoints, and which signals can run here.
 
-    detector_path = os.environ.get("VHL_ONNX_MODEL", "")
+    Two sources of truth for the checkpoint, deliberately ordered: the job's own
+    `onnxModelPath` first, then the deployment's `VHL_ONNX_MODEL`. The analysis
+    already used the job's path, so a report that consulted only the env var would
+    describe a machine that ran Sobel while the numbers beside it came from YOLOX.
+    """
+    global _ENV_CACHE, _ENV_CACHE_PATH
+    detector_path = onnx_model_path or os.environ.get("VHL_ONNX_MODEL", "")
+    if _ENV_CACHE is not None and _ENV_CACHE_PATH == detector_path:
+        return _ENV_CACHE
+    _ENV_CACHE_PATH = detector_path
+
     models: List[Dict[str, Any]] = []
     if detector_path:
         models.append(_file_identity("detector", detector_path))
@@ -777,9 +792,16 @@ def environment() -> Dict[str, Any]:
             "sceneCut": "ffmpeg-scene",
             "audioRms": "ffmpeg-astats",
             "visualMotion": "opencv-optflow" if cv2 else "ffmpeg-signalstats",
-            "objectSaliency": "onnx-detector"
-            if (cv2 and detector_present)
-            else "ffmpeg-signalstats",
+            # Three paths, not two. With OpenCV but no checkpoint the analyzer
+            # scores edge magnitude (Sobel) — a real per-frame vision measurement,
+            # not a file-level statistic. Reporting it as `ffmpeg-signalstats` made
+            # "installed OpenCV, no model" and "no OpenCV at all" identical in the
+            # report, and those two have different fixes.
+            "objectSaliency": (
+                "onnx-detector" if (cv2 and detector_present)
+                else "opencv-sobel" if cv2
+                else "ffmpeg-signalstats"
+            ),
             "faceSaliency": "mediapipe" if (cv2 and _has_module("mediapipe")) else "none",
             "clipGuidance": "open_clip" if (cv2 and _has_module("open_clip")) else "none",
             "keywordMatch": "faster-whisper" if _has_module("faster_whisper") else "none",
@@ -788,9 +810,13 @@ def environment() -> Dict[str, Any]:
     return _ENV_CACHE
 
 
-def provenance(recipe: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
+def provenance(recipe: Optional[Dict[str, Any]] = None,
+               onnx_model_path: str = "") -> Dict[str, Any]:
     """Environment + recipe, plus one short digest to compare two reports by."""
-    body: Dict[str, Any] = {"environment": environment(), "recipe": recipe or {}}
+    body: Dict[str, Any] = {
+        "environment": environment(onnx_model_path),
+        "recipe": recipe or {},
+    }
     canonical = json.dumps(
         body, sort_keys=True, separators=(",", ":"), ensure_ascii=False, default=str
     )
@@ -824,7 +850,7 @@ def attach_provenance(report_path: str, config: HighlightConfig) -> None:
         # engine writes into its own `config.weights`, which makes the two blocks
         # cross-checkable instead of merely parallel.
         recipe["weights"] = asdict(config.weights.normalized())
-        payload["provenance"] = provenance(recipe)
+        payload["provenance"] = provenance(recipe, getattr(config, "onnx_model_path", "") or "")
         # tmp + rename: the report route serves this file to a browser that may
         # be reading it right now. A reader must see the old file or the new one,
         # never half of either.

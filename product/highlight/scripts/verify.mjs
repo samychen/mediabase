@@ -371,7 +371,7 @@ try {
         sceneCut: ['ffmpeg-scene'],
         audioRms: ['ffmpeg-astats'],
         visualMotion: ['opencv-optflow', 'ffmpeg-signalstats'],
-        objectSaliency: ['onnx-detector', 'ffmpeg-signalstats'],
+        objectSaliency: ['onnx-detector', 'opencv-sobel', 'ffmpeg-signalstats'],
         faceSaliency: ['mediapipe', 'none'],
         clipGuidance: ['open_clip', 'none'],
         keywordMatch: ['faster-whisper', 'none'],

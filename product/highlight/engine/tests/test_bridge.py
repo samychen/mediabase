@@ -338,7 +338,8 @@ class ProvenanceTests(unittest.TestCase):
         )
         allowed = {
             "ffmpeg-scene", "ffmpeg-astats", "opencv-optflow", "ffmpeg-signalstats",
-            "onnx-detector", "mediapipe", "open_clip", "faster-whisper", "none",
+            "onnx-detector", "opencv-sobel", "mediapipe", "open_clip",
+            "faster-whisper", "none",
         }
         for name, backend in signals.items():
             self.assertIn(backend, allowed, f"{name} 的后端 {backend!r} 不在白名单里")
@@ -361,6 +362,44 @@ class ProvenanceTests(unittest.TestCase):
         self.assertEqual(
             signals["visualMotion"] == "opencv-optflow", b.opencv_usable()
         )
+
+    def test_object_saliency_names_three_paths_apart(self):
+        # Three machines, three different fixes: install a checkpoint, install
+        # OpenCV, or repair an OpenCV that will not import. The middle one runs the
+        # analyzer's Sobel fallback — real per-frame vision, not a file statistic —
+        # so reporting it as `ffmpeg-signalstats` said "vision is off" to the
+        # operator whose vision was working. This is the same class of mistake as
+        # `find_spec` in `opencv_usable`: one flag standing for two states.
+        def backend(cv2_ok, model_path):
+            with mock.patch.object(b, "opencv_usable", return_value=cv2_ok), \
+                    mock.patch.dict(os.environ, {"VHL_ONNX_MODEL": model_path}):
+                b._ENV_CACHE = None
+                try:
+                    return b.environment()["signals"]["objectSaliency"]
+                finally:
+                    b._ENV_CACHE = None
+
+        self.assertEqual(backend(False, ""), "ffmpeg-signalstats")
+        self.assertEqual(backend(True, ""), "opencv-sobel")
+        # Configured but unreadable is not a detector: a path that does not exist
+        # leaves `present` false, so the report names the path actually taken
+        # instead of the one that was intended.
+        self.assertEqual(backend(True, "/nonexistent/model.onnx"), "opencv-sobel")
+
+    def test_a_job_checkpoint_reaches_the_report(self):
+        # The analysis reads config.onnx_model_path; the report used to read only
+        # VHL_ONNX_MODEL. A job that named its own checkpoint therefore got numbers
+        # from YOLOX and a provenance block saying it ran the Sobel fallback — the
+        # report describing a different machine than the one that computed it.
+        with tempfile.NamedTemporaryFile(suffix=".onnx") as checkpoint, \
+                mock.patch.object(b, "opencv_usable", return_value=True), \
+                mock.patch.dict(os.environ, {"VHL_ONNX_MODEL": ""}):
+            b._ENV_CACHE = None
+            try:
+                signals = b.provenance({}, checkpoint.name)["environment"]["signals"]
+            finally:
+                b._ENV_CACHE = None
+        self.assertEqual(signals["objectSaliency"], "onnx-detector")
 
     def test_protocol_version_matches_the_contract(self):
         self.assertEqual(b.environment()["protocol"], int(contract.PROTOCOL_VERSION))
