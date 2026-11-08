@@ -288,7 +288,15 @@ export function ControlPanel({ ctx }: { ctx: Context }): ReactElement | null {
                     onClick={() => void store.select(row.jobId)}
                   >
                     <code>{row.jobId.slice(0, 8)}</code>
-                    <span className={row.state === 'succeeded' ? 'badge on' : row.state === 'failed' ? 'badge off' : 'badge'}>
+                    {/* `off` for both failed and interrupted: in either case the
+                        clip does not exist and the row is not a result. */}
+                    <span className={
+                      row.state === 'succeeded'
+                        ? 'badge on'
+                        : row.state === 'failed' || row.state === 'interrupted'
+                          ? 'badge off'
+                          : 'badge'
+                    }>
                       {t(stateKey(row.state))}
                     </span>
                     <span className="vhl-muted">{row.segmentCount} × {row.durationSec.toFixed(0)}s</span>

@@ -405,6 +405,28 @@ try {
       !/[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}/i.test(exposition),
       exposition.slice(0, 200))
 
+    // ---- job journal: the restart story, written down ---------------------- //
+    //
+    // The full kill-and-reboot cycle lives in tests/host.test.ts, where it can be
+    // staged twice in a second. What is checked here is the half that only a REAL
+    // host can show: that the write path actually lands on disk under the
+    // identity home, and that the two gauges describe this boot rather than
+    // inventing history it never had.
+    const journalFile = join(home, 'jobs.jsonl')
+    checks.expect('任务日志落在身份 home(重启可恢复的前提)', existsSync(journalFile), journalFile)
+    checks.expect('任务日志记录了本次任务',
+      existsSync(journalFile) && readFileSync(journalFile, 'utf8').includes(job.jobId), journalFile)
+    checks.expect('干净 home 不谎报恢复历史',
+      sampleOf('vhl_jobs_restored') === 0 && sampleOf('vhl_jobs_interrupted') === 0,
+      `restored=${sampleOf('vhl_jobs_restored')} interrupted=${sampleOf('vhl_jobs_interrupted')}`)
+    const listed = await rpc.call('highlight.jobs.list')
+    const mine = (Array.isArray(listed) ? listed : []).find((row) => row.jobId === job.jobId)
+    checks.expect('引擎仍在管的任务不标记为来自任务日志', mine?.fromDisk === false,
+      JSON.stringify(mine?.fromDisk ?? null))
+    checks.expect('jobs.list 返回合并视图(引擎 + 日志)',
+      (Array.isArray(listed) ? listed : []).length >= 1 && listed.every((row) => typeof row.fromDisk === 'boolean'),
+      `${Array.isArray(listed) ? listed.length : 'n/a'} 行`)
+
     // ---- backpressure: the queue is bounded, and it says so --------------- //
     const blocker = await rpc.call('highlight.start', {
       input: fixture,

@@ -439,3 +439,104 @@ describe('the highlight host with a retention window', () => {
     expect(existsSync(join(dir, newer))).toBe(true)
   })
 })
+
+// ---- world 6: a restart ---------------------------------------------------- //
+//
+// The one scenario a Map cannot survive. Boot A starts a job that is still
+// running, the host is killed, boot B inherits the SAME home — and has to answer
+// three questions honestly: what was in flight, how far it got, and whether the
+// queue is now poisoned by a job that will never finish.
+
+describe('the highlight host after a restart', () => {
+  const home = mkdtempSync(join(tmpdir(), 'vhl-home-'))
+  const work = mkdtempSync(join(tmpdir(), 'vhl-restart-'))
+  let second: BootedHost | null = null
+  let interruptedId = ''
+
+  beforeAll(async () => {
+    const first = await bootHighlight({
+      VHL_HOME: home,
+      VHL_WORK_DIR: work,
+      // Long enough that the job is still mid-render when the host dies.
+      FAKE_BRIDGE_JOB_MS: '30000',
+    })
+    interruptedId = (await first.rpc.call('highlight.start', { input: CLIP }) as { jobId: string }).jobId
+    await waitFor(async () => {
+      const job = await first.rpc.call('highlight.status', { jobId: interruptedId }) as { state: string }
+      return job.state === 'running'
+    }, 20_000)
+    await first.stop()
+    second = await bootHighlight({ VHL_HOME: home, VHL_WORK_DIR: work, FAKE_BRIDGE_JOB_MS: '300' })
+  }, 60_000)
+
+  afterAll(async () => {
+    await second?.stop()
+  })
+
+  const rpc = () => {
+    if (second === null) throw new Error('host not booted')
+    return second.rpc
+  }
+
+  it('reports the job that was running as interrupted, not as still running', async () => {
+    const jobs = await rpc().call('highlight.jobs.list') as Array<{
+      jobId: string; state: string; error: string; fromDisk: boolean
+    }>
+    const row = jobs.find((job) => job.jobId === interruptedId)
+    expect(row).toBeDefined()
+    // `running` would be a lie with consequences: the panel would poll forever,
+    // and queue depth would count a job nobody is working on.
+    expect(row!.state).toBe('interrupted')
+    expect(row!.fromDisk).toBe(true)
+    expect(row!.error).toContain('宿主')
+  })
+
+  it('answers status for a job the engine has forgotten', async () => {
+    const job = await rpc().call('highlight.status', { jobId: interruptedId }) as { state: string; fromDisk: boolean }
+    // NOT_FOUND is technically true here and practically useless — the row and
+    // the artifacts outlive the engine's table.
+    expect(job.state).toBe('interrupted')
+    expect(job.fromDisk).toBe(true)
+  })
+
+  it('counts the death once and keeps the queue usable', async () => {
+    const metrics = await rpc().call('highlight.metrics') as {
+      restoredJobs: number; interruptedJobs: number; queueDepth: number
+    }
+    expect(metrics.restoredJobs).toBeGreaterThanOrEqual(1)
+    expect(metrics.interruptedJobs).toBe(1)
+    // If `interrupted` were not terminal, this would stay at 1 forever and every
+    // new start would be refused with CONFLICT.
+    expect(metrics.queueDepth).toBe(0)
+
+    const started = await rpc().call('highlight.start', { input: CLIP }) as { jobId: string; fromDisk: boolean }
+    expect(started.fromDisk).toBe(false)
+    await waitFor(async () => {
+      const job = await rpc().call('highlight.status', { jobId: started.jobId }) as { state: string }
+      return job.state === 'succeeded'
+    }, 20_000)
+  })
+
+  it('publishes the restart on the Prometheus endpoint', async () => {
+    const response = await fetch(`http://127.0.0.1:${second?.port ?? 0}/api/metrics`)
+    const text = await response.text()
+    expect(text).toContain('vhl_jobs_interrupted 1')
+    expect(text).toMatch(/vhl_jobs_restored [1-9]/)
+  })
+
+  it('does not re-announce the same crash on the next boot', async () => {
+    // A third boot over the same home: the record is now `interrupted` on disk,
+    // so this is history, not a new death. Otherwise the gauge would climb with
+    // uptime and mean nothing.
+    const third = await bootHighlight({ VHL_HOME: home, VHL_WORK_DIR: work, FAKE_BRIDGE_JOB_MS: '300' })
+    try {
+      const metrics = await third.rpc.call('highlight.metrics') as {
+        restoredJobs: number; interruptedJobs: number
+      }
+      expect(metrics.restoredJobs).toBeGreaterThanOrEqual(1)
+      expect(metrics.interruptedJobs).toBe(0)
+    } finally {
+      await third.stop()
+    }
+  }, 40_000)
+})

@@ -34,6 +34,8 @@ const base = (): MetricsSnapshot => ({
   segmentsTotal: 3,
   durations: newHistogram(),
   artifactRoutes: 2,
+  restored: 0,
+  interrupted: 0,
   degraded: false,
 })
 
@@ -128,6 +130,31 @@ describe('renderMetrics', () => {
     // be published as a value.
     expect(renderMetrics({ ...base(), degraded: null })).not.toContain('vhl_models_degraded')
     expect(renderMetrics({ ...base(), degraded: true })).toContain('vhl_models_degraded 1')
+  })
+
+  it('publishes the journal gauges even when they are zero', () => {
+    // The opposite of `degraded`: zero restores is a MEASUREMENT ("empty
+    // journal"), so the series must exist on a healthy host — a dashboard panel
+    // that disappears when everything is fine is a panel nobody watches.
+    const fresh = parse(renderMetrics(base()))
+    expect(fresh.find((s) => s.name === 'vhl_jobs_restored')!.value).toBe('0')
+    expect(fresh.find((s) => s.name === 'vhl_jobs_interrupted')!.value).toBe('0')
+
+    const afterCrash = parse(renderMetrics({ ...base(), restored: 4, interrupted: 1 }))
+    expect(afterCrash.find((s) => s.name === 'vhl_jobs_restored')!.value).toBe('4')
+    expect(afterCrash.find((s) => s.name === 'vhl_jobs_interrupted')!.value).toBe('1')
+  })
+
+  it('declares the journal gauges as gauges, not counters', () => {
+    // A counter that a restart resets to a non-zero value (the restored count)
+    // breaks the one thing counters promise. Gauge is the honest type here.
+    const types = renderMetrics({ ...base(), restored: 4, interrupted: 1 })
+      .split('\n')
+      .filter((line) => line.startsWith('# TYPE vhl_jobs_restored') || line.startsWith('# TYPE vhl_jobs_interrupted'))
+    expect(types).toEqual([
+      '# TYPE vhl_jobs_restored gauge',
+      '# TYPE vhl_jobs_interrupted gauge',
+    ])
   })
 
   it('reports an unhandshaken engine as down but present', () => {

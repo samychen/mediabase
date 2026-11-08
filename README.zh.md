@@ -76,6 +76,44 @@ pnpm run verify:mtxconsole  # 端到端冒烟（LIVE/DEGRADED 双模式）
 
 详见 `product/mediamtx-console/README.zh.md` 与 `product/mediamtx-console/AGENT.md`（agent 指南）。
 
+## 仓库内产品层：xmedia
+
+`product/xmedia/` 是第三个仓内产品，也是**第一个原生后端**（转码 / 编码服务，推 RTMP）：
+消费 [xmedia-kit](https://github.com/samychen/xmedia-kit)（C++20 媒体 SDK，BSD-3-Clause）
+作为受监督子进程，TS 侧只做控制面与一条 WHEP 播放路径。身份 `XMEDIA_` / `~/.xmedia` / 端口
+3092，基座零改动（唯一触碰是一处严格安全的 `EPIPE` 健壮性补丁）。协议同样单源：
+`contract.json` → C++ 头文件，由 `verify:protocol` 校验覆盖全部动词。
+
+```sh
+pnpm run build:xmedia:engine   # 构建 C++ 引擎（需要工具链）
+pnpm run host:xmedia           # http://127.0.0.1:3092
+pnpm run test:xmedia           # 产品测试套件（15 个用例，无需 C++ 工具链）
+pnpm run verify:xmedia         # 端到端冒烟（fake engine）
+```
+
+详见 `product/xmedia/README.zh.md`。
+
+## 仓库内产品层：Highlight（VHL）
+
+`product/highlight/` 是第四个仓内产品：把
+[video_highlight_engine](https://github.com/samychen/video_highlight_engine)（Python /
+Apache-2.0）作为受监督侧车接进来，做场景切分、音频能量、视觉显著性、人脸、零样本语义引导、
+Whisper 字幕、多模态加权融合与 FFmpeg 渲染。身份 `VHL_` / `~/.vhl` / 端口 3093，基座零改动。
+
+宿主**不碰像素**：只监督一个进程、转发命令、把成片挂到一条按 `jobId` 命名的字节路由上
+（`Range` 直读），分析在引擎、播放在浏览器。`protocol/contract.json` 是线协议唯一真源
+（TS 直接 import，Python 由脚本生成），22 个参数与逐信号权重由引擎自报目录、UI 动态渲染。
+任务历史落在 `<VHL_HOME>/jobs.jsonl`：重启后仍在，进程死时仍在跑的任务如实报 `interrupted`。
+
+```sh
+pnpm run build:highlight       # 名册 + 页面
+pnpm run dev:highlight         # http://127.0.0.1:3093
+pnpm run test:highlight        # 66 个用例，不需要 Python/FFmpeg/浏览器
+pnpm run verify:highlight:all  # 端到端（替身 + 真引擎，209 条断言）
+```
+
+详见 `product/highlight/README.zh.md`（分层、线协议、企业级约束、能力矩阵与未交付边界）。
+
 
 ## 常用命令
 
@@ -95,6 +133,14 @@ pnpm run test:openvideo      # 产品测试套件
 pnpm run dev:mtxconsole      # 控制台宿主 + 页面（:3091，需要一个在跑的 MediaMTX）
 pnpm run test:mtxconsole     # 产品测试套件
 pnpm run verify:openvideo    # 产品端到端冒烟
+
+# 第三个产品（product/xmedia，原生 C++ 后端）
+pnpm run host:xmedia         # 转码服务宿主 + 页面（:3092）
+pnpm run verify:xmedia       # 端到端冒烟（fake engine）
+
+# 第四个产品（product/highlight，Python 引擎侧车）
+pnpm run dev:highlight       # 高光引擎宿主 + 面板（:3093）
+pnpm run verify:highlight:all  # 端到端冒烟（替身 + 真引擎）
 ```
 
 浏览器相关缝：`MEDIABASE_NO_BROWSER` · `MEDIABASE_CHROME_ARGS` · `MEDIABASE_CHROME`。

@@ -87,6 +87,9 @@ export const HIGHLIGHT_MESSAGES = {
     'vhl.state.succeeded': '已完成',
     'vhl.state.failed': '失败',
     'vhl.state.cancelled': '已取消',
+    // The host went away mid-job. Not "failed" — the work never got a verdict —
+    // and the label says so, because the next action (resubmit) is different.
+    'vhl.state.interrupted': '已中断(宿主重启)',
 
     'vhl.stage.probe': '探测媒体',
     'vhl.stage.scenes': '场景切分',
@@ -181,6 +184,7 @@ export const HIGHLIGHT_MESSAGES = {
     'vhl.state.succeeded': 'Succeeded',
     'vhl.state.failed': 'Failed',
     'vhl.state.cancelled': 'Cancelled',
+    'vhl.state.interrupted': 'Interrupted (host restarted)',
 
     'vhl.stage.probe': 'Probing',
     'vhl.stage.scenes': 'Scene cuts',

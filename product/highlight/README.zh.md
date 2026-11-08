@@ -5,7 +5,7 @@
 > 路由，分析、评分、渲染全在受监督的 Python 子进程里完成。
 >
 > 本文记录分层、线协议、企业级约束、运行/验证方式与边界。所有数字都来自本机实测
-> （macOS / x86_64 / Python 3.13 / FFmpeg 7.x，2026-11-07）。
+> （macOS / x86_64 / Python 3.13 / FFmpeg 7.x，2026-11-08）。
 
 ---
 
@@ -18,7 +18,7 @@
 | 层 | 职责 |
 |---|---|
 | `vhl-bridge`（Python 子进程） | 探测、场景切分、音频能量、视觉显著性、字幕、多模态融合、FFmpeg 渲染 |
-| `@vhl/host-highlight`（TS 能力包） | 进程监督、11 个控制面方法、5 个 agent 工具、3 条产物字节路由、health、metrics、manifest |
+| `@vhl/host-highlight`（TS 能力包） | 进程监督、11 个控制面方法、5 个 agent 工具、3 条产物字节路由、health、metrics、manifest、任务日志（跨重启） |
 | `@vhl/ui-highlight`（客户端插件） | 两个面板（控制 / 结果），选项目录驱动的参数面板、轮询、回放、字幕轨、信号可解释性、定位、导出 EDL |
 | 浏览器 `<video>` | 从宿主字节路由拉成片，Range 直读；控制面不搬一个媒体字节 |
 
@@ -118,14 +118,16 @@ srtPath, reportPath`。宿主在其上只加一个字段：`clipUrl`（数据面
 进程里就是内存泄漏。注册前要求文件真实存在且落在工作目录内（`insideDir` + `realpath`，
 防目录穿越与软链绕过）；成片已删除时路由干脆不注册，避免把"文件没了"变成每次 seek 的 500。
 
-**事件**：`highlight.engine`（`phase: ready|exit`）、`highlight.job`（`phase: start|end`）。
+**事件**：`highlight.engine`（`phase: ready|exit`）、`highlight.job`（`phase: start|<终态>`；
+重启恢复时补发 `interrupted`，让"没人监听时发生的那次崩溃"至少留下一条事件）。
 
 **health / manifest**：`GET /api/health` 带 `highlight` 段（引擎 state + metrics）；
 `capabilities.register` 声明方法、工具、路由与 `mutates`。`VHL_STRICT_CAPABILITIES=1`
 时 manifest 不实即拒绝启动（verify 一直这样跑）。
 
 **metrics**：`jobsStarted / succeeded / failed / cancelled / queueDepth / segmentsTotal /
-avgElapsedMs / recent[20]`，终态**幂等入账**（重复观察同一个任务不会重复计数）。
+avgElapsedMs / restoredJobs / interruptedJobs / recent[20]`，终态**幂等入账**（重复观察同一个
+任务不会重复计数）。
 
 ### Prometheus 出口 `GET /api/metrics`
 
@@ -150,11 +152,18 @@ avgElapsedMs / recent[20]`，终态**幂等入账**（重复观察同一个任�
 | `vhl_segments_total` | counter | 产出量 |
 | `vhl_job_duration_seconds` | histogram | 分桶 1/5/15/60/300/900s，观测吞吐 |
 | `vhl_artifact_routes` | gauge | 有界路由表的占用 |
+| `vhl_jobs_restored` | gauge | 启动时从任务日志恢复的行数（进程继承的历史） |
+| `vhl_jobs_interrupted` | gauge | 恢复的行里，有几条是**进程死时还在跑**的——非 0 意味着丢了活，不是任务失败 |
 | `vhl_models_degraded` | gauge | **只在 `models()` 跑过之后才出现**：没测过的状态不发布成 0 |
 
 被取消的任务**不进耗时直方图**：3 秒取消说明不了引擎吞吐，只会把 p50 拉低。
 `VHL_METRICS_ROUTE=0` 可关闭该路由。带 `VHL_TOKEN` 时它与其他 `/api/*` 一样需要 token
 （Prometheus 侧用 `authorization: {credentials: …}` 或 `?token=`）。
+
+两条恢复指标是 **gauge 不是 counter**：它们描述"这次启动在磁盘上看到了什么"，
+而进程内 counter 在重启时被置回一个非零值，恰好破坏了 counter 唯一承诺的单调性。
+同一个值导出为 0 也照常导出——和 `vhl_models_degraded` 相反：0 在这里是一次真实的测量
+（"日志是空的"），而"没测过"才应该缺席。
 
 ---
 
@@ -174,9 +183,12 @@ avgElapsedMs / recent[20]`，终态**幂等入账**（重复观察同一个任�
 间隔 500ms、**秒退 3 次即停**（二进制坏了不是"崩过一次"，否则就是日志洪水）。
 `ctx.effect` 保证销毁时杀进程、清定时器。
 
-**4. 引擎重启后的可解释性。** 引擎的任务表在内存里，重启即忘。宿主自己留 `jobId→output`
-与 `restarts` 计数，`highlight.engine.state` 一并返回——客户端能判断"任务消失是因为重启"，
-而不是看到空列表。
+**4. 任务状态跨进程存活，且不谎报。** 引擎的任务表在内存里，重启即忘；宿主自己的 Map 也一样。
+`jobs-journal.ts` 用追加式 JSONL（`<appPaths.home>/jobs.jsonl`）在每次状态**变化**时落一行，
+启动时回放。回放把"进程死时还在排队/运行"的任务改写成 `interrupted`——**绝不复述成 `running`**：
+那个持有渲染的子进程已经不在了，声称在跑会让面板永远轮询、让队列深度永远 >0（进而每次 start
+都被 `CONFLICT` 拒掉，且没人解释为什么）。任务日志是**提示而非真相**：引擎还在报的行永远优先。
+详见第十二节。
 
 **5. 诚实降级。** 没有 `python3` / 脚本时宿主照常启动，所有引擎调用回 `UNAVAILABLE`；
 没有 OpenCV 时 `models.list` 报 `degraded: true`，面板直接显示
@@ -208,6 +220,13 @@ avgElapsedMs / recent[20]`，终态**幂等入账**（重复观察同一个任�
 **11. 产物目录有保留窗口。** `retainJobs`（默认 20）之外的旧任务目录按 `finishedAt` 清理。
 清理只针对**本进程启动过、且解析后仍在工作根内**的 `<jobId>` 目录——不会因为目录名长得像
 就删别人的东西；重启前的旧目录不主动认领（"凭文件名删目录"不是产品该做的决定）。
+保留窗口同时作用于任务日志：被清理的任务一并 `forget`，否则下一次启动会把它恢复成一条
+指向已删产物的记录。
+
+**12. 持久化失败不能让任务失败。** 任务日志写在身份 home 下，可能只读、可能满盘。写入失败时
+回调打一行错误日志、`append` 返回 false，**任务照常跑**——持久化是记账，不能变成它所描述的
+工作的依赖。同理，末行被截断（进程在 write 中途被杀）是**预期**而非异常：回放丢掉那一行并
+计数，其余照常恢复。
 
 ---
 
@@ -243,7 +262,7 @@ product/highlight/
 │  ├─ protocol_generated.py      (生成) contract.json → Python 常量
 │  ├─ highlight_core/            (同步) 引擎副本，禁止就地改
 │  └─ SYNC.json                  上游路径 / 提交 / 同步时间 / 文件表
-├─ packages/host/highlight/      @vhl/host-highlight（能力包 + protocol.ts + prometheus.ts）
+├─ packages/host/highlight/      @vhl/host-highlight（能力包 + protocol.ts + prometheus.ts + jobs-journal.ts）
 ├─ packages/client/panel/        @vhl/ui-highlight（两个面板 + timeline.ts）
 ├─ packages/bundle/app/          @vhl/bundle-app（cordis.patch.yml，端口 3093）
 ├─ packages/bundle/ui/           @vhl/bundle-ui（client.yml 名册）
@@ -258,8 +277,9 @@ product/highlight/
 └─ tests/
    ├─ support/fake-bridge.mjs    Node 版线协议替身（含故障注入）
    ├─ support/host.ts            产品测试挂具
-   ├─ host.test.ts               5 个世界 / 26 个用例
-   ├─ metrics.test.ts            exposition 格式 / 12 个用例
+   ├─ host.test.ts               6 个世界 / 31 个用例（含重启）
+   ├─ journal.test.ts            任务日志:回放/去重/截断/压实 / 17 个用例
+   ├─ metrics.test.ts            exposition 格式 / 14 个用例
    └─ timeline.test.ts           成片内时间算术 / 4 个用例
 ```
 
@@ -287,7 +307,8 @@ pnpm run host:highlight       # http://127.0.0.1:3093
 | `VHL_ENGINE_TIMEOUT_MS` | 单条命令超时 | `20000` |
 | `VHL_ENGINE_AUTO_RESTART` / `_MAX_RESTARTS` / `_RESTART_DELAY_MS` | 崩溃监督 | 开 / 3 / 500 |
 | `VHL_WORK_DIR` | 任务产物目录 | `<产品根>/work` |
-| `VHL_RETAIN_JOBS` | 产物目录保留数（0=不清理） | `20` |
+| `VHL_RETAIN_JOBS` | 产物目录保留数（0=不清理）；同时是任务日志保留的记录数 | `20` |
+| `VHL_JOURNAL_FILE` | 任务日志（JSONL）路径 | `<VHL_HOME>/jobs.jsonl` |
 | `VHL_MAX_QUEUE` | 排队上限（含运行中）。宿主以 `--max-queue` 传给引擎，拒绝文本与指标里的容量都是这个数 | `8` |
 | `VHL_METRICS_ROUTE` | 在 `/api/metrics` 提供 Prometheus 文本 | 开 |
 | `VHL_STRICT_CAPABILITIES=1` | manifest 不实即拒绝启动 | 关 |
@@ -303,7 +324,7 @@ pnpm run host:highlight       # http://127.0.0.1:3093
 ```sh
 pnpm run typecheck:highlight
 pnpm run verify:highlight:compose     # 组合层（patch + 名册）
-pnpm run test:highlight               # 42 个用例，不需要 Python/FFmpeg/浏览器
+pnpm run test:highlight               # 66 个用例，不需要 Python/FFmpeg/浏览器
 pnpm run verify:highlight:fake        # 端到端，Node 测试替身（无 Python 也能跑）
 pnpm run verify:highlight:real        # 端到端，真 Python 桥 + 真 FFmpeg
 pnpm run verify:highlight:ui          # 真 Chrome（CDP）+ 真引擎，截图断言
@@ -315,8 +336,14 @@ pnpm run verify:highlight:ui          # 真 Chrome（CDP）+ 真引擎，截图�
 → **非法选项在创建任务前被拒**（越界/类型/枚举/未知权重子键/全零权重/权重越界）
 → `probe`（真引擎还断言编码一致）→ `start/status`（进度收口、片段非空）
 → **成片可被解码且与片源同编码** → 三条数据面路由（成片 `200`/`206`、报告 JSON 含
-`selected_highlights`/`timeline_series`、字幕 `text/vtt`）→ EDL（CMX3600 形态 + 事件数=片段数）
+`selected_highlights`/`timeline_series`、字幕 `text/vtt`）→ **任务日志落盘 + 两条恢复指标
+在干净 home 上为 0 且不谎报历史** → EDL（CMX3600 形态 + 事件数=片段数）
 → 取消（无半成品 + metrics）→ **队列满回 CONFLICT + `queueDepth` 可见** → 两道漂移闸门 → 页面。
+
+重启本身（杀掉宿主、同一 home 再启动、断言 `interrupted` / `fromDisk` / 队列不被污染 /
+第三次启动不重复计数）在 `tests/host.test.ts` 的第六个世界里跑：那里能用测试替身把
+"死在中途"稳定复现三次，比在冒烟脚本里等真 FFmpeg 卡在合适的位置更可靠。引擎在重启
+故事里只负责"忘记"，替身与真引擎在这一点的行为完全一致。
 
 `verify:highlight:ui` 额外断言：两个面板挂载、标题不与外壳重复、**高级参数按目录渲染
 （≥8 行 / ≥3 组）、被禁用的控件都标注缺失依赖**、探测回显 `320×180 · 12.00s · 25.00fps`、
@@ -329,15 +356,17 @@ pnpm run verify:highlight:ui          # 真 Chrome（CDP）+ 真引擎，截图�
 
 | 检查 | 结果 |
 |---|---|
-| `test:highlight` | ✅ 28/28（5 个世界：正常 / 无解释器 / 崩溃监督 / 队列背压 / 保留窗口 + 时间算术） |
+| `test:highlight` | ✅ **66/66**（6 个世界：正常 / 无解释器 / 崩溃监督 / 队列背压 / 保留窗口 / **重启** + 任务日志 17 + exposition 14 + 时间算术 4） |
 | 引擎仓 `pytest` | ✅ 11/11（含「取消 5s 内杀掉 30s 子进程」「进度单调收口 1.0」） |
-| `verify:highlight:fake` | ✅ 全部通过（含选项目录、三路由、背压、EDL 事件数、metrics） |
-| `verify:highlight:real` | ✅ 真分析：`[2.80s, 12.00s]` 分数 `0.4515`，信号 `{scene 0.19, audio 1.00, motion 0.22, saliency 0.98, face 0, clip 0}` |
+| `verify:highlight:fake` | ✅ **102 条断言**，0 失败 |
+| `verify:highlight:real` | ✅ **107 条断言**，0 失败；真分析：`[2.80s, 12.00s]` 分数 `0.4515`，信号 `{scene 0.19, audio 1.00, motion 0.22, saliency 0.98, face 0, clip 0}` |
 | 成片可解码 | ✅ `10.096s / 320×180 / h264+aac`（渲染路径为 stream copy，编码与片源一致） |
 | 数据面路由 | ✅ 成片 `200 video/mp4`、`Range: bytes=0-1023` → `206 bytes 0-1023/191366`；报告 `200 application/json`；字幕 `200 text/vtt`（假引擎路径） |
 | 选项目录 | ✅ 22 项，含 `frameAccurate`/`enableClipGuidance`/`whisperModelSize` 等；越界/错类型/枚举外均在创建任务前被拒 |
 | 队列背压 | ✅ 上限 1 时第二个并发任务回 `CONFLICT -32004`；`queueDepth` 从 0 → 1 |
 | 保留窗口 | ✅ `retainJobs=1` 时最旧任务目录被清理，新目录保留 |
+| 任务日志 / 重启 | ✅ 宿主在任务运行中被杀 → 同一 home 重启后该任务为 `interrupted`（错误文本含中断时进度）、`fromDisk: true`、`queueDepth 0`、新任务照常成功；第三次启动 `interruptedJobs 0`（同一次死亡不重复计数） |
+| Prometheus 恢复指标 | ✅ 干净 home：`vhl_jobs_restored 0` / `vhl_jobs_interrupted 0`；崩溃后：`restored ≥1` / `interrupted 1`，且两条都是 gauge |
 | 取消语义 | ✅ 状态 `cancelled`，`cancelled.mp4` 不存在；metrics `{jobsStarted 2, succeeded 1, cancelled 1}` |
 | `verify:highlight:ui` | ✅ 面板挂载 / 高级参数 18 行 / 信号 chips / 报告链接 / `videoWidth 320` `readyState 4` / 定位 / EDL / 刷新恢复 / 无异常 |
 | `typecheck:highlight` / `verify:highlight:compose` | ✅ 全绿 |
@@ -357,10 +386,11 @@ pnpm run verify:highlight:ui          # 真 Chrome（CDP）+ 真引擎，截图�
    多进程多实例比线程池更诚实。
 5. **路由名即任务 ID。** 没有路径参数就没有穿越面；表有界，最旧淘汰。
 6. **面板不碰 ctx.net。** 外壳只 inject `ui`/`i18n`，绝对 URL 在 store 里解析（见第五节第 7 条）。
-7. **边界 / 未做**：引擎任务表在内存（重启即忘；宿主自己留快照与 `restarts`，但不是持久化
-   任务库）；不做多租户、鉴权配额、优先级队列、长稳 soak；不做逐帧精确 seek 的默认路径
-   （默认 stream copy 会吸附到关键帧，需要精确请开 `frameAccurate` 重编码）；不做云端转码
-   编排、缩略图/时间轴可视化；UI 只有中文/英文两套文案。
+7. **边界 / 未做**：任务历史是**单机追加式 JSONL**（重启可恢复、可读、可 diff，但没有跨机
+   共享、没有事务、没有并发写者保护——一个 home 只能有一个宿主进程，这是它的前提）；不做多租户、
+   鉴权配额、优先级队列、长稳 soak；不做逐帧精确 seek 的默认路径（默认 stream copy 会吸附到
+   关键帧，需要精确请开 `frameAccurate` 重编码）；不做云端转码编排、缩略图/时间轴可视化；
+   UI 只有中文/英文两套文案。要跨机或要事务，换成 PostgreSQL 是明确的下一个工程（见第十二节）。
 8. **许可**：引擎与产品包 Apache-2.0；基座 MIT。捆绑/分发 FFmpeg 与模型权重的义务由部署方
    按自己的二进制承担，`models.list` 会把每个模型的许可标识随能力一起报出来。
 
@@ -376,7 +406,8 @@ pnpm run verify:highlight:ui          # 真 Chrome（CDP）+ 真引擎，截图�
 | 任务成功但没有成片 | `job.segmentCount === 0`（这段素材没有过阈值的片段）；`clipUrl` 为空，面板显示「任务成功后出现成片」 |
 | 面板白屏且 console 报 `without inject` | 组件在面板里直接读了 `ctx.net`/`ctx.rpc`；改到 store 里解析 |
 | 成片能下载但浏览器黑屏 | 渲染是 stream copy，成片沿用源编码；源是 MPEG-4 Part 2 之类浏览器不支持的编码时无法播放，请开 `frame_accurate` 重编码 |
-| 刷新后看不到之前的任务 | 引擎任务表在内存；宿主重启或引擎重启后 `jobs.list` 为空，`restarts` 计数说明原因 |
+| 刷新后看到 `interrupted` | 不是 bug：宿主在任务跑的时候重启过。任务不会自动续跑（续跑等于从头再算一遍并静默翻倍成本），需要就重新提交；`vhl_jobs_interrupted` 就是这个数字 |
+| 刷新后什么任务都没有 | 检查 `VHL_JOURNAL_FILE` / `<VHL_HOME>/jobs.jsonl` 是否存在且可写；日志里搜「任务日志不可用」。保留窗口（`VHL_RETAIN_JOBS`）之外的记录会被一并清理 |
 | `sync:highlight-engine` 报 `无 git 提交` | 上游仓还没有提交，同步照常进行，`SYNC.json` 的上游提交记为 null |
 | 面板里某个参数是灰的 | 本机缺它依赖的模型（`models.list` 的 `available`）；装上对应包或不要开它。这是有意的拒绝，不是 bug |
 
@@ -405,15 +436,15 @@ pnpm run verify:highlight:ui          # 真 Chrome（CDP）+ 真引擎，截图�
 | 许可证标识 / SBOM 可核对 | ✅ | ✅ | `models.list` 带 `license`；根 NOTICE 需在 `pnpm licenses` 正常的机器上重生成 |
 | 模型注册表 / 版本化 | ⚠️ | ⚠️ | 只报路径与可用性，没有版本表与权重校验脚本 |
 | Prometheus 指标 | — | ✅ | `GET /api/metrics`：文本 0.0.4，抓取零 I/O，标签有界，含耗时直方图 |
-| 任务持久化（PostgreSQL） | ❌ | ❌ | 引擎内存任务表；宿主留快照但不落盘 |
+| 任务持久化 | ❌ | ✅ | 单机追加式 JSONL（`<VHL_HOME>/jobs.jsonl`）：重启后历史仍在、在跑的任务报 `interrupted`；**不是 PostgreSQL**，不跨机、不并发写 |
 | 鉴权 / 多租户 / 配额 | ❌ | ❌ | 由部署方前置网关承担（基座有 token/ACL，产品不重复造） |
 | 分布式队列（Celery/Temporal）/ GPU 节点池 | ❌ | ❌ | 单机侧车是 v1 的边界；扩展点见第十节 |
 
-一句话回答"能力是否补齐了"：**方案里所有"模型/推理/交付"能力都接上了，包括逐信号权重与
-Prometheus。剩下的四项不是"接一下"，是另一个工程**：模型注册表与权重版本校验、任务持久化、
+一句话回答"能力是否补齐了"：**方案里所有"模型/推理/交付"能力都接上了，包括逐信号权重、
+Prometheus 与任务持久化。剩下的三项不是"接一下"，是另一个工程**：模型注册表与权重版本校验、
 多租户/配额/鉴权、分布式队列与 GPU 节点池。它们在本文里明确标为未交付，不靠措辞假装齐全。
 
-### 这一轮补的两项（有断言兜着）
+### 这一轮补的三项（有断言兜着）
 
 **逐信号权重 `weights`。** 做成一个复合参数而不是七个独立滑杆：引擎在评分时按总和归一，
 七个独立控件会暗示"每个都调到 0.9 会更强"，而归一化立刻把它抵消。契约里声明 7 个子键，
@@ -426,3 +457,23 @@ Prometheus。剩下的四项不是"接一下"，是另一个工程**：模型注
 未测量过的状态（`degraded`）不发布成 0。verify 断言「抓取值与 `highlight.metrics` 一致」
 （两条出口不能各说一套）、「容量等于配置值」（`VHL_MAX_QUEUE=1` 时必须是 1，不是默认 8）、
 「exposition 里没有 UUID」。
+
+**任务持久化。** 四个刻意的小决定，每个都能被一条测试推翻：
+
+1. **JSONL 而不是 PostgreSQL。** 要回答的问题只有两个（"我在跑什么""跑到哪了"），一个
+   `~/.vhl/jobs.jsonl` 足够；引入数据库就要引入连接、迁移、备份与一个必须常驻的服务，
+   而产品当前形态是"一个 home 一个宿主"。跨机共享或事务性写入是真实需求时再换，那时
+   回放层（`replay()`）就是唯一要替换的接缝。
+2. **回放把 `running` 改写成 `interrupted`，不续跑。** 续跑等于从分析第一步重来并静默
+   把成本翻倍，而用户可能已经不要这个结果了——要不要重算是调用方的决定。错误文本写明
+   "宿主退出 / 中断时进度 X%"，让"重新提交"是个知情选择。
+3. **`interrupted` 是终态。** 不做成终态的话：面板永远轮询、`queueDepth` 永远 >0、
+   队列满之后每个新任务都被 `CONFLICT` 拒掉，而没有任何一行日志解释原因。这一条有专门
+   用例（重启后 `queueDepth 0` 且新任务照常成功）。
+4. **同一次死亡只计一次。** 回放不是只读的：它把救回来的任务**改写一行**再写回盘，
+   所以第三次启动报 `interruptedJobs 0`。否则 `vhl_jobs_interrupted` 会随 uptime 上涨，
+   变成一条"看起来在监控"的曲线。
+
+另外两条工程细节：**压实用 tmp+rename**（唯一可能丢失全部数据的操作，截断式重写中途崩溃
+会留下空文件，而 rename 要么发生要么不发生）；**写失败不让任务失败**（只读 home 是部署问题，
+不是任务问题）。

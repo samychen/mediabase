@@ -153,7 +153,9 @@ export const EMPTY_STATE: HighlightState = {
   error: null,
 }
 
-const TERMINAL = new Set(['succeeded', 'failed', 'cancelled'])
+// `interrupted` is terminal too: it is what the host reports for a job whose
+// process died. Leaving it out here would poll a row that can never advance.
+const TERMINAL = new Set(['succeeded', 'failed', 'cancelled', 'interrupted'])
 const POLL_MS = 600
 
 export function createHighlightStore(ctx: Context): HighlightStore {

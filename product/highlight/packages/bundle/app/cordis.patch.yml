@@ -40,6 +40,10 @@
         # How many job artifact directories to keep under workDir. 0 = never
         # prune (a deployment that manages its own storage lifecycle).
         retainJobs: !!js ctx.env.num('RETAIN_JOBS')
+        # The job journal (JSONL). Empty = <appPaths.home>/jobs.jsonl, i.e. the
+        # product identity home — deliberately NOT workDir, because retention
+        # prunes workDir and the history should outlive the artifacts it names.
+        journalFile: !!js ctx.env.str('JOURNAL_FILE')
         # Admission control: jobs queued+running above this are refused with
         # CONFLICT (retryable) instead of piling up behind one worker. Passed to
         # the engine explicitly so the metric, the refusal text and the config

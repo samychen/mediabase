@@ -75,6 +75,16 @@ export interface MetricsSnapshot {
   segmentsTotal: number
   durations: HistogramSnapshot
   artifactRoutes: number
+  /**
+   * Journal rows recovered at boot. A GAUGE, not a counter: it describes what
+   * this boot found on disk, and a process-scoped counter that resets to a
+   * non-zero value on every restart is a counter that lies about its own
+   * monotonicity. "How many deaths has this host had" is a question for the log
+   * or for `sum(increase(...))` over a real counter — neither is this.
+   */
+  restored: number
+  /** Of `restored`, jobs that were mid-flight: the count of crashes that lost work. */
+  interrupted: number
   /** null = not known yet (models() has never been called): the line is omitted. */
   degraded: boolean | null
 }
@@ -178,6 +188,17 @@ export function renderMetrics(snapshot: MetricsSnapshot): string {
 
   add('vhl_artifact_routes', 'Live playback/artifact byte routes (bounded ring; oldest evicted).',
     'gauge', [sample('vhl_artifact_routes', [], snapshot.artifactRoutes)])
+
+  // Exported even when zero: unlike `degraded`, zero here is a MEASUREMENT
+  // ("this boot found an empty journal"), and a dashboard panel that vanishes on
+  // a healthy host is worse than one that reads 0.
+  add('vhl_jobs_restored',
+    'Job rows replayed from the journal at boot (history this process inherited).',
+    'gauge', [sample('vhl_jobs_restored', [], snapshot.restored)])
+
+  add('vhl_jobs_interrupted',
+    'Restored jobs that were mid-flight when a process died. Non-zero means work was lost, not failed.',
+    'gauge', [sample('vhl_jobs_interrupted', [], snapshot.interrupted)])
 
   // A gauge that only exists once it is known: exporting 0 before the first
   // models() call would claim "not degraded" about a state nobody measured.

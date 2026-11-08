@@ -13,14 +13,17 @@
 // losing the control plane.
 //
 // Durability posture: the engine's job registry is IN MEMORY (a restart forgets
-// completed jobs). The host therefore keeps the small amount of state it needs
-// to answer after an engine restart — the output paths — and reports
-// `engine.state.restarts` so a client can tell why a job vanished.
+// completed jobs), and so is the host's own Map. `jobs-journal.ts` closes exactly
+// that gap — an append-only JSONL file under the product home, replayed at boot
+// so "what was I working on" survives a restart. What cannot survive is the work
+// itself: a job mid-render when the process died comes back as `interrupted`,
+// never as `running`, and the caller decides whether to resubmit.
 
 import { randomUUID } from 'node:crypto'
 import {
   closeSync, existsSync, mkdirSync, openSync, readFileSync, readSync, realpathSync, rmSync, statSync,
 } from 'node:fs'
+import { homedir } from 'node:os'
 import { isAbsolute, join, relative } from 'node:path'
 import type { Context } from '@deepseek-ai/cordis'
 import {
@@ -34,6 +37,7 @@ import type {} from '@mediabase/api'
 import type {} from '@mediabase/log'
 import type {} from '@mediabase/tools'
 import { OPTION_SPECS, PROTOCOL_VERSION, VERB, optionKeys, responseField } from './protocol.ts'
+import { JobJournal } from './jobs-journal.ts'
 import { newHistogram, observe, renderMetrics } from './prometheus.ts'
 
 
@@ -55,7 +59,21 @@ export interface HighlightSegment {
   signals: Record<string, number>
 }
 
-export type HighlightState = 'queued' | 'running' | 'succeeded' | 'failed' | 'cancelled'
+/**
+ * Engine states, plus ONE state only the host can produce.
+ *
+ * `interrupted` is not an engine verdict: it is what the journal reports for a
+ * job that was queued or running when this process (or a previous one) died. It
+ * is terminal — nothing will ever move it again — and it exists so a client can
+ * tell "your job failed" from "the host went away, resubmit if you still want it".
+ */
+export type HighlightState =
+  | 'queued'
+  | 'running'
+  | 'succeeded'
+  | 'failed'
+  | 'cancelled'
+  | 'interrupted'
 
 export interface HighlightJob {
   jobId: string
@@ -84,6 +102,13 @@ export interface HighlightJobView extends HighlightJob {
   subtitleUrl: string
   /** The engine's explainability report (signals per window), as JSON. */
   reportUrl: string
+  /**
+   * True when this row came from the journal because the engine no longer has
+   * it. The clip may still exist and still play; what is gone is the engine's
+   * copy of the record. Without this flag a client cannot tell a live snapshot
+   * from an archived one, and would poll a row that will never advance.
+   */
+  fromDisk: boolean
 }
 
 /** One row of the engine's option catalogue (what a client is allowed to set). */
@@ -170,6 +195,10 @@ export interface HighlightMetrics {
   segmentsTotal: number
   /** Mean wall time of terminal jobs observed in this process (ms). */
   avgElapsedMs: number
+  /** Rows the journal yielded at boot (0 on a fresh home). */
+  restoredJobs: number
+  /** Of those, how many were mid-flight and are now reported interrupted. */
+  interruptedJobs: number
   recent: Array<{ jobId: string; state: string; elapsedMs: number; segments: number }>
 }
 
@@ -197,6 +226,12 @@ export interface HighlightEngineConfig {
   workDir: string
   /** Artifact directories kept under the work dir (oldest pruned). 0 = keep all. */
   retainJobs: number
+  /**
+   * The job journal (JSONL). Omitted = `<appPaths.home>/jobs.jsonl`, the product
+   * identity home — NOT the work dir: retention prunes the work dir, and history
+   * should outlive the artifacts it describes.
+   */
+  journalFile: string
   /** Serve Prometheus text at /api/metrics (token-gated like the rest of /api/*). */
   metricsRoute: boolean
   /**
@@ -219,6 +254,7 @@ export const Config: Schema<HighlightEngineConfig, HighlightEngineConfig> = z.ob
   restartDelayMs: z.natural().default(500).description('重启前等待(ms)'),
   workDir: z.string().default('').description('任务产物目录;空则 <root>/work'),
   retainJobs: z.natural().default(20).description('工作目录保留的任务产物目录数(0=不清理)'),
+  journalFile: z.string().default('').description('任务日志(JSONL)路径;空则 <appPaths.home>/jobs.jsonl'),
   metricsRoute: z.boolean().default(true).description('在 /api/metrics 提供 Prometheus 文本指标'),
   maxQueue: z.natural().default(8).description('引擎排队上限(含运行中);超出回 CONFLICT 而不是无限堆积'),
 })
@@ -355,8 +391,15 @@ function asJob(value: unknown, verb: string): HighlightJob {
   }
 }
 
+/**
+ * Terminal = nothing will move this row again.
+ *
+ * `interrupted` belongs here and its absence would be a live bug: a restored job
+ * counted as non-terminal keeps queue depth above zero forever, so a host that
+ * restarted once would refuse every new job with CONFLICT and never explain why.
+ */
 function isTerminal(state: string): boolean {
-  return state === 'succeeded' || state === 'failed' || state === 'cancelled'
+  return state === 'succeeded' || state === 'failed' || state === 'cancelled' || state === 'interrupted'
 }
 
 /** Path containment check for the clip route (no traversal, no symlink games). */
@@ -529,7 +572,7 @@ export function apply(ctx: Context, rawConfig: HighlightEngineConfig): void {
 
   const metrics: HighlightMetrics = {
     jobsStarted: 0, succeeded: 0, failed: 0, cancelled: 0, queueDepth: 0, avgElapsedMs: 0,
-    segmentsTotal: 0, recent: [],
+    segmentsTotal: 0, restoredJobs: 0, interruptedJobs: 0, recent: [],
   }
   /** Wall time of terminal jobs, bucketed for Prometheus (seconds, cumulative). */
   const jobDurations = newHistogram()
@@ -551,6 +594,56 @@ export function apply(ctx: Context, rawConfig: HighlightEngineConfig): void {
   let disposed = false
   let helloInfo: { protocol: number; engine: string; python: string; ffmpeg: string } | null = null
   let lastJobId: string | null = null
+
+  // ---- job journal --------------------------------------------------------- //
+  //
+  // Boot order matters here: the journal is opened (and replayed) BEFORE the
+  // engine client is constructed, so a job restored as `interrupted` is already
+  // in `knownJobs` by the time the first status poll or list could run. Replay
+  // never talks to the engine — it answers from disk even when the engine is the
+  // thing that just failed to start.
+  //
+  // Retention is ONE knob: `retainJobs` decides how many artifact directories
+  // survive AND how many journal records are kept, because "how many finished
+  // jobs do you still care about" was never two questions. The line ceiling is
+  // derived (20× the window) so a running job's heartbeats are compacted away
+  // long before the file is worth thinking about.
+  const appHome = (ctx.get('appPaths') as { home?: string } | undefined)?.home
+  const journalFile = config.journalFile !== ''
+    ? config.journalFile
+    : join(appHome ?? join(homedir(), '.vhl'), 'jobs.jsonl')
+  const journal = new JobJournal({
+    file: journalFile,
+    keep: config.retainJobs,
+    maxRecords: config.retainJobs > 0 ? config.retainJobs * 20 : 0,
+    onDrop: (reason) => log.warn(reason, { file: journalFile }),
+    // A journal that cannot be written is a degraded deployment, not a failed
+    // one: the job still runs, and the operator gets one line naming the file.
+    onError: (reason) => log.error('任务日志不可用(任务本身不受影响)', { file: journalFile, reason }),
+  })
+  const restored = journal.replay()
+  for (const job of restored.jobs) knownJobs.set(job.jobId, job)
+  metrics.restoredJobs = restored.jobs.length
+  metrics.interruptedJobs = restored.interrupted
+  if (restored.jobs.length > 0) {
+    const newest = restored.jobs.reduce((a, b) => (b.createdAtMs > a.createdAtMs ? b : a))
+    lastJobId = newest.jobId
+    log.info('已从任务日志恢复历史任务', {
+      jobs: restored.jobs.length,
+      interrupted: restored.interrupted,
+      dropped: restored.dropped,
+      file: journalFile,
+    })
+    // A death is worth an event: an operator watching `highlight.job` sees the
+    // crash that happened while nothing was listening.
+    for (const job of restored.jobs) {
+      if (job.state !== 'interrupted') continue
+      ctx.events.emit('highlight.job', {
+        phase: 'interrupted', jobId: job.jobId, elapsedMs: 0, segments: job.segmentCount, error: job.error,
+      })
+    }
+  }
+  refreshQueueDepth()
 
   const client = new EngineClient(config.python, {
     // The queue ceiling is set HERE, not left to the bridge's default, so the
@@ -745,13 +838,14 @@ export function apply(ctx: Context, rawConfig: HighlightEngineConfig): void {
     return artifactPath(job, kind) === '' ? '' : `/api/highlight.${kind}.${job.jobId}`
   }
 
-  function view(job: HighlightJob): HighlightJobView {
+  function view(job: HighlightJob, fromDisk = false): HighlightJobView {
     for (const kind of ['clip', 'subtitle', 'report'] as const) ensureArtifactRoute(job, kind)
     return {
       ...job,
       clipUrl: artifactUrl(job, 'clip'),
       subtitleUrl: artifactUrl(job, 'subtitle'),
       reportUrl: artifactUrl(job, 'report'),
+      fromDisk,
     }
   }
 
@@ -799,6 +893,9 @@ export function apply(ctx: Context, rawConfig: HighlightEngineConfig): void {
           artifactRoutes.delete(key)
         }
         knownJobs.delete(job.jobId)
+        // Retention applies to history too: a record whose artifact directory is
+        // gone would come back at the next boot pointing at nothing.
+        journal.forget(job.jobId)
         log.info('已清理过期任务产物', { jobId: job.jobId, dir })
       } catch (error) {
         log.warn('清理任务产物失败', { jobId: job.jobId, error: String(error) })
@@ -810,6 +907,9 @@ export function apply(ctx: Context, rawConfig: HighlightEngineConfig): void {
   /** Record a terminal observation once (idempotent) so metrics stay correct. */
   function noteCompletion(job: HighlightJob): void {
     knownJobs.set(job.jobId, job)
+    // Persist first, count second: if the process dies during an event handler
+    // the journal already has the outcome, and the next boot reports it as fact.
+    journal.append(job)
     refreshQueueDepth()
     if (!isTerminal(job.state)) return
     if (metrics.recent.some((row) => row.jobId === job.jobId)) return
@@ -848,10 +948,13 @@ export function apply(ctx: Context, rawConfig: HighlightEngineConfig): void {
   }
 
   /** Record a snapshot (running included) and hand back the wire view. */
-  function track(job: HighlightJob): HighlightJobView {
+  function track(job: HighlightJob, fromDisk = false): HighlightJobView {
     knownJobs.set(job.jobId, job)
+    // The journal dedupes by signature, so calling this on every poll writes
+    // only when something actually moved.
+    journal.append(job)
     refreshQueueDepth()
-    return view(job)
+    return view(job, fromDisk)
   }
 
   /** Model availability, cached briefly: answering it needs a process round-trip. */
@@ -963,10 +1066,22 @@ export function apply(ctx: Context, rawConfig: HighlightEngineConfig): void {
 
   async function status(jobId?: string | undefined): Promise<HighlightJobView> {
     const id = jobId ?? lastJobId ?? ''
-    const job = asJob(jsonColumn(await call(VERB.ANALYZE_STATUS, [id]), VERB.ANALYZE_STATUS, 'jobJson'), VERB.ANALYZE_STATUS)
-    lastJobId = job.jobId
-    noteCompletion(job)
-    return track(job)
+    try {
+      const job = asJob(jsonColumn(await call(VERB.ANALYZE_STATUS, [id]), VERB.ANALYZE_STATUS, 'jobJson'), VERB.ANALYZE_STATUS)
+      lastJobId = job.jobId
+      noteCompletion(job)
+      return track(job)
+    } catch (error) {
+      // The engine forgot (it restarted, or a previous process submitted this
+      // job). Answering NOT_FOUND here would be technically true and practically
+      // useless: the clip is on disk and the row is in the journal. `fromDisk`
+      // is how the caller learns which half answered.
+      if (!(error instanceof RpcError) || error.code !== RpcCode.NOT_FOUND) throw error
+      const known = knownJobs.get(id)
+      if (known === undefined) throw error
+      log.debug('任务不在引擎中,改由任务日志回答', { jobId: id, state: known.state })
+      return track(known, true)
+    }
   }
 
   async function cancel(jobId?: string | undefined): Promise<HighlightJobView> {
@@ -976,20 +1091,46 @@ export function apply(ctx: Context, rawConfig: HighlightEngineConfig): void {
     return track(job)
   }
 
+  /**
+   * The job list, engine first and journal behind it.
+   *
+   * The engine's table is the truth for this process: it is fresher by
+   * definition (it is the thing advancing progress). The journal supplies what
+   * the engine no longer has — everything from a previous process — so the list
+   * is "what this deployment has done", not "what this process happens to
+   * remember". Deduped by id, engine row wins, newest first.
+   */
   async function list(): Promise<HighlightJobView[]> {
-    const raw = jsonColumn(await call(VERB.JOBS_LIST), VERB.JOBS_LIST, 'jobsJson')
     const rows: HighlightJob[] = []
-    if (Array.isArray(raw)) {
-      for (const item of raw) {
-        try {
-          rows.push(asJob(item, VERB.JOBS_LIST))
-        } catch {
-          // A single malformed row must not hide the rest of the list.
+    let engineAnswered = true
+    try {
+      const raw = jsonColumn(await call(VERB.JOBS_LIST), VERB.JOBS_LIST, 'jobsJson')
+      if (Array.isArray(raw)) {
+        for (const item of raw) {
+          try {
+            rows.push(asJob(item, VERB.JOBS_LIST))
+          } catch {
+            // A single malformed row must not hide the rest of the list.
+          }
         }
       }
+    } catch (error) {
+      // An engine that will not answer is exactly when the journal earns its
+      // keep. Rethrow only when there is nothing at all to show.
+      if (knownJobs.size === 0) throw error
+      engineAnswered = false
+      log.warn('引擎未响应,任务列表改由任务日志提供', {
+        error: error instanceof Error ? error.message : String(error),
+      })
     }
     for (const job of rows) noteCompletion(job)
-    return rows.map((job) => track(job))
+    const seen = new Set(rows.map((job) => job.jobId))
+    const merged = [...rows]
+    for (const job of knownJobs.values()) {
+      if (!seen.has(job.jobId)) merged.push(job)
+    }
+    merged.sort((a, b) => b.createdAtMs - a.createdAtMs)
+    return merged.map((job) => track(job, !engineAnswered || !seen.has(job.jobId)))
   }
 
   async function probe(path: string): Promise<HighlightMedia> {
@@ -1110,7 +1251,7 @@ export function apply(ctx: Context, rawConfig: HighlightEngineConfig): void {
   }))
   disposers.push(ctx.api.register({
     name: 'highlight.jobs.list',
-    description: '列出本进程内的全部任务(引擎重启后清空)',
+    description: '列出任务:引擎当前表 + 任务日志里的历史(宿主重启后仍在,标 fromDisk)',
     handler: () => list(),
   }))
   disposers.push(ctx.api.register({
@@ -1213,6 +1354,8 @@ export function apply(ctx: Context, rawConfig: HighlightEngineConfig): void {
           segmentsTotal: metrics.segmentsTotal,
           durations: jobDurations,
           artifactRoutes: artifactRoutes.size,
+          restored: metrics.restoredJobs,
+          interrupted: metrics.interruptedJobs,
           // Only after models() has actually run: reporting 0 would assert
           // "fully equipped" about a state nobody measured.
           degraded: modelsCache?.value.degraded ?? null,
