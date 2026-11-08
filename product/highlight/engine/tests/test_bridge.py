@@ -456,5 +456,45 @@ class CapabilityReportTests(unittest.TestCase):
         self.assertEqual(b.doctor()["models"]["degradedReason"], b.opencv_issue())
 
 
+class UnknownVerbTest(unittest.TestCase):
+    """The refusal has to be answerable, not just correct.
+
+    Reported from a real session: `[-32602] highlight: 未知动词: nalyze.status`.
+    Everything that made it unanswerable is in that line — the verb is not quoted,
+    so nothing shows that it is 13 characters where `analyze.status` is 14; the
+    message is the ENGINE's, so it blames the caller for a verb this engine does
+    support; and nothing says which verb table answered, so "old engine" and
+    "mangled request line" are indistinguishable.
+    """
+
+    def test_it_quotes_and_counts_what_arrived(self):
+        err = b._unknown_verb("nalyze.status")
+        self.assertEqual(err.code, "INVALID_PARAMS")
+        self.assertIn("'nalyze.status'", err.message)
+        self.assertIn(f"({len('nalyze.status')} 字符", err.message)
+
+    def test_it_lists_what_this_engine_does_support(self):
+        message = b._unknown_verb("nalyze.status").message
+        supported = message.split("本引擎支持: ", 1)[1].split(", ")
+        # The near miss is visible next to the real thing: a reader can see the
+        # verb exists and that what arrived is not it.
+        self.assertIn("analyze.status", supported)
+        self.assertNotIn("nalyze.status", supported)
+        self.assertEqual(sorted(supported), sorted(b.contract.VERBS))
+
+    def test_it_names_the_table_that_answered(self):
+        # "Old engine on a stale protocol_generated.py" and "host sent garbage"
+        # need different fixes; the source is what tells them apart.
+        self.assertIn(b.contract.SOURCE, b._unknown_verb("x").message)
+
+    def test_the_dispatch_uses_it(self):
+        class Quiet:  # handle() only touches rt after the verb is known
+            pass
+
+        with self.assertRaises(b.EngineError) as caught:
+            b.handle(Quiet(), "nalyze.status", [])  # type: ignore[arg-type]
+        self.assertIn("'nalyze.status'", caught.exception.message)
+
+
 if __name__ == "__main__":
     unittest.main()

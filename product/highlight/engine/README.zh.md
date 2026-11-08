@@ -45,6 +45,11 @@ node product/highlight/scripts/sync-engine.mjs --check
   用于现场排查（不启动宿主也能跑）。
 - 选项走 `camelCase` 白名单：未知键**拒绝**而不是忽略——拼错的参数被静默忽略，
   用户会以为它生效了。
+- **不认识的动词，拒绝也要能回答**：文案引号包住收到的动词、给出字符数、列出本引擎支持的
+  动词和动词表来源（`contract.json` 还是陈旧的 `protocol_generated.py`）。旧文案
+  `未知动词: analyze.status` 对一台**支持** `analyze.status` 的引擎毫无意义：它像在说调用方
+  拼错了，而"少了 1 个字符"和"表旧了"这两条唯一能指导修复的信息都不在里面。（宿主的
+  `call()` 还有自己的闸门，见产品 README 第三节——本机缺陷不该以引擎的口吻出现。）
 - 长任务在 `ThreadPoolExecutor` 里跑（默认 1 个 worker），主循环继续应答 `status`/`cancel`。
 
 ## 桥自己的测试
@@ -70,6 +75,8 @@ pnpm run test:highlight:py        # 或 python3 -m unittest discover -s product/
   东西（`numpy-missing` 尤其隐蔽：分析器把 `import cv2` 与 `import numpy` 写在同一个 `try`
   里，缺 numpy 会落进同一个标志）。（`find_spec` 在这里是对的问题，正好用来区分这几者；
   `opencv_usable()` 里它才是错的问题。）
+- **未知动词的文案可回答**：引号 + 字符数 + 支持的动词 + 动词表来源；并钉住"截断的动词不在
+  支持列表里、完整的那个在"——这样下一次同样的报告能自己说明是哪一类问题。
 
 只用标准库 `unittest`：为一个文件引入 pytest，等于给运行环境多加一个测试依赖。
 

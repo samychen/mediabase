@@ -892,9 +892,28 @@ def _args(verb: str, raw: Sequence[str]) -> List[str]:
     return list(raw) + [""] * (expected - len(raw))
 
 
+def _unknown_verb(verb: str) -> "EngineError":
+    """A verb this engine's table does not have — say what arrived and what is here.
+
+    Quoted and counted on purpose. The interesting failure is a verb that is
+    *almost* right: a line mangled on its way in (`nalyze.status`), or a host that
+    added a verb the engine's table predates. `未知动词: analyze.status` cannot be
+    acted on — this machine supports exactly that verb and the message reads like
+    a typo in the caller's code. With the quote, the character count and the list
+    of what this process DOES accept, both causes are visible in one line, and
+    `SOURCE` names the table that answered (contract.json vs a stale
+    protocol_generated.py).
+    """
+    return EngineError(
+        "INVALID_PARAMS",
+        f"未知动词: '{verb}'({len(verb)} 字符,动词表来自 {contract.SOURCE});"
+        f"本引擎支持: {', '.join(sorted(contract.VERBS))}",
+    )
+
+
 def handle(rt: Runtime, verb: str, raw: Sequence[str]) -> Optional[str]:
     if not contract.known(verb):
-        raise EngineError("INVALID_PARAMS", f"未知动词: {verb}")
+        raise _unknown_verb(verb)
 
     if verb == "hello":
         return line(

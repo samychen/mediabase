@@ -78,6 +78,19 @@
 | `options.list` | — | `optionsJson`（选项目录：类型/默认值/范围/依赖能力/本机可用性/复合参数的子键） |
 | `quit` | — | — |
 
+**不认识的动词由谁拒绝。** 契约在宿主这一侧，引擎只是实现它。所以宿主**发之前**就用自己的
+动词表拦住不在契约里的动词：`call()` 的参数类型是契约里的字面量（写错编译不过），运行时再兜
+一层并报出动词与字符数——不花一次往返，也不让"本机缺陷"以引擎的口吻出现。引擎那侧的拒绝
+必须**可回答**：引号包住收到的动词、给出字符数、列出本引擎支持的动词并指明动词表来自哪个文件。
+
+```
+未知动词: 'nalyze.status'(13 字符,动词表来自 contract.json);本引擎支持: analyze.cancel, analyze.start, analyze.status, …
+```
+
+旧文案 `未知动词: analyze.status` 不可回答：这个引擎**明明支持** `analyze.status`，报错却像在
+说调用方拼错了；唯一有用的两条信息——"少了 1 个字符"和"是请求被截断，还是引擎的动词表旧了"
+（`contract.json` vs 陈旧的 `protocol_generated.py`）——一句都没有。
+
 **任务 JSON**：`jobId, state, stage, progress, input, output, error, createdAtMs, startedAtMs,
 finishedAtMs, durationSec, fps, segments[{startSec,endSec,score,signals}], segmentCount,
 srtPath, reportPath`。宿主在其上只加一个字段：`clipUrl`（数据面地址，未成功时为空串）。
@@ -394,11 +407,11 @@ pnpm run verify:highlight:ui          # 真 Chrome（CDP）+ 真引擎，截图�
 
 | 检查 | 结果 |
 |---|---|
-| `test:highlight` | ✅ **66/66**（6 个世界：正常 / 无解释器 / 崩溃监督 / 队列背压 / 保留窗口 / **重启** + 任务日志 17 + exposition 14 + 时间算术 4） |
-| `test:highlight:py` | ✅ **46/46**（桥自身：线协议折叠、权重四类拒绝、边界/枚举、依赖缺失、EDL 时码、文件指纹、`provenance` 归一与顺序无关、坏报告不炸任务） |
+| `test:highlight` | ✅ **73/73**（6 个世界：正常 / 无解释器 / 崩溃监督 / 队列背压 / 保留窗口 / **重启** + 任务日志 17 + exposition 14 + 时间算术 4 + 面板文案 3 + 动词表 4） |
+| `test:highlight:py` | ✅ **53/53**（桥自身：线协议折叠、权重四类拒绝、边界/枚举、依赖缺失、EDL 时码、文件指纹、`provenance` 归一与顺序无关、坏报告不炸任务、未知动词的可回答文案） |
 | 引擎仓 `pytest` | ✅ 11/11（**上游仓**，不在本树；测的是算法，`highlight_core/` 是它的同源副本；含「取消 5s 内杀掉 30s 子进程」） |
 | `verify:highlight:fake` | ✅ **102 条断言**，0 失败 |
-| `verify:highlight:real` | ✅ **117 条断言**，0 失败；真分析：`[2.80s, 12.00s]` 分数 `0.4512`，信号 `{scene 0.19, audio 1.00, motion 0.22, saliency 0.98, face 0, clip 0}` |
+| `verify:highlight:real` | ✅ **118 条断言**，0 失败；真分析：`[2.80s, 12.00s]` 分数 `0.4512`，信号 `{scene 0.19, audio 1.00, motion 0.22, saliency 0.98, face 0, clip 0}` |
 | 成片可解码 | ✅ `10.096s / 320×180 / h264+aac`（渲染路径为 stream copy，编码与片源一致） |
 | 数据面路由 | ✅ 成片 `200 video/mp4`、`Range: bytes=0-1023` → `206 bytes 0-1023/191366`；报告 `200 application/json`；字幕 `200 text/vtt`（假引擎路径） |
 | 报告指纹 | ✅ `provenance.fingerprint dff2cb67d724a3ee`；`environment.signals` = `{sceneCut ffmpeg-scene, audioRms ffmpeg-astats, visualMotion ffmpeg-signalstats, objectSaliency ffmpeg-signalstats, face/clip/keyword none}`——**本机 OpenCV 导入失败，走的就是降级路径**，`models.degraded` 与之一致；两个任务的 `environment` 逐字节相同、`fingerprint` 因权重不同而不同（`41c6f98921768ae1`） |

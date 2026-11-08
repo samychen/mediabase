@@ -36,7 +36,10 @@ import { parse, z, type Schema } from '@mediabase/schema'
 import type {} from '@mediabase/api'
 import type {} from '@mediabase/log'
 import type {} from '@mediabase/tools'
-import { OPTION_SPECS, PROTOCOL_VERSION, VERB, optionKeys, responseField } from './protocol.ts'
+import {
+  OPTION_SPECS, PROTOCOL_VERSION, VERB, VERB_NAMES, isKnownVerb, optionKeys, responseField,
+  unknownVerbMessage, type VerbName,
+} from './protocol.ts'
 import { JobJournal } from './jobs-journal.ts'
 import { newHistogram, observe, renderMetrics } from './prometheus.ts'
 
@@ -688,7 +691,14 @@ export function apply(ctx: Context, rawConfig: HighlightEngineConfig): void {
   })
 
   /** One command, one reply. Non-`ok` becomes a code the client can branch on. */
-  async function call(verb: string, parts: string[] = []): Promise<string[]> {
+  async function call(verb: VerbName, parts: string[] = []): Promise<string[]> {
+    // The contract is the HOST's. A verb it does not declare is this side's bug,
+    // and the engine is the one component that cannot fix it — so refuse here,
+    // with the verb quoted and counted, instead of spending a round trip to be
+    // told 未知动词 by a process that has no idea who sent it.
+    if (!isKnownVerb(verb)) {
+      throw new RpcError(RpcCode.INVALID_PARAMS, unknownVerbMessage(verb), { verb, known: VERB_NAMES })
+    }
     const reply = await client.call([verb, ...parts.map(wire)])
     const head = reply[0]
     if (head === 'ok' || head === verb) return reply

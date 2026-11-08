@@ -106,9 +106,9 @@ Whisper 字幕、多模态加权融合与 FFmpeg 渲染。身份 `VHL_` / `~/.vh
 ```sh
 pnpm run build:highlight       # 名册 + 页面
 pnpm run dev:highlight         # http://127.0.0.1:3093
-pnpm run test:highlight        # 66 个用例，不需要 Python/FFmpeg/浏览器
-pnpm run test:highlight:py     # 46 个用例，桥自身（Python，stdlib unittest）
-pnpm run verify:highlight:all  # 端到端（替身 + 真引擎，219 条断言）
+pnpm run test:highlight        # 73 个用例，不需要 Python/FFmpeg/浏览器
+pnpm run test:highlight:py     # 53 个用例，桥自身（Python，stdlib unittest）
+pnpm run verify:highlight:all  # 端到端（替身 + 真引擎，220 条断言）
 ```
 
 详见 `product/highlight/README.zh.md`（分层、线协议、企业级约束、能力矩阵与未交付边界）。

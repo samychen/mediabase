@@ -292,7 +292,11 @@ function handle(verb, args) {
     case 'quit':
       return ['ok']
     default:
-      return ['err', 'INVALID_PARAMS', `未知动词: ${verb}`]
+      // Mirrors engine/vhl_bridge.py's _unknown_verb(): the same question gets the
+      // same answer, so a suite that reads this line is not reading a second
+      // dialect of the same refusal. The verb list comes from the contract, never
+      // from a copy kept here.
+      return ['err', 'INVALID_PARAMS', `未知动词: '${verb}'(${verb.length} 字符,动词表来自 contract.json);本引擎支持: ${Object.keys(CONTRACT.verbs).sort().join(', ')}`]
   }
 }
 

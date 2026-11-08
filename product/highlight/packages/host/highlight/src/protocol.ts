@@ -49,6 +49,43 @@ for (const key of ['HELLO', 'PING', 'PROBE', 'ANALYZE_START', 'ANALYZE_STATUS', 
 
 export const VERB = verbMap as unknown as VerbConst
 
+/** The verb type: exactly the literals the contract declares, nothing wider. */
+export type VerbName = (typeof VERB)[keyof typeof VERB]
+
+/** Every verb in the contract, in file order (for messages and diagnostics). */
+export const VERB_NAMES: string[] = Object.keys(verbs)
+
+const KNOWN_VERBS = new Set(VERB_NAMES)
+
+/**
+ * Is this one of the contract's verbs?
+ *
+ * The host OWNS the contract; the engine merely implements it. So a verb outside
+ * this set is a defect on this side — a cast, a typo, a string assembled at
+ * runtime — and letting it onto the wire turns a local mistake into
+ * `未知动词: …` in the engine's voice, one process away from the line that
+ * caused it. `call()` takes a `VerbName` so the ordinary case cannot happen;
+ * this answers the case that reached it anyway.
+ */
+export function isKnownVerb(verb: string): boolean {
+  return KNOWN_VERBS.has(verb)
+}
+
+/**
+ * Host-side refusal for a verb outside the contract.
+ *
+ * Quotes the verb and states its length because the message this replaces could
+ * not be acted on: `未知动词: nalyze.status` reads like a typo in the caller and
+ * leaves the actual question — was the string truncated in transit, or is the
+ * engine running an older verb table? — with no answer. A count and a quote make
+ * both visible at a glance (`'nalyze.status' (13 字符)` is visibly not
+ * `analyze.status`), and the sentence says which side refused.
+ */
+export function unknownVerbMessage(verb: string): string {
+  return `highlight: 动词 '${verb}'(${verb.length} 字符)不在 contract 里(共 ${VERB_NAMES.length} 个);`
+    + '宿主拒绝发送,引擎未收到任何请求'
+}
+
 // --------------------------------------------------------------------------- //
 // Option catalogue (the analyze.start knob table)
 // --------------------------------------------------------------------------- //
