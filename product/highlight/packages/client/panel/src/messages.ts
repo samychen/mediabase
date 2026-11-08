@@ -29,6 +29,14 @@ export const HIGHLIGHT_MESSAGES = {
     'vhl.control.degraded.opencv-missing': '降级模式:未安装 OpenCV · 视觉信号回退到 FFmpeg signalstats',
     'vhl.control.degraded.numpy-missing': '降级模式:缺少 numpy · 视觉信号回退到 FFmpeg signalstats',
     'vhl.control.degraded.opencv-import-failed': '降级模式:OpenCV 已安装但导入失败 · 视觉信号回退到 FFmpeg signalstats',
+    // The interpreter variants name WHICH interpreter is missing the dependency.
+    // On a machine with several Pythons, "OpenCV not installed" is false —
+    // OpenCV is installed, in the other interpreter. So the text says which one
+    // is running, and asks the question that has an answer.
+    'vhl.control.degraded.opencv-missing.interpreter': '降级模式:当前解释器({interpreter})未安装 OpenCV · 视觉信号回退到 FFmpeg signalstats',
+    'vhl.control.degraded.numpy-missing.interpreter': '降级模式:当前解释器({interpreter})缺少 numpy · 视觉信号回退到 FFmpeg signalstats',
+    'vhl.control.degraded.opencv-import-failed.interpreter': '降级模式:当前解释器({interpreter})的 OpenCV 导入失败 · 视觉信号回退到 FFmpeg signalstats',
+    'vhl.control.degraded.interpreter': '降级模式:当前解释器({interpreter})的视觉依赖不可用 · 视觉信号回退到 FFmpeg signalstats',
     'vhl.control.media': '媒体',
     'vhl.control.jobs': '任务',
     'vhl.control.noJobs': '本进程内暂无任务',
@@ -129,6 +137,10 @@ export const HIGHLIGHT_MESSAGES = {
     'vhl.control.degraded.opencv-missing': 'Degraded: OpenCV not installed — visual signals fall back to FFmpeg signalstats',
     'vhl.control.degraded.numpy-missing': 'Degraded: numpy is missing — visual signals fall back to FFmpeg signalstats',
     'vhl.control.degraded.opencv-import-failed': 'Degraded: OpenCV is installed but fails to import — visual signals fall back to FFmpeg signalstats',
+    'vhl.control.degraded.opencv-missing.interpreter': 'Degraded: the running interpreter ({interpreter}) has no OpenCV — visual signals fall back to FFmpeg signalstats',
+    'vhl.control.degraded.numpy-missing.interpreter': 'Degraded: the running interpreter ({interpreter}) has no numpy — visual signals fall back to FFmpeg signalstats',
+    'vhl.control.degraded.opencv-import-failed.interpreter': 'Degraded: OpenCV fails to import in the running interpreter ({interpreter}) — visual signals fall back to FFmpeg signalstats',
+    'vhl.control.degraded.interpreter': 'Degraded: vision dependencies unavailable in the running interpreter ({interpreter}) — visual signals fall back to FFmpeg signalstats',
     'vhl.control.media': 'Media',
     'vhl.control.jobs': 'Jobs',
     'vhl.control.noJobs': 'No job in this process yet',
@@ -236,4 +248,30 @@ export function degradedKey(reason: string): string {
   return reason === 'opencv-missing' || reason === 'numpy-missing' || reason === 'opencv-import-failed'
     ? `vhl.control.degraded.${reason}`
     : 'vhl.control.degraded'
+}
+
+/**
+ * The degradation text, with the interpreter that caused it.
+ *
+ * Why the interpreter goes IN the sentence rather than beside it: the fact
+ * being reported is about an interpreter, not about the machine. A laptop with
+ * three Pythons usually has OpenCV in one of them, and "OpenCV not installed"
+ * sends the operator to install it a fourth time — into whichever interpreter
+ * happens to be first on PATH, which is not the one that reported the problem.
+ *
+ * So the text names the interpreter and asks the question that actually has an
+ * answer: is this the interpreter you meant? If it is not, point the host at
+ * the right one (VHL_PYTHON) or let it find the engine's own venv.
+ *
+ * The code-only text stays for the case where no interpreter was reported (an
+ * older engine): a specific guess beats no guess, but a wrong guess about the
+ * machine is worse than an incomplete one.
+ */
+export function degradedText(
+  reason: string,
+  interpreter: string,
+): { key: string; params?: Record<string, string> } {
+  const key = degradedKey(reason)
+  if (interpreter === '') return { key }
+  return { key: `${key}.interpreter`, params: { interpreter } }
 }

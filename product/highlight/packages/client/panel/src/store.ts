@@ -73,6 +73,15 @@ export interface Media {
 }
 
 export interface Models {
+  /**
+   * The interpreter that produced this report.
+   *
+   * `degradedReason` is a fact about an INTERPRETER, not about the machine. A
+   * machine with several Pythons usually has OpenCV in one of them, so the
+   * panel names the interpreter rather than telling the operator to install
+   * OpenCV again.
+   */
+  interpreter: { executable: string; version: string }
   detector: { kind: string; path: string; present: boolean; license: string }
   face: { available: boolean; license: string }
   clip: { available: boolean; license: string }

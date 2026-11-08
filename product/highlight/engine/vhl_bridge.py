@@ -586,6 +586,15 @@ def models_report(onnx_model_path: str = "") -> Dict[str, Any]:
     onnx_path = onnx_model_path or os.environ.get("VHL_ONNX_MODEL", "")
     cv2 = opencv_usable()
     return {
+        # Which interpreter produced this report. Without it, "opencv-missing"
+        # reads as a claim about the MACHINE ("OpenCV is not installed"), when it
+        # is a claim about this interpreter only — and the two need different
+        # fixes. On a machine with several Pythons, OpenCV is usually installed
+        # in one of them, so the operator is told to install it again.
+        "interpreter": {
+            "executable": sys.executable,
+            "version": sys.version.split()[0],
+        },
         "detector": {
             "kind": "onnx",
             "path": onnx_path,

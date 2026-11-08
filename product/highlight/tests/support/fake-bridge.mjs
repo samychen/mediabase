@@ -278,6 +278,10 @@ function handle(verb, args) {
       })).sort((a, b) => `${a.group}${a.key}`.localeCompare(`${b.group}${b.key}`)))]
     case 'models.list':
       return ['ok', json({
+        // Which interpreter produced this report. The real bridge sends
+        // `sys.executable`; a double must answer the same QUESTION or the
+        // host path that reads it is never exercised.
+        interpreter: { executable: process.execPath, version: process.versions.node },
         detector: { kind: 'onnx', path: '', present: false, license: 'Apache-2.0' },
         face: { available: false, license: 'Apache-2.0' },
         clip: { available: false, license: 'MIT' },

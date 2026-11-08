@@ -7,7 +7,7 @@
 import type { ReactElement } from 'react'
 import type { Context } from '@deepseek-ai/cordis'
 import { useI18n } from '@mediabase/i18n'
-import { degradedKey, stageKey, stateKey } from '../messages.ts'
+import { degradedText, stageKey, stateKey } from '../messages.ts'
 import type { HighlightOption } from '../store.ts'
 import { useHighlight } from '../use-highlight.ts'
 
@@ -268,9 +268,15 @@ export function ControlPanel({ ctx }: { ctx: Context }): ReactElement | null {
         </div>
       )}
 
-      {state.models?.degraded === true && (
-        <div className="status">{t(degradedKey(state.models.degradedReason))}</div>
-      )}
+      {state.models?.degraded === true && (() => {
+        // The text names the interpreter that is actually running: the fact
+        // being reported is about that interpreter, not about the machine.
+        const degraded = degradedText(
+          state.models.degradedReason,
+          state.models.interpreter?.executable ?? '',
+        )
+        return <div className="status">{t(degraded.key, degraded.params)}</div>
+      })()}
       {state.error !== null && <div className="status vhl-error">{state.error}</div>}
 
       <div className="vhl-jobs">

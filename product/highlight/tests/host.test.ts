@@ -272,6 +272,7 @@ describe('the highlight host with a working engine', () => {
     expect(jobs.length).toBeGreaterThan(0)
     const models = await rpc().call('highlight.models') as {
       detector: { license: string }; clip: { license: string }
+      interpreter: { executable: string; version: string }
       degraded: boolean; degradedReason: string
     }
     expect(models.detector.license).toContain('Apache-2.0')
@@ -281,6 +282,12 @@ describe('the highlight host with a working engine', () => {
     // the operator is left guessing which of two opposite fixes to apply.
     expect(models.degraded).toBe(true)
     expect(models.degradedReason).toBe('opencv-missing')
+    // The interpreter travels with the reason, because the reason is a fact
+    // ABOUT an interpreter. Without it the panel says "OpenCV not installed"
+    // on a machine where OpenCV is installed in the other Python — which sends
+    // the operator to install it a second time.
+    expect(models.interpreter.executable).toBeTruthy()
+    expect(models.interpreter.version).toBeTruthy()
   })
 
   it('publishes engine diagnostics on health', async () => {

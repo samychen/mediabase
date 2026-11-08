@@ -365,8 +365,8 @@ pnpm run host:highlight       # http://127.0.0.1:3093
 ```sh
 pnpm run typecheck:highlight
 pnpm run verify:highlight:compose     # 组合层（patch + 名册）
-pnpm run test:highlight               # 66 个用例，不需要 Python/FFmpeg/浏览器
-pnpm run test:highlight:py            # 61 个用例，桥自身（Python + stdlib unittest）
+pnpm run test:highlight               # 83 个用例，不需要 Python/FFmpeg/浏览器
+pnpm run test:highlight:py            # 62 个用例，桥自身（Python + stdlib unittest）
 pnpm run test:highlight:all           # 上面两组
 pnpm run verify:highlight:fake        # 端到端，Node 测试替身（无 Python 也能跑）
 pnpm run verify:highlight:real        # 端到端，真 Python 桥 + 真 FFmpeg
@@ -407,8 +407,8 @@ pnpm run verify:highlight:ui          # 真 Chrome（CDP）+ 真引擎，截图�
 
 | 检查 | 结果 |
 |---|---|
-| `test:highlight` | ✅ **73/73**（6 个世界：正常 / 无解释器 / 崩溃监督 / 队列背压 / 保留窗口 / **重启** + 任务日志 17 + exposition 14 + 时间算术 4 + 面板文案 3 + 动词表 4） |
-| `test:highlight:py` | ✅ **61/61**（桥自身：线协议折叠、权重四类拒绝、边界/枚举、依赖缺失、EDL 时码、文件指纹、`provenance` 归一与顺序无关、坏报告不炸任务、未知动词的可回答文案、显著度后端三态、重复 OpenMP runtime 合并） |
+| `test:highlight` | ✅ **83/83**（6 个世界：正常 / 无解释器 / 崩溃监督 / 队列背压 / 保留窗口 / **重启** + 任务日志 17 + exposition 14 + 时间算术 4 + 面板文案 3 + 动词表 4） |
+| `test:highlight:py` | ✅ **62/62**（桥自身：线协议折叠、权重四类拒绝、边界/枚举、依赖缺失、EDL 时码、文件指纹、`provenance` 归一与顺序无关、坏报告不炸任务、未知动词的可回答文案、显著度后端三态、重复 OpenMP runtime 合并） |
 | 引擎仓 `pytest` | ✅ 11/11（**上游仓**，不在本树；测的是算法，`highlight_core/` 是它的同源副本；含「取消 5s 内杀掉 30s 子进程」） |
 | `verify:highlight:fake` | ✅ **102 条断言**，0 失败 |
 | `verify:highlight:real` | ✅ **118 条断言**，0 失败；真分析：`[2.80s, 12.00s]` 分数 `0.4512`，信号 `{scene 0.19, audio 1.00, motion 0.22, saliency 0.98, face 0, clip 0}` |

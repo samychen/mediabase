@@ -7,7 +7,7 @@
 // exist). The engine's codes are the contract — `opencv_issue()` in vhl_bridge.py.
 
 import { describe, expect, it } from 'vitest'
-import { HIGHLIGHT_MESSAGES, degradedKey } from '../packages/client/panel/src/messages.ts'
+import { HIGHLIGHT_MESSAGES, degradedKey, degradedText } from '../packages/client/panel/src/messages.ts'
 
 /** Every code `opencv_issue()` can send while degraded. */
 const DEGRADATION_CODES = ['opencv-missing', 'numpy-missing', 'opencv-import-failed'] as const
@@ -48,5 +48,44 @@ describe('panel copy', () => {
       const fallback = copy(locale)['vhl.control.degraded']!
       expect(fallback).not.toMatch(/未安装|未装|not installed/)
     }
+  })
+
+  it('names the interpreter when one is reported', () => {
+    // The fact is about an INTERPRETER, not the machine. A laptop with three
+    // Pythons has OpenCV in one of them, so "OpenCV not installed" sends the
+    // operator to install it again — into whichever interpreter is first on
+    // PATH, which is not the one that reported the problem.
+    for (const code of DEGRADATION_CODES) {
+      const { key, params } = degradedText(code, '/usr/bin/python3')
+      expect(key, code).toBe(`vhl.control.degraded.${code}.interpreter`)
+      expect(params?.interpreter, code).toBe('/usr/bin/python3')
+      for (const locale of ['zh-CN', 'en'] as const) {
+        const sentence = copy(locale)[key]
+        expect(sentence, `${locale} ${key}`).toBeTruthy()
+        // The interpreter must be substitutable into the sentence, not appended
+        // as a separate label: a bare path beside the message reads as a
+        // footnote, and the reader's eye goes to the cause first.
+        expect(sentence, `${locale} ${key}`).toContain('{interpreter}')
+      }
+    }
+  })
+
+  it('falls back to the cause-only sentence when no interpreter is reported', () => {
+    // An older engine sends no interpreter. The code-only sentence is still
+    // better than a key, but it must not gain a dangling placeholder.
+    for (const code of DEGRADATION_CODES) {
+      const { key, params } = degradedText(code, '')
+      expect(key, code).toBe(`vhl.control.degraded.${code}`)
+      expect(params, code).toBeUndefined()
+    }
+  })
+
+  it('the generic fallback also has an interpreter variant', () => {
+    // An unknown code with a known interpreter still names the interpreter.
+    const { key, params } = degradedText('something-new', '/opt/py')
+    expect(key).toBe('vhl.control.degraded.interpreter')
+    expect(params?.interpreter).toBe('/opt/py')
+    expect(copy('zh-CN')[key]).toBeTruthy()
+    expect(copy('en')[key]).toBeTruthy()
   })
 })

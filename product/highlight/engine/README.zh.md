@@ -105,11 +105,31 @@ sh product/highlight/scripts/setup-models.sh
 
 | 变量 | 作用 | 默认 |
 |---|---|---|
-| `VHL_PYTHON` | 宿主启动桥用的解释器 | PATH 上的 `python3` |
+| `VHL_PYTHON` | 宿主启动桥用的解释器 | 自动挑选（见下） |
 | `VHL_ONNX_MODEL` | 检测 checkpoint（也可由任务选项 `onnxModelPath` 覆盖） | 空 = 无检测模型 |
 
 `VHL_ONNX_MODEL` 是**部署默认**，`onnxModelPath` 是**任务级选择**。两者都读：任务指定了就用任务的，
 因为分析用的是那个，报告若只看环境变量就会描述一台没跑过模型的机器。
+
+**`VHL_PYTHON` 不设时，宿主会自己挑一个解释器**，顺序是：
+
+```
+显式配置 > VHL_PYTHON > <root>/engine/.venv/bin/python > PATH 上的 python3
+```
+
+中间那一步是必要的。`python3` 在 PATH 上是"这台机器碰巧排在第一的那个"，在开发机上
+经常是一个谁都没往里装过 OpenCV 的解释器。于是引擎报 `opencv-missing`，面板说
+**"未安装 OpenCV"** —— 而这句话是**假的**：OpenCV 装了，就装在 `setup-models.sh` 建的
+那个 venv 里，隔着三层目录。操作员读完就去再装一遍 OpenCV，装进另一个解释器，
+横幅纹丝不动。
+
+所以宿主会去问候选解释器自己（跑一次桥，问 `opencv_issue()`），只有在
+**PATH 上那个做不到视觉、而仓库里的 venv 做得到**时才换。venv 自己残缺或不可用时
+不会启用它——那种情况下退回 PATH 上的解释器，让引擎报一个同样真实的原因。
+
+两种指定方式都不会被覆盖：配置里显式写的 `python`，和 `VHL_PYTHON`。写下来就是决定，
+哪怕那个解释器正是被特意降级到纯 FFmpeg 部署的。（schema 的默认值因此是空串而不是
+`python3`——否则"显式写了 python3"和"什么都没说"在宿主看来一模一样。）
 
 ### 实测版本组合（macOS 15 / Intel x86_64）
 

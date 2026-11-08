@@ -496,6 +496,21 @@ class CapabilityReportTests(unittest.TestCase):
         self.assertIn(b.opencv_issue(), {"", "opencv-missing", "numpy-missing", "opencv-import-failed"})
         self.assertEqual(b.doctor()["models"]["degradedReason"], b.opencv_issue())
 
+    def test_the_report_names_the_interpreter_it_came_from(self):
+        # The reason is a fact about an INTERPRETER, not about the machine. A
+        # machine with several Pythons usually has OpenCV in one of them, so
+        # without this the panel says "OpenCV not installed" on a machine where
+        # OpenCV IS installed — and the operator installs it a second time,
+        # into whichever interpreter happens to be first on PATH.
+        report = b.models_report()
+        self.assertIn("interpreter", report)
+        self.assertEqual(report["interpreter"]["executable"], sys.executable)
+        self.assertEqual(report["interpreter"]["version"], sys.version.split()[0])
+        # It must be non-empty: a path the panel cannot show is a path the
+        # operator cannot act on.
+        self.assertTrue(report["interpreter"]["executable"])
+        self.assertTrue(report["interpreter"]["version"])
+
 
 class UnknownVerbTest(unittest.TestCase):
     """The refusal has to be answerable, not just correct.
