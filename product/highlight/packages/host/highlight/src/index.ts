@@ -1137,6 +1137,10 @@ export function apply(ctx: Context, rawConfig: HighlightEngineConfig): void {
       if (raw === false || raw === '' || raw === null) continue
       required.add(requires)
     }
+    // `auto` is the one contentPreset value that needs a model: it asks CLIP to
+    // classify the content. The generic `requires` is per-option, so this
+    // per-value rule lives here (the engine's build_config enforces the same).
+    if (values.contentPreset === 'auto') required.add('clip')
     if (required.size === 0) return
     let report: HighlightModels
     try {

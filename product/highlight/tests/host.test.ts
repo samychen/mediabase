@@ -118,6 +118,14 @@ describe('the highlight host with a working engine', () => {
       'objectSaliency', 'sceneCut', 'visualMotion',
     ])
     expect(byKey.get('weights')?.fields?.audioRms?.default).toBe(0.22)
+    // Content-adaptation knobs are discoverable too. contentPreset has no
+    // per-option `requires` (only its `auto` value needs CLIP, enforced at start),
+    // so the option itself is available even on a box without models.
+    expect(byKey.get('contentPreset')?.type).toBe('str')
+    expect(byKey.get('contentPreset')?.default).toBe('general')
+    expect(byKey.get('contentPreset')?.available).toBe(true)
+    expect(byKey.get('adaptiveWeights')?.type).toBe('bool')
+    expect(byKey.get('adaptiveWeights')?.default).toBe(true)
   })
 
   it('enforces the option contract before a job is created', async () => {
@@ -135,6 +143,11 @@ describe('the highlight host with a working engine', () => {
       input: CLIP, options: { whisperModelSize: 'gigantic' },
     })
     expect(badEnum.code).toBe(INVALID_PARAMS)
+
+    const badPreset = await expectError(rpc(), 'highlight.start', {
+      input: CLIP, options: { contentPreset: 'western' },
+    })
+    expect(badPreset.code).toBe(INVALID_PARAMS)
 
     // A prompt without guidance is a no-op that looks enabled.
     const orphanPrompt = await expectError(rpc(), 'highlight.start', {
@@ -177,6 +190,24 @@ describe('the highlight host with a working engine', () => {
     })
     expect(error.code).toBe(UNAVAILABLE)
     expect(error.message).toContain('clip')
+  })
+
+  it('refuses contentPreset=auto without CLIP, but a concrete preset needs no model', async () => {
+    // auto is the one preset value that asks CLIP to classify; the host refuses
+    // it here just like enableClipGuidance, before a job id is burned.
+    const error = await expectError(rpc(), 'highlight.start', {
+      input: CLIP, options: { contentPreset: 'auto' },
+    })
+    expect(error.code).toBe(UNAVAILABLE)
+    expect(error.message).toContain('clip')
+    // A concrete preset is pure weights, so a box without CLIP still honours it.
+    const started = await rpc().call('highlight.start', {
+      input: CLIP,
+      output: `/tmp/vhl-preset-${Date.now()}.mp4`,
+      options: { contentPreset: 'sports' },
+    }) as { jobId: string }
+    expect(started.jobId).not.toBe('')
+    await rpc().call('highlight.cancel', { jobId: started.jobId })
   })
 
   it('runs a job from start to a playable clip', async () => {

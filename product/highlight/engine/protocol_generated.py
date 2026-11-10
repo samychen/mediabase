@@ -50,6 +50,8 @@ OPTIONS = {
     "enableClipGuidance": ("enable_clip_guidance", "bool"),
     "clipPrompt": ("clip_prompt", "str"),
     "srtPath": ("", "str"),
+    "contentPreset": ("content_preset", "str"),
+    "adaptiveWeights": ("adaptive_weights", "bool"),
     "weights": ("weights", "weights"),
 }
 
@@ -78,5 +80,7 @@ OPTION_META = {
     "enableClipGuidance": {"field":"enable_clip_guidance","type":"bool","default":False,"group":"analysis","requires":"clip"},
     "clipPrompt": {"field":"clip_prompt","type":"str","default":"","group":"analysis","requires":"clip"},
     "srtPath": {"field":"","type":"str","default":"","group":"text","special":True},
+    "contentPreset": {"field":"content_preset","type":"str","default":"general","enum":["general","sports","interview","gameplay","music","auto"],"group":"scoring","comment":"Weight profile per video type; presets are heuristic starting points, not learned. 'auto' classifies content via OpenCLIP and so needs the clip capability (enforced host-side and bridge-side, since the generic requires is per-option not per-value); the other values are pure weight vectors needing no model. An explicit weights choice overrides any preset."},
+    "adaptiveWeights": {"field":"adaptive_weights","type":"bool","default":True,"group":"scoring","comment":"Down-weight signals that are near-constant on THIS video so they cannot mask discriminative ones (e.g. object saliency saturated at 1.0). Pure selection improvement; set False to compare against the raw recipe. The report records the effective weights and per-signal activity."},
     "weights": {"field":"weights","type":"weights","group":"scoring","fields":{"sceneCut":{"field":"scene_cut","default":0.18},"audioRms":{"field":"audio_rms","default":0.22},"visualMotion":{"field":"visual_motion","default":0.18},"objectSaliency":{"field":"object_saliency","default":0.16},"faceSaliency":{"field":"face_saliency","default":0.1},"clipGuidance":{"field":"clip_guidance","default":0.1},"keywordMatch":{"field":"keyword_match","default":0.06}}},
 }

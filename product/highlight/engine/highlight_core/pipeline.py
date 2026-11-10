@@ -14,6 +14,7 @@ from typing import Any, Callable, Dict, List, Optional, Tuple
 from .cancel import CancelToken
 from .config import HighlightConfig
 from .ffmpeg_engine import FFmpegEngine, MediaMetadata
+from .presets import PRESET_NAMES, preset_weights
 from .scorer import HighlightSegment, MultiModalScorer
 from .subtitle_engine import SubtitleEngine
 from .vision_analyzer import VisionAnalyzer
@@ -97,6 +98,14 @@ class HighlightPipeline:
         # 1. Probe Input Video
         meta = self.ffmpeg.probe(in_path, token=cancel)
         emit("probe", 1.0)
+
+        # 1b. Resolve the content recipe (preset weights) before scoring. An
+        # explicit `weights` choice always wins; otherwise a named preset (or
+        # CLIP-resolved "auto") replaces the default weights. The decision is
+        # recorded in the report so it is auditable, never silent.
+        resolved_preset, classification = self._resolve_content_weights(
+            in_path, meta, cancel
+        )
 
         # 2. Coarse Stage: Native FFmpeg Scene Cut & Audio RMS Extraction
         emit("scenes", 0.0)
@@ -186,6 +195,15 @@ class HighlightPipeline:
                 "fast_stream_copy": self.config.fast_stream_copy,
                 "weights": asdict(self.config.weights.normalized()),
             },
+            "content_adaptation": {
+                "requested_preset": self.config.content_preset,
+                "resolved_preset": resolved_preset,
+                "weights_explicit": self.config.weights_explicit,
+                "adaptive_weights": self.config.adaptive_weights,
+                "effective_weights": asdict(self.scorer.effective_weights),
+                "signal_activity": self.scorer.signal_activity,
+                "classification": classification,
+            },
             "selected_highlights": [asdict(h) for h in highlights],
             "timeline_series": timeline_series,
         }
@@ -203,3 +221,35 @@ class HighlightPipeline:
             metadata=meta,
             highlights=highlights,
         )
+
+    def _resolve_content_weights(
+        self,
+        video_path: str,
+        meta: MediaMetadata,
+        cancel: CancelToken,
+    ) -> Tuple[Optional[str], Optional[Dict[str, Any]]]:
+        """Choose the base weight recipe; return (resolved_preset, classification).
+
+        Precedence: an explicit `weights` choice wins — resolved_preset is None
+        and the caller's weights are left untouched. "auto" resolves to a concrete
+        preset by CLIP content classification (degrading to "general" with a
+        recorded reason when CLIP/OpenCV is absent). Any other named preset
+        applies directly; an unknown name falls back to "general" so a typo never
+        crashes a job. Mutating self.config.weights here means the report's
+        `config.weights` and the bridge's provenance both stamp the recipe that
+        actually ran, not the pre-resolution default.
+        """
+        if self.config.weights_explicit:
+            return None, None
+        requested = self.config.content_preset
+        if requested == "auto":
+            from .classify import classify_content
+
+            name, classification = classify_content(
+                video_path, self.config, meta.duration_sec, cancel
+            )
+            self.config.weights = preset_weights(name)
+            return name, classification
+        name = requested if requested in PRESET_NAMES else "general"
+        self.config.weights = preset_weights(name)
+        return name, None

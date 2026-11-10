@@ -77,8 +77,36 @@ pnpm run test:highlight:py        # 或 python3 -m unittest discover -s product/
   `opencv_usable()` 里它才是错的问题。）
 - **未知动词的文案可回答**：引号 + 字符数 + 支持的动词 + 动词表来源；并钉住"截断的动词不在
   支持列表里、完整的那个在"——这样下一次同样的报告能自己说明是哪一类问题。
+- **内容适配契约**：`contentPreset` 枚举恰为五个具体预设 + `auto`、camelCase 映射到 dataclass
+  字段、`adaptiveWeights` 默认开、传 `weights` 标记 `weights_explicit`、`auto` 缺 CLIP 回
+  `UNAVAILABLE`（而具体预设无需任何模型）、未知预设名拒绝。两侧读同一张 `contract.json`。
 
 只用标准库 `unittest`：为一个文件引入 pytest，等于给运行环境多加一个测试依赖。
+
+## 内容适配（算法侧）
+
+让一套引擎适配不同类型视频的三个机制都在上游 `highlighter/`（副本里同名），产品 README 第十三节
+有完整设计与用法；这里只记算法侧的接缝：
+
+- **`presets.py`** — 五个具体预设（`general/sports/interview/gameplay/music`）各是一份归一权重
+  向量，`preset_weights(name)` 返回 `ScoringWeights`。**只是权重**：不打开/关闭信号，不强制模型。
+  向量是手调的启发式起点，不是学习参数。`auto` 不在 `PRESET_NAMES` 里——它是解析策略，不是向量。
+- **`classify.py`** — `contentPreset=auto` 时由 `pipeline` 调用。OpenCLIP 零样本：采 12 帧，对每类
+  手写 prompt 求平均文本嵌入，与平均图像嵌入算余弦 argmax。**粗先验，不是学习分类器。** 任何一步
+  失败（缺 OpenCV/OpenCLIP、视频打不开、采不到帧、模型加载/推理出错）都回 `general` 并在
+  `classification` 写明 `reason`，绝不硬失败。注意它加载 CLIP checkpoint（~350 MB）；若同时开
+  `clipGuidance`，引导器再加载一份，两者目前不共享。
+- **`scorer.py`** — `adaptiveWeights`（默认开）在融合第 5 步按**这段素材**的信号离散度降权：
+  `activity = std / max_std`，`raw = base × (0.1 + 0.9 × activity)` 再归一；全平坦退回 base。
+  跑完后 `self.effective_weights` / `self.signal_activity` 由 `pipeline` 读进报告。
+- **`pipeline.py`** — probe 之后第 1b 步 `_resolve_content_weights`：`weights_explicit` 为真整步跳过
+  （显式权重 beats 预设）；否则 `auto` 先分类、具体名直接取向量、未知名退 `general`，并**改写
+  `self.config.weights`**——所以报告 `config.weights` 与桥的 `provenance.recipe.weights` 记的都是
+  解析后的配方。报告多一个 `content_adaptation` 块（requested/resolved preset、weights_explicit、
+  adaptive_weights、effective_weights、signal_activity、classification）。
+
+优先级与降级边界（显式 `weights` > 预设 > 默认；`auto` 缺 CLIP 在**边界**拒绝、运行失败在**报告**
+降级）由桥与宿主共同 enforcing，见产品 README 第五节第 9 条与第十三节。
 
 ## 可选模型环境
 
@@ -192,10 +220,11 @@ Intel 自己给的 `KMP_DUPLICATE_LIB_OK=TRUE` 被它标注为"unsafe, unsupport
 
 **已知限制，先写在前面：**
 
-- **单目标显著度会饱和。** `saliency = Σ(类别权重 × 框面积占比 × 置信度)` 对多目标求和后
-  很容易越过 1.0 被截断 —— 上面那张图检出 9 个目标后 `saliency` 每帧恒为 1.0，这一项
-  因此失去区分度（权重 0.16 变成给所有帧加一个常数）。单目标场景下这是设计意图
-  （一个大而清晰的目标就该接近饱和），多目标场景下需要换聚合方式。
+- **显著度用平滑饱和，硬截断死区已修复。** `raw = Σ(类别权重 × 框面积占比 × 置信度)`，
+  再经 `1 - e^-raw` 映到 [0,1)。早先直接 `min(1.0, raw)`：上面那张图检出 9 个目标后每帧恒为
+  1.0，这一项失去区分度（权重 0.16 变成给所有帧加常数）。现在多目标帧仍严格保序——更忙的
+  画面分数更高，单个大目标依旧趋近 1；人脸显著度同款处理。极端 raw（远超现实值）因浮点精度
+  舍入到 1.0 是可接受的，现实多目标总和远在其下。
 - **NMS 用的是 IoU 0.45**，图上同一辆公交车的两个候选框 IoU 只有 0.417，两个都留了下来。
   阈值是配置项 `onnxIouThreshold`。
 - **这台机器没有 GPU**，`torch.backends.mps.is_available()` 为 false。ONNX 走 CoreML，
@@ -207,7 +236,7 @@ Intel 自己给的 `KMP_DUPLICATE_LIB_OK=TRUE` 被它标注为"unsafe, unsupport
 |---|---|---|---|
 | 引擎核心（本目录副本） | 分析 / 评分 / 渲染编排 | Apache-2.0 | 是（源码） |
 | FFmpeg | 探测、切分、拼接、字幕封装 | 由**部署方**的构建决定（LGPL 或 GPL） | 否 |
-| OpenCV | 视觉显著性 / 光流 | Apache-2.0 | 否（可选） |
+| OpenCV | 视觉显著性 / 帧差 | Apache-2.0 | 否（可选） |
 | onnxruntime | 可选检测模型推理 | MIT | 否（可选） |
 | faster-whisper | 可选字幕转写 | MIT | 否（可选） |
 | 检测 / 人脸 / CLIP 权重 | 可选模型能力 | 各自上游（见 `highlight.models` 的 `license` 字段） | 否 |
@@ -227,5 +256,8 @@ Intel 自己给的 `KMP_DUPLICATE_LIB_OK=TRUE` 被它标注为"unsafe, unsupport
 | `ModuleNotFoundError: highlighter` | 有人在副本里手写了上游包名；跑同步脚本，它会扫出残留 |
 | `--doctor` 说没有 `cv2` | 没装 OpenCV：视觉信号退化为 0，其余照常，`degraded: true` |
 | 任务卡在 `vision` 很久 | OpenCV 路径逐帧读；调大 `frameSkip` 或改走 `ffmpeg` signalstats 路径 |
+| 任务卡在 `subtitles`（进度 0.72）很久 | Whisper base **建模**在纯 CPU Intel x86_64 上实测 ~79s（缓存命中也慢），转写本身仅 ~2s——不是卡死。冒烟轮询预算已放到 180s；要快可 `enableWhisper:false`（无语音的素材转写也是 0 cue） |
+| `contentPreset=auto` 回 `UNAVAILABLE` | 缺 OpenCLIP（`auto` 需 `clip` 能力，宿主与引擎两侧都拦）；装 `open-clip-torch`，或选具体预设（纯权重向量，无需任何模型） |
+| `auto` 解析成 `general` 且 `classification.degraded=true` | 看 `classification.reason`（`opencv/openclip-unavailable` / `video-open-failed` / `no-frames` / `clip-failed`）；分类运行失败是诚实降级，不硬失败 |
 | `libopenh264` 找不到 | `frame_accurate` 路径默认用 `libopenh264` 重编码；本机没有就换 `fallback_video_codec` |
 | 成片浏览器黑屏 | 默认 stream copy 沿用源编码；源编码浏览器不支持时请开 `frame_accurate` |

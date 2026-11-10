@@ -108,3 +108,13 @@ class HighlightConfig:
 
     # Multi-modal Weights
     weights: ScoringWeights = field(default_factory=ScoringWeights)
+
+    # Content adaptation (per-video-type recipe)
+    # content_preset selects a weight profile; "auto" resolves it via CLIP.
+    content_preset: str = "general"
+    # Down-weight signals that are near-constant on THIS video (uninformative for
+    # selecting highlights). Pure selection improvement; toggle off to compare.
+    adaptive_weights: bool = True
+    # Set by the bridge when the caller passed an explicit `weights` option, so a
+    # preset never overrides a deliberate choice. Not a contract knob.
+    weights_explicit: bool = False

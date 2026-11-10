@@ -37,6 +37,16 @@ const engineArg = process.argv.slice(2).find((arg) => arg.startsWith('--engine='
 const forced = engineArg?.slice('--engine='.length) ?? process.env.VHL_ENGINE
 const useReal = forced === 'real' || (forced !== 'fake' && pythonOk && ffmpegOk)
 
+// The real engine on CPU-only hardware legitimately needs minutes, not seconds:
+// the Whisper base model load alone measured ~79s on Intel x86_64 (cached), and
+// the default job runs it at the subtitles stage (progress sits at 0.72 for the
+// whole blocking load). This is a pre-release acceptance smoke, not a throughput
+// benchmark, so the poll budget accommodates the real engine rather than racing
+// it and reporting a slow load as a failure.
+const JOB_POLL_MS = 180_000
+const JOB_POLL_INTERVAL_MS = 250
+const JOB_POLL_STEPS = JOB_POLL_MS / JOB_POLL_INTERVAL_MS
+
 const freePort = () => new Promise((resolve) => {
   const srv = createServer()
   srv.listen(0, '127.0.0.1', () => {
@@ -246,7 +256,7 @@ try {
       JSON.stringify(started))
 
     let job = started
-    for (let i = 0; i < 240 && !['succeeded', 'failed', 'cancelled'].includes(job?.state); i += 1) {
+    for (let i = 0; i < JOB_POLL_STEPS && !['succeeded', 'failed', 'cancelled'].includes(job?.state); i += 1) {
       await new Promise((r) => setTimeout(r, 250))
       job = await rpc.call('highlight.status', { jobId: started.jobId })
     }
@@ -294,6 +304,19 @@ try {
       checks.expect('报告含片段选择与信号序列',
         Array.isArray(parsed?.selected_highlights) && Array.isArray(parsed?.timeline_series),
         Object.keys(parsed ?? {}).join(','))
+      // Content adaptation is recorded, not silent: the default recipe still
+      // names the preset that ran and how flat signals were dampened. Only the
+      // real engine produces this block (the double fabricates a minimal report).
+      if (useReal) {
+        const adaptation = parsed?.content_adaptation
+        checks.expect('报告记录内容适配(默认 general + 自适应降权)',
+          adaptation !== null && typeof adaptation === 'object' &&
+          adaptation.requested_preset === 'general' && adaptation.resolved_preset === 'general' &&
+          adaptation.adaptive_weights === true &&
+          Object.keys(adaptation.effective_weights ?? {}).length === 7 &&
+          Object.keys(adaptation.signal_activity ?? {}).length === 7,
+          JSON.stringify(adaptation ?? null))
+      }
     } else {
       checks.expect('任务成功后报告路由已注册', false, 'reportUrl 为空')
     }
@@ -303,13 +326,17 @@ try {
     if (useReal) {
       // One signal, everything else zero: the normalised weights in the report
       // then have exactly one true statement, so "the knob was applied" is
-      // assertable without asserting anything about the media.
+      // assertable without asserting anything about the media. Whisper is off
+      // here: this job isolates weight propagation, and the fixture has no
+      // speech, so a second model load (~79s on Intel x86_64) would yield zero
+      // cues. The default job above already exercises the true Whisper-on path.
       const weighted = await rpc.call('highlight.start', {
         input: fixture,
         topK: 1,
         clipDurationSec: 3,
         output: join(home, 'jobs', 'verify', 'weighted.mp4'),
         options: {
+          enableWhisper: false,
           weights: {
             audioRms: 1, sceneCut: 0, visualMotion: 0, objectSaliency: 0,
             faceSaliency: 0, clipGuidance: 0, keywordMatch: 0,
@@ -317,7 +344,7 @@ try {
         },
       })
       let wjob = weighted
-      for (let i = 0; i < 240 && !['succeeded', 'failed', 'cancelled'].includes(wjob?.state); i += 1) {
+      for (let i = 0; i < JOB_POLL_STEPS && !['succeeded', 'failed', 'cancelled'].includes(wjob?.state); i += 1) {
         await new Promise((r) => setTimeout(r, 250))
         wjob = await rpc.call('highlight.status', { jobId: weighted.jobId })
       }
@@ -330,6 +357,42 @@ try {
         checks.expect('报告回显归一后的权重(参数真的进了评分)',
           Math.abs((applied.audio_rms ?? -1) - 1) < 1e-6 && (applied.scene_cut ?? -1) === 0,
           JSON.stringify(applied))
+      }
+    }
+
+    // ---- content preset reaches the scorer (host -> bridge -> engine) ----- //
+    if (useReal) {
+      const preset = await rpc.call('highlight.start', {
+        input: fixture,
+        topK: 1,
+        clipDurationSec: 3,
+        output: join(home, 'jobs', 'verify', 'preset.mp4'),
+        options: { contentPreset: 'sports', enableWhisper: false },
+      })
+      let pjob = preset
+      for (let i = 0; i < JOB_POLL_STEPS && !['succeeded', 'failed', 'cancelled'].includes(pjob?.state); i += 1) {
+        await new Promise((r) => setTimeout(r, 250))
+        pjob = await rpc.call('highlight.status', { jobId: preset.jobId })
+      }
+      checks.expect('预设任务成功', pjob?.state === 'succeeded',
+        JSON.stringify({ state: pjob?.state, error: pjob?.error }))
+      if (typeof pjob?.reportUrl === 'string' && pjob.reportUrl !== '') {
+        const presetReport = await (await fetch(`${base}${pjob.reportUrl}`)).json()
+        const adaptation = presetReport?.content_adaptation ?? {}
+        checks.expect('报告回显解析后的预设(sports)',
+          adaptation.requested_preset === 'sports' && adaptation.resolved_preset === 'sports',
+          JSON.stringify(adaptation))
+        // The sports recipe weights audio and motion at 0.25 each — proving the
+        // preset replaced the general default rather than being validated away.
+        const w = presetReport?.config?.weights ?? {}
+        checks.expect('预设权重真的进了评分(sports: audio/motion = 0.25)',
+          Math.abs((w.audio_rms ?? -1) - 0.25) < 1e-6 && Math.abs((w.visual_motion ?? -1) - 0.25) < 1e-6,
+          JSON.stringify(w))
+        const eff = adaptation.effective_weights ?? {}
+        checks.expect('自适应有效权重已归一(7 信号,和为 1)',
+          Object.keys(eff).length === 7 &&
+          Math.abs(Object.values(eff).reduce((a, b) => a + b, 0) - 1) < 1e-5,
+          JSON.stringify(eff))
       }
     }
 
@@ -364,13 +427,13 @@ try {
         detector.present !== true || (typeof detector.sha256_16 === 'string' && /^[0-9a-f]{16}$/.test(detector.sha256_16) && detector.bytes > 0),
         JSON.stringify(detector))
       const signals = env?.signals ?? {}
-      // The backend, not a boolean: OpenCV optical flow and FFmpeg signalstats
+      // The backend, not a boolean: OpenCV frame differencing and FFmpeg signalstats
       // both yield a motion score in [0,1] and they are not comparable, so "has
       // motion: true" would describe two different measurements with one word.
       const SIGNAL_BACKENDS = {
         sceneCut: ['ffmpeg-scene'],
         audioRms: ['ffmpeg-astats'],
-        visualMotion: ['opencv-optflow', 'ffmpeg-signalstats'],
+        visualMotion: ['opencv-framediff', 'ffmpeg-signalstats'],
         objectSaliency: ['onnx-detector', 'opencv-sobel', 'ffmpeg-signalstats'],
         faceSaliency: ['mediapipe', 'none'],
         clipGuidance: ['open_clip', 'none'],

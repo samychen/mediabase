@@ -8,6 +8,7 @@
 
 import { describe, expect, it } from 'vitest'
 import { HIGHLIGHT_MESSAGES, degradedKey, degradedText } from '../packages/client/panel/src/messages.ts'
+import contract from '../protocol/contract.json'
 
 /** Every code `opencv_issue()` can send while degraded. */
 const DEGRADATION_CODES = ['opencv-missing', 'numpy-missing', 'opencv-import-failed'] as const
@@ -21,6 +22,25 @@ describe('panel copy', () => {
     // locale, then the key itself. A key only in zh-CN prints as a key on an
     // English page.
     expect(Object.keys(copy('zh-CN')).sort()).toEqual(Object.keys(copy('en')).sort())
+  })
+
+  it('every option the advanced panel renders has a label in both locales', () => {
+    // The panel labels each row with `t('vhl.opt.<key>')`. A contract option added
+    // without a message entry prints the RAW KEY at the operator (contentPreset /
+    // adaptiveWeights did exactly this before their labels were added) — invisible
+    // to the parity test above, which only checks zh-CN and en agree, not that the
+    // option is covered. Mirror the panel's filter (control.tsx): the five groups,
+    // minus the two quick controls and the automation-only SRT path.
+    const groups = ['analysis', 'scoring', 'selection', 'text', 'output']
+    const quick = new Set(['maxHighlights', 'clipDurationSec', 'srtPath'])
+    const options = contract.options as Record<string, { group?: string } | string>
+    for (const [key, meta] of Object.entries(options)) {
+      if (typeof meta !== 'object' || meta === null) continue // `comment` is metadata
+      if (!groups.includes(meta.group ?? '') || quick.has(key)) continue
+      const labelKey = `vhl.opt.${key}`
+      expect(copy('zh-CN')[labelKey], `zh-CN ${labelKey}`).toBeTruthy()
+      expect(copy('en')[labelKey], `en ${labelKey}`).toBeTruthy()
+    }
   })
 
   it('every degradation code has its own sentence, in both locales', () => {

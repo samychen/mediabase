@@ -47,6 +47,18 @@ class Detection:
     y2: float
 
 
+def saturate_score(total: float) -> float:
+    """Smooth saturation onto [0, 1): strictly monotonic, asymptotic to 1.
+
+    A hard ``min(1.0, total)`` creates a dead zone: every frame whose weighted
+    detections sum past 1.0 scores identically, so a busy frame and a busier
+    frame tie and the signal loses all discriminative power. The exponential
+    keeps ordering everywhere (more / larger / more-confident objects always
+    score higher) while a single dominant object still approaches 1.
+    """
+    return 1.0 - math.exp(-max(0.0, total))
+
+
 class OnnxDetector:
     """
     ONNX Runtime-backed object detector producing class-aware detections.
@@ -291,12 +303,13 @@ class OnnxDetector:
     ) -> float:
         """
         Class-aware, area-normalized saliency for one frame.
-        saliency = Σ ( class_weight * area_fraction * confidence )
+        raw = Σ ( class_weight * area_fraction * confidence ), then smoothly
+        saturated onto [0, 1) via ``saturate_score`` so multi-object frames keep
+        their ordering instead of tying at a hard 1.0 ceiling.
         Defaults to weight 1.0 for any class not explicitly weighted.
         """
         total = 0.0
         for d in detections:
             w = class_weights.get(d.class_name, 1.0)
             total += w * d.area_fraction * d.score
-        # A single large, confident, high-weight object roughly saturates the signal.
-        return min(1.0, total)
+        return saturate_score(total)

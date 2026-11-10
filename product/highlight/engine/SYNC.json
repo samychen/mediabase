@@ -2,15 +2,17 @@
   "package": "highlight_core",
   "upstream": "../../../video_highlight_engine/highlighter",
   "upstreamCommit": null,
-  "syncedAt": "2026-11-08T08:56:23.374Z",
+  "syncedAt": "2026-11-09T15:36:15.916Z",
   "files": [
     "__init__.py",
     "cancel.py",
+    "classify.py",
     "config.py",
     "detector.py",
     "ffmpeg_engine.py",
     "openmp_guard.py",
     "pipeline.py",
+    "presets.py",
     "scorer.py",
     "subtitle_engine.py",
     "vision_analyzer.py"

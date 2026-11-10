@@ -19,7 +19,7 @@ from typing import Callable, List, Optional, Sequence, Tuple
 
 from .cancel import CancelToken, run_cancellable
 from .config import HighlightConfig
-from .detector import OnnxDetector
+from .detector import OnnxDetector, saturate_score
 
 ProgressFn = Callable[[float], None]
 
@@ -320,7 +320,7 @@ class _MediaPipeFaceAnalyzer:
             score = det.score[0] if det.score else 0.5
             area = max(0.0, rel.width) * max(0.0, rel.height)
             total += area * float(score)
-        return min(1.0, total)
+        return saturate_score(total)
 
 
 class _OpenClipGuider:

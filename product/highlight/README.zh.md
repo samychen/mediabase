@@ -225,7 +225,7 @@ avgElapsedMs / restoredJobs / interruptedJobs / recent[20]`，终态**幂等入�
 成片 URL 一律在 store（持有插件 ctx）里解析成绝对地址，面板只读快照。
 **这条是浏览器验收抓出来的**，不是猜的。
 
-**8. 参数契约只有一份。** 23 个可调参数的字段名、类型、上下界、枚举、依赖能力都写在
+**8. 参数契约只有一份。** 25 个可调参数的字段名、类型、上下界、枚举、依赖能力都写在
 `contract.json`，Python 由 `gen-protocol.mjs` 生成，TS 直接 import。宿主在 `start` 之前
 校验，拼错/越界/枚举外都在**创建任务前**返回 `INVALID_PARAMS`，并列出可用键——不是让任务
 跑一秒后失败在日志里。
@@ -260,7 +260,7 @@ mtime+sha256 前 16 位（**缺失也写明**，缺席比缺键更能解释一�
 **信号记的是后端，不是布尔值。** 这一条是实测逼出来的：本机 OpenCV 因 `libprotobuf` 缺失导入
 失败，运动/显著性走 FFmpeg `signalstats`，同样给出 `motion 0.22 / saliency 0.98`。若写成
 `visualMotion: true`，两台机器上**两个不可比的测量**会被同一个词盖住。所以报告里是
-`opencv-optflow` / `ffmpeg-signalstats` / `onnx-detector` / `mediapipe` / `none` 这样的实现名。
+`opencv-framediff` / `ffmpeg-signalstats` / `onnx-detector` / `mediapipe` / `none` 这样的实现名。
 
 **这条顺带抓出一个真 bug。** `find_spec('cv2')` 只回答"有没有这个模块"，对**装了但 dylib 加载
 失败**的 OpenCV 照样返回 `True`——本机 Homebrew 的 opencv 就因为 `libprotobuf` 缺失而导入失败，
@@ -403,26 +403,31 @@ pnpm run verify:highlight:ui          # 真 Chrome（CDP）+ 真引擎，截图�
 `readyState=4` / 播放头推进**、「定位」把播放头放到成片内位置、导出 EDL 回显路径、
 **刷新后任务列表可点回并恢复成片**、无页面异常 / 无 `console.error`。
 
-### 本机实测（2026-11-08，macOS / x86_64 / Python 3.13 / FFmpeg 7.1）
+### 本机实测（2026-11-09，macOS / x86_64 / Python 3.11.10（engine/.venv）/ FFmpeg 8.0.1，全模型栈）
+
+本轮在装齐依赖的 venv 上跑（OpenCV / ONNX / MediaPipe / OpenCLIP / faster-whisper 全在，
+`models.degraded=false`），与 2026-11-08 那次 OpenCV 导入失败的**降级路径**互为对照——两条
+路径都验过，降级行为见第五节第 5/13 条。
 
 | 检查 | 结果 |
 |---|---|
-| `test:highlight` | ✅ **83/83**（6 个世界：正常 / 无解释器 / 崩溃监督 / 队列背压 / 保留窗口 / **重启** + 任务日志 17 + exposition 14 + 时间算术 4 + 面板文案 3 + 动词表 4） |
-| `test:highlight:py` | ✅ **62/62**（桥自身：线协议折叠、权重四类拒绝、边界/枚举、依赖缺失、EDL 时码、文件指纹、`provenance` 归一与顺序无关、坏报告不炸任务、未知动词的可回答文案、显著度后端三态、重复 OpenMP runtime 合并） |
-| 引擎仓 `pytest` | ✅ 11/11（**上游仓**，不在本树；测的是算法，`highlight_core/` 是它的同源副本；含「取消 5s 内杀掉 30s 子进程」） |
+| `test:highlight` | ✅ **85/85**（host 32（6 世界：正常 / 无解释器 / 崩溃监督 / 队列背压 / 保留窗口 / **重启**）+ journal 17 + metrics 14 + interpreter 7 + messages 7（含**选项标签覆盖**闸门）+ protocol 4 + timeline 4） |
+| `test:highlight:py` | ✅ **70/70**（桥自身：线协议折叠、权重四类拒绝、边界/枚举、依赖缺失、EDL 时码、文件指纹、`provenance` 归一与顺序无关、坏报告不炸任务、未知动词的可回答文案、显著度后端三态、重复 OpenMP runtime 合并、**内容适配契约 8**） |
+| 引擎仓 `unittest` | ✅ **26/26**，无跳过（**上游仓**，不在本树；含「取消 5s 内杀掉 30s 子进程」+ **内容适配 7** + **CLIP 分类 4**；自动分类用例在装齐依赖时**实跑 CLIP**，29s 全套） |
 | `verify:highlight:fake` | ✅ **102 条断言**，0 失败 |
-| `verify:highlight:real` | ✅ **118 条断言**，0 失败；真分析：`[2.80s, 12.00s]` 分数 `0.4512`，信号 `{scene 0.19, audio 1.00, motion 0.22, saliency 0.98, face 0, clip 0}` |
+| `verify:highlight:real` | ✅ **123 条断言**，0 失败；真分析：`[2.80s, 12.00s]` 分数 `0.7019`，信号 `{scene 0.187, audio 1.00, motion 0.216, saliency 0.958, face/clip/keyword 0}`；默认任务 **82.4s**（Whisper base 加载 alone ~79s，Intel x86_64 纯 CPU；冒烟轮询预算因此放到 180s） |
 | 成片可解码 | ✅ `10.096s / 320×180 / h264+aac`（渲染路径为 stream copy，编码与片源一致） |
-| 数据面路由 | ✅ 成片 `200 video/mp4`、`Range: bytes=0-1023` → `206 bytes 0-1023/191366`；报告 `200 application/json`；字幕 `200 text/vtt`（假引擎路径） |
-| 报告指纹 | ✅ `provenance.fingerprint dff2cb67d724a3ee`；`environment.signals` = `{sceneCut ffmpeg-scene, audioRms ffmpeg-astats, visualMotion ffmpeg-signalstats, objectSaliency ffmpeg-signalstats, face/clip/keyword none}`——**本机 OpenCV 导入失败，走的就是降级路径**，`models.degraded` 与之一致；两个任务的 `environment` 逐字节相同、`fingerprint` 因权重不同而不同（`41c6f98921768ae1`） |
-| 选项目录 | ✅ 23 项，含 `frameAccurate`/`enableClipGuidance`/`whisperModelSize` 等；越界/错类型/枚举外均在创建任务前被拒 |
+| 数据面路由 | ✅ 成片 `200 video/mp4`、`Range: bytes=0-1023` → `206 bytes 0-1023/191592`；报告 `200 application/json`；字幕路由**诚实跳过**（正弦测试音无语音 → Whisper 0 cue → 不落 SRT） |
+| 报告指纹 | ✅ `provenance.fingerprint 023048707fc4f408`；`environment.signals` = `{sceneCut ffmpeg-scene, audioRms ffmpeg-astats, visualMotion opencv-framediff, objectSaliency onnx-detector, faceSaliency mediapipe, clipGuidance open_clip, keywordMatch faster-whisper}`——**全模型路径**，四个模型 `present:true`，`models.degraded=false` 与之一致；两个任务 `environment` 逐字节相同、`fingerprint` 因权重不同而不同（加权任务 `9679d685dbd49e66`） |
+| 内容适配 | ✅ 默认 `general` + 自适应：`signal_activity` audio=1.0 / object=0.967 / scene=0.582 / motion=0.261 / face=clip=keyword=0；`effective_weights` 把 audio 从 0.22 抬到 **0.383**、平坦的 face/clip 降到 **0.0174**、keyword 降到 **0.0105**（地板 0.1 + 归一）。`sports` 预设 `config.weights` audio/motion=**0.25**，有效权重 7 键和为 1 |
+| 选项目录 | ✅ **25 项**，含 `contentPreset`/`adaptiveWeights`/`frameAccurate`/`enableClipGuidance`/`whisperModelSize` 等；越界/错类型/枚举外均在创建任务前被拒 |
 | 队列背压 | ✅ 上限 1 时第二个并发任务回 `CONFLICT -32004`；`queueDepth` 从 0 → 1 |
 | 保留窗口 | ✅ `retainJobs=1` 时最旧任务目录被清理，新目录保留 |
 | 任务日志 / 重启 | ✅ 宿主在任务运行中被杀 → 同一 home 重启后该任务为 `interrupted`（错误文本含中断时进度）、`fromDisk: true`、`queueDepth 0`、新任务照常成功；第三次启动 `interruptedJobs 0`（同一次死亡不重复计数） |
 | Prometheus 恢复指标 | ✅ 干净 home：`vhl_jobs_restored 0` / `vhl_jobs_interrupted 0`；崩溃后：`restored ≥1` / `interrupted 1`，且两条都是 gauge |
-| 取消语义 | ✅ 状态 `cancelled`，`cancelled.mp4` 不存在；metrics `{jobsStarted 2, succeeded 1, cancelled 1}` |
-| `verify:highlight:ui` | ✅ 面板挂载 / 高级参数 18 行 / 信号 chips / 报告链接 / `videoWidth 320` `readyState 4` / 定位 / EDL / 刷新恢复 / 无异常 |
-| `typecheck:highlight` / `verify:highlight:compose` | ✅ 全绿 |
+| 取消语义 | ✅ 状态 `cancelled`，`cancelled.mp4` 不存在；metrics `{jobsStarted 4, succeeded 3, cancelled 1}` |
+| `verify:highlight:ui` | ✅ **37 条断言**：面板挂载 / 高级参数 **28 行 / 5 组** / `contentPreset` 渲染为下拉（6 值）/ 信号 chips / 报告链接 / `videoWidth 320` `readyState 4` / 定位 / EDL / 刷新恢复 / 无异常 |
+| `typecheck:highlight` / `verify:highlight:compose` / `check:highlight-drift` | ✅ 全绿（副本 12 文件 / 协议 11 动词 / 名册 6 插件） |
 
 ---
 
@@ -478,7 +483,7 @@ pnpm run verify:highlight:ui          # 真 Chrome（CDP）+ 真引擎，截图�
 | 设计方案能力 | 引擎侧 | 产品层可达 | 说明 |
 |---|---|---|---|
 | 场景切分 / 音频能量 | ✅ | ✅ | `sceneThreshold`、`timeBinSec` 可调 |
-| 运动显著性（OpenCV 光流） | ✅ | ✅ | 无 OpenCV 时降级并明示 |
+| 运动显著性（OpenCV 帧差） | ✅ | ✅ | 无 OpenCV 时降级并明示 |
 | 目标显著性（ONNX RT-DETR/YOLOX，类别+面积归一化） | ✅ | ✅ | `onnxModelPath` 可指模型；缺失即降级 |
 | 人脸显著性（MediaPipe） | ✅ | ✅ | `enableFaceDetection`（需 mediapipe，缺则禁用） |
 | 零样本语义引导（OpenCLIP） | ✅ | ✅ | `enableClipGuidance` + `clipPrompt` |
@@ -486,6 +491,7 @@ pnpm run verify:highlight:ui          # 真 Chrome（CDP）+ 真引擎，截图�
 | 翻译（Ollama） | ✅ | ✅ | `translateToLang` |
 | 叙事上下文扩展 | ✅ | ✅ | `contextLeadInSec` / `contextLeadOutSec` / `contextMergeGapSec` |
 | 多模态加权融合 | ✅ | ✅ | `weights` 作为**一个复合参数**（7 个子键）暴露；面板渲染成一块带归一提示的控件 |
+| 内容类型适配（预设 / 自适应降权 / 自动分类） | ✅ | ✅ | `contentPreset`（5 预设 + auto）+ `adaptiveWeights`（默认开）；auto 需 CLIP，缺则拒绝选用、运行失败降级 general（第十三节） |
 | 帧级精确剪辑 | ✅ | ✅ | `frameAccurate`（重编码）与 `fastStreamCopy` 二选一 |
 | 异步任务 + 进度 + 取消 | ✅ | ✅ | 阶段窗口映射、协作式取消、无半成品 |
 | 队列 / 背压 | ✅ | ✅ | 有界队列 + `CONFLICT` + `queueDepth` |
@@ -570,3 +576,78 @@ Prometheus、任务持久化与报告指纹。剩下三项**不是欠债，是�
 
 顺带一条跨块自检：`provenance.recipe.weights` 必须等于引擎自己写进报告的 `config.weights`。
 同一个决定被两处记录，不一致就说明有一处在撒谎，而读者无法判断是哪一处。
+
+---
+
+## 十三、内容适配（预设 / 自适应降权 / 自动分类）
+
+**问题。** 一套权重不可能适配所有视频：访谈的高光在人脸与话语里，音乐的高光在音频动态里，
+游戏的高光在画面运动里。用同一份 `weights` 跑所有素材，等于让体育片去拼人脸、让访谈去拼运动。
+另一类失败更隐蔽：某个信号在**这段**素材上恒定（多目标帧的物体显著度饱和到 1.0、整段无人脸
+的人脸信号恒为 0），它不再区分任何窗口，却仍按权重给所有窗口加同一个常数——把真正有区分度
+的信号淹掉。这一轮加三个机制对症，全部**只动权重**，不替调用方决定跑哪些信号。
+
+**1. 内容预设 `contentPreset`（启发式起点，不是学习参数）。** 五个具体预设各是一份归一权重
+向量，编码的是显而易见的先验，**手调的起点而非真值**——应当用显式 `weights` 去覆盖它，而不是
+把它当结论。`general` 就是引擎的历史默认，选它等于没选。
+
+| 预设 | scene | audio | motion | object | face | clip | keyword | 先验 |
+|---|---|---|---|---|---|---|---|---|
+| `general` | 0.18 | 0.22 | 0.18 | 0.16 | 0.10 | 0.10 | 0.06 | 历史默认 |
+| `sports` | 0.20 | 0.25 | 0.25 | 0.12 | 0.05 | 0.08 | 0.05 | 快动作 + 解说/观众峰值 + 回放切点 |
+| `interview` | 0.08 | 0.18 | 0.05 | 0.05 | 0.30 | 0.10 | 0.24 | 静态 talking head：人脸与话语承载高光 |
+| `gameplay` | 0.15 | 0.18 | 0.30 | 0.17 | 0.03 | 0.12 | 0.05 | 画面运动与语义事件主导，摄像头人脸是附带 |
+| `music` | 0.12 | 0.45 | 0.18 | 0.08 | 0.07 | 0.07 | 0.03 | 节拍/ drop / 渐强是高光，歌词不是 |
+
+预设**只是一份权重向量**：它从不打开/关闭某个信号，也不强制任何模型依赖。跑不跑 face / clip /
+whisper 仍由调用方决定；预设只说"每个**可用**信号该占多少"。所以选 `interview` 而本机没装
+MediaPipe，人脸信号照样是 0——预设不会替你装模型，也不会假装它跑了。
+
+**2. 自适应降权 `adaptiveWeights`（默认开）。** 评分时按**这段素材**上每个信号的离散度降权：
+活动度 `activity = std(信号) / max(各信号 std)`，有效权重 `raw = base × (0.1 + 0.9 × activity)`
+再归一。地板 0.1 保证一个信号即便完全平坦也不会被彻底抹掉（它仍可能承载上下文），但不再能
+盖过有区分度的信号。七个信号**全平坦**时退回 base（没有任何区分度可言，降权无意义）。这是纯
+选择改进：设 `adaptiveWeights: false` 即可对照原始配方。报告里 `effective_weights` 是降权归一
+后的值，`signal_activity` 是逐信号活动度——两者让"为什么这个窗口被选中"可复查，而不是一个黑箱。
+
+**3. 自动分类 `contentPreset: "auto"`（显式选用，需 CLIP）。** 不想自己打标签时，让 OpenCLIP
+零样本分类：沿时间轴均匀采 **12 帧**，对每类的手写 prompt 求平均文本嵌入，与平均图像嵌入算
+余弦，argmax 映射到一个预设。这是**粗先验**，不是学习分类器（prompt 手写、决策是余弦 argmax）。
+分数 `(cos+1)/2` 映到 [0,1] 写进报告，读起来像置信度。
+
+- **它是显式选用，所以缺模型是拒绝而非静默。** `auto` 需要 `clip` 能力，宿主与引擎**两侧**都拦
+  （契约的 `requires` 是**逐选项**而非逐取值，`auto` 这个取值的依赖只能单独写）：本机没装
+  OpenCLIP 时 `contentPreset: "auto"` 回 `UNAVAILABLE` 并指名依赖（第五节第 9 条的同一条规则）。
+  其余五个具体预设是纯权重向量，**不需要任何模型**。
+- **一旦开跑，分类失败是诚实降级而非硬失败。** CLIP 在场但采样/推理出错（视频打不开、采不到帧、
+  模型加载失败），回 `general` 并在报告写明原因（`opencv-unavailable` / `openclip-unavailable` /
+  `video-open-failed` / `no-frames` / `frame-sampling-failed` / `clip-failed`），`auto` 因此绝不
+  让任务硬失败。"拒绝选用一个不存在的能力"与"选用后运行时降级"是两件事，前者在边界拦，后者在报告记。
+- **成本写明。** `auto` 会加载 CLIP checkpoint（ViT-B-32，~350 MB）；`setup-models.sh` 已预缓存，
+  跳过那一步的部署要付一次下载。若**同时**开了 `clipGuidance`，引导器会再加载自己的一份——两者
+  目前不共享，这是已知的内存翻倍点。
+
+**优先级：显式 `weights` > 预设 > 默认。** 传了 `weights` 就标记 `weights_explicit`，预设解析整步
+跳过（`config.weights` 保持显式值）；没传 `weights` 才按 `contentPreset` 取向量（`auto` 先分类，
+具体名直接取，未知名退 `general`）。自适应降权与预设**正交**：它作用在解析后的配方上（无论来源
+是显式还是预设），所以显式权重也会被降权——要对照原始值就关 `adaptiveWeights`。
+
+**报告里的 `content_adaptation` 块。** 适配是**记录下来的，不是静默的**：`requested_preset`（调用方
+要的）、`resolved_preset`（实际跑的）、`weights_explicit`、`adaptive_weights`、`effective_weights`
+（降权归一后）、`signal_activity`（逐信号活动度）、`classification`（`auto` 时的方法/模型/分数/采样
+帧数/降级原因）。`config.weights` 与 `provenance.recipe.weights` 记的是**解析后的配方**（预设或显式
+值），所以指纹覆盖的是真正进评分的那份权重，而不是调用方随手填的原始值。
+
+```jsonc
+// RPC highlight.start 的 options 片段
+{ "contentPreset": "interview" }                          // 纯权重，无需模型
+{ "contentPreset": "auto" }                               // 需 CLIP；缺则 UNAVAILABLE
+{ "contentPreset": "sports", "adaptiveWeights": false }   // 预设 + 关闭降权对照
+{ "weights": { "audioRms": 1, "sceneCut": 0 } }           // 显式权重 beats 任何预设
+```
+
+**边界（先写在前面）。** 预设与分类都是**启发式**：向量手调、prompt 手写、决策是余弦 argmax，
+没有在任何标注集上训练或验证过。它们把"显然该这么做"的先验固化成一个可覆盖的起点，**不是**对
+视频内容的准确判断。`auto` 在测试图卡上可能给出看似自信却无意义的分数（整段都是同一类画面时
+区间很窄）。要精确控制就用显式 `weights`；要评估预设好坏，拿真实素材对照 `adaptiveWeights: false`
+的原始配方，看报告里的 `effective_weights` 与 `signal_activity`，而不是相信预设名。

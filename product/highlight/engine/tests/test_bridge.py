@@ -184,6 +184,58 @@ class BuildConfigTests(unittest.TestCase):
         self.assertFalse(config.enable_clip_guidance)
 
 
+class ContentAdaptationTests(unittest.TestCase):
+    """contentPreset / adaptiveWeights wiring and the per-value auto->clip rule."""
+
+    def test_preset_enum_matches_the_engine_presets_plus_auto(self):
+        from highlight_core.presets import PRESET_NAMES
+
+        enum = contract.OPTION_META["contentPreset"]["enum"]
+        # The contract and the engine's preset table must not drift: every
+        # selectable value maps to a real weight vector (or the auto strategy).
+        self.assertEqual(set(enum), set(PRESET_NAMES) | {"auto"})
+        # Default is a concrete preset, not auto — auto costs a CLIP load.
+        self.assertEqual(contract.OPTION_META["contentPreset"]["default"], "general")
+
+    def test_maps_preset_and_adaptive_onto_config_fields(self):
+        config = b.build_config({"contentPreset": "sports", "adaptiveWeights": False})
+        self.assertEqual(config.content_preset, "sports")
+        self.assertFalse(config.adaptive_weights)
+        self.assertFalse(config.weights_explicit)
+
+    def test_adaptive_defaults_on(self):
+        config = b.build_config({})
+        self.assertTrue(config.adaptive_weights)
+        self.assertEqual(config.content_preset, "general")
+
+    def test_explicit_weights_mark_the_recipe_explicit(self):
+        # The marker is what lets a deliberate weights choice beat a preset.
+        config = b.build_config({"weights": {"sceneCut": 1.0}})
+        self.assertTrue(config.weights_explicit)
+        self.assertFalse(b.build_config({"contentPreset": "music"}).weights_explicit)
+
+    def test_auto_without_clip_is_unavailable(self):
+        report = {"clip": {"available": False}, "runtime": {}, "face": {}, "whisper": {}}
+        with self.assertRaises(b.EngineError) as caught:
+            b.build_config({"contentPreset": "auto"}, report)
+        self.assertEqual(caught.exception.code, "UNAVAILABLE")
+        self.assertIn("open-clip-torch", caught.exception.message)
+
+    def test_auto_with_clip_is_allowed(self):
+        report = {"clip": {"available": True}, "runtime": {}, "face": {}, "whisper": {}}
+        config = b.build_config({"contentPreset": "auto"}, report)
+        self.assertEqual(config.content_preset, "auto")
+
+    def test_named_preset_needs_no_model(self):
+        report = {"clip": {"available": False}, "runtime": {}, "face": {}, "whisper": {}}
+        # A concrete preset is pure weights; a box without CLIP still honours it.
+        config = b.build_config({"contentPreset": "interview"}, report)
+        self.assertEqual(config.content_preset, "interview")
+
+    def test_unknown_preset_value_is_refused(self):
+        self.assertEqual(codes(b.build_config, {"contentPreset": "western"}), "INVALID_PARAMS")
+
+
 class CatalogTests(unittest.TestCase):
     def test_catalog_covers_every_contract_option_once(self):
         rows = b.options_catalog()
@@ -339,7 +391,7 @@ class ProvenanceTests(unittest.TestCase):
              "faceSaliency", "clipGuidance", "keywordMatch"},
         )
         allowed = {
-            "ffmpeg-scene", "ffmpeg-astats", "opencv-optflow", "ffmpeg-signalstats",
+            "ffmpeg-scene", "ffmpeg-astats", "opencv-framediff", "ffmpeg-signalstats",
             "onnx-detector", "opencv-sobel", "mediapipe", "open_clip",
             "faster-whisper", "none",
         }
@@ -362,7 +414,7 @@ class ProvenanceTests(unittest.TestCase):
         signals = b.environment()["signals"]
         self.assertEqual(report["degraded"], not b.opencv_usable())
         self.assertEqual(
-            signals["visualMotion"] == "opencv-optflow", b.opencv_usable()
+            signals["visualMotion"] == "opencv-framediff", b.opencv_usable()
         )
 
     def test_object_saliency_names_three_paths_apart(self):

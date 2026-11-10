@@ -13,10 +13,20 @@ SPDX-License-Identifier: Apache-2.0
 
 from dataclasses import dataclass
 import math
-from typing import Dict, List, Sequence, Tuple
+from typing import Dict, List, Optional, Sequence, Tuple
 
-from .config import HighlightConfig
+from .config import HighlightConfig, ScoringWeights
 from .vision_analyzer import FrameVisionMetrics
+
+
+def _std(values: Sequence[float]) -> float:
+    """Population standard deviation (pure Python). Used only for RELATIVE
+    signal activity, so the n vs n-1 choice is immaterial."""
+    n = len(values)
+    if n < 2:
+        return 0.0
+    mean = sum(values) / n
+    return math.sqrt(sum((v - mean) ** 2 for v in values) / n)
 
 
 def _percentile(sorted_vals: Sequence[float], q: float) -> float:
@@ -76,6 +86,11 @@ class MultiModalScorer:
 
     def __init__(self, config: HighlightConfig):
         self.config = config
+        # Post-call state: after score_and_select these describe the fusion that
+        # ACTUALLY ran (base weights, then adaptive dampening of flat signals).
+        # The pipeline reads them into the report so the recipe is auditable.
+        self.effective_weights: ScoringWeights = config.weights.normalized()
+        self.signal_activity: Optional[Dict[str, float]] = None
 
     def score_and_select(
         self,
@@ -176,6 +191,19 @@ class MultiModalScorer:
 
         # 5. Weighted Multi-Modal Fusion
         w = self.config.weights.normalized()
+        self.signal_activity = None
+        if self.config.adaptive_weights:
+            grids = {
+                "scene_cut": scene_grid,
+                "audio_rms": audio_grid,
+                "visual_motion": motion_grid,
+                "object_saliency": saliency_grid,
+                "face_saliency": face_grid,
+                "clip_guidance": clip_grid,
+                "keyword_match": keyword_grid,
+            }
+            w, self.signal_activity = self._adaptive_weights(w, grids)
+        self.effective_weights = w
         composite_grid = [0.0] * num_bins
         timeline_series: List[Dict[str, float]] = []
 
@@ -272,6 +300,42 @@ class MultiModalScorer:
 
         return expanded, timeline_series
 
+    def _adaptive_weights(
+        self,
+        base: ScoringWeights,
+        grids: Dict[str, List[float]],
+    ) -> Tuple[ScoringWeights, Dict[str, float]]:
+        """Dampen signals that barely vary on THIS video, then renormalise.
+
+        A near-constant grid adds the same offset to every window, so it cannot
+        help RANK highlights — its weight is better spent on signals that move.
+        This is the direct remedy for a saturated signal (e.g. object saliency
+        pinned at 1.0 on a busy frame): its std collapses, its weight shrinks,
+        and the discriminative signals regain influence.
+
+        Each weight is scaled by `floor + (1-floor) * activity`, where activity
+        is the signal's std relative to the most-varying signal. The floor keeps
+        a flat signal present (not deleted); renormalisation preserves sum=1.
+        When EVERY grid is constant the factors are uniform and the base weights
+        survive unchanged — there is nothing to prefer, so we prefer nothing.
+
+        Returns (effective_weights, activity) where activity[name] in [0,1] is
+        the relative variation, exposed for the report.
+        """
+        stds = {name: _std(grid) for name, grid in grids.items()}
+        max_std = max(max(stds.values()), 1e-6)
+        activity = {name: stds[name] / max_std for name in grids}
+        floor = 0.1
+        raw = {
+            name: getattr(base, name) * (floor + (1.0 - floor) * activity[name])
+            for name in grids
+        }
+        total = sum(raw.values())
+        if total <= 0:
+            return base, activity
+        effective = ScoringWeights(**{name: raw[name] / total for name in grids})
+        return effective, activity
+
     def _breakdown(self, sg, ag, mg, slg, fg, cg, kg, start, end) -> Dict[str, float]:
         return {
             "scene": round(_mean_slice(sg, start, end), 4),
@@ -291,8 +355,9 @@ class MultiModalScorer:
     ) -> List[HighlightSegment]:
         """
         Expand each selected window by lead-in / reaction context, then merge clips
-        separated by less than `context_merge_gap_sec`. Recompute scores over the
-        expanded/merged span so the reported scores reflect the final clip.
+        separated by less than `context_merge_gap_sec`. Each merged clip keeps the
+        composite score and modality breakdown of the strongest original segment it
+        overlaps (the score is NOT recomputed over the expanded span).
         """
         lead_in = self.config.context_lead_in_sec
         lead_out = self.config.context_lead_out_sec

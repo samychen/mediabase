@@ -14,6 +14,7 @@ import re
 from typing import List, Optional, Tuple
 import urllib.error
 import urllib.request
+import warnings
 
 from .config import HighlightConfig
 
@@ -80,7 +81,11 @@ class SubtitleEngine:
         except ImportError:
             # faster-whisper is optional in lightweight deployments
             return []
-        except Exception:
+        except Exception as exc:
+            # A runtime failure (corrupt audio, model download error, OOM) is not
+            # the same as "the optional dependency is absent": degrading silently
+            # here would leave the report claiming a transcription that never ran.
+            warnings.warn(f"Whisper transcription failed; continuing without subtitles: {exc}")
             return []
 
     def score_keyword_hits(
@@ -150,6 +155,7 @@ class SubtitleEngine:
             return segments
 
         translated: List[SubtitleSegment] = []
+        warned = False
         for seg in segments:
             prompt = (
                 f"Translate the following video subtitle into {lang}. "
@@ -173,8 +179,13 @@ class SubtitleEngine:
                 with urllib.request.urlopen(req, timeout=5.0) as resp:
                     body = json.loads(resp.read().decode("utf-8"))
                     trans_text = body.get("response", "").strip() or seg.text
-            except (urllib.error.URLError, TimeoutError, json.JSONDecodeError, OSError):
-                # Fallback to original text if local Ollama server is not running
+            except (urllib.error.URLError, TimeoutError, json.JSONDecodeError, OSError) as exc:
+                # Keeping the original text is a fine degradation; doing it
+                # silently is not — the output would look translated when it is
+                # not. Warn once per call, not once per segment (log flood).
+                if not warned:
+                    warnings.warn(f"Ollama translation unavailable; keeping original text: {exc}")
+                    warned = True
                 trans_text = seg.text
 
             translated.append(

@@ -218,6 +218,21 @@
       "group": "text",
       "special": true
     },
+    "contentPreset": {
+      "field": "content_preset",
+      "type": "str",
+      "default": "general",
+      "enum": ["general", "sports", "interview", "gameplay", "music", "auto"],
+      "group": "scoring",
+      "comment": "Weight profile per video type; presets are heuristic starting points, not learned. 'auto' classifies content via OpenCLIP and so needs the clip capability (enforced host-side and bridge-side, since the generic requires is per-option not per-value); the other values are pure weight vectors needing no model. An explicit weights choice overrides any preset."
+    },
+    "adaptiveWeights": {
+      "field": "adaptive_weights",
+      "type": "bool",
+      "default": true,
+      "group": "scoring",
+      "comment": "Down-weight signals that are near-constant on THIS video so they cannot mask discriminative ones (e.g. object saliency saturated at 1.0). Pure selection improvement; set false to compare against the raw recipe. The report records the effective weights and per-signal activity."
+    },
     "weights": {
       "field": "weights",
       "type": "weights",

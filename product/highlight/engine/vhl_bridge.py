@@ -265,6 +265,20 @@ def build_config(options: Dict[str, Any], report: Optional[Dict[str, Any]] = Non
     # Cross-field trap: a prompt without guidance is a no-op that looks enabled.
     if seen.get("clipPrompt") and not seen.get("enableClipGuidance"):
         raise EngineError("INVALID_PARAMS", "clipPrompt 需要同时开启 enableClipGuidance")
+    # An explicit `weights` choice must beat any preset: mark it so the pipeline
+    # leaves the caller's recipe untouched (resolved_preset=None in the report).
+    if "weights" in seen:
+        kwargs["weights_explicit"] = True
+    # `auto` is the one preset value that needs a model (CLIP classifies the
+    # content). The generic `requires` is per-option, so this per-value rule is
+    # checked here, mirroring the host's assertRequirements. The engine would
+    # degrade to general, but the contract boundary must not silently honour less
+    # than was asked.
+    if seen.get("contentPreset") == "auto" and report is not None and not _capability(report, "clip"):
+        label, hint = _REQUIRES_HINT["clip"]
+        raise EngineError(
+            "UNAVAILABLE", f"contentPreset=auto 需要 {label},当前环境未安装;安装方式: {hint}"
+        )
     return HighlightConfig(**kwargs)
 
 
@@ -644,7 +658,7 @@ def doctor() -> Dict[str, Any]:
 #
 # The engine's own report payload records the RECIPE (weights, thresholds) but
 # nothing about the MACHINERY — and the machinery is where a disagreement comes
-# from: a different ONNX checkpoint, a different OpenCV build (optical flow moved
+# from: a different ONNX checkpoint, a different OpenCV build (frame differencing moved
 # between minor versions), a missing model that silently dropped one of the seven
 # signals to zero. Same input, same parameters, different clip — the report as it
 # stood could not name a cause, so the only available explanation was "the tool is
@@ -786,7 +800,7 @@ def environment(onnx_model_path: str = "") -> Dict[str, Any]:
         "models": models,
         # Which IMPLEMENTATION each signal runs on — not whether it "exists".
         # Two machines can both produce a motion score and still measure
-        # different things: OpenCV optical flow and FFmpeg's `signalstats` YDIF
+        # different things: OpenCV frame differencing and FFmpeg's `signalstats` YDIF
         # both land in [0,1] and are not comparable. A boolean would hide exactly
         # the difference this block was added to expose, so the value is the
         # backend. `none` is the one value that means "this signal is 0 here".
@@ -800,7 +814,7 @@ def environment(onnx_model_path: str = "") -> Dict[str, Any]:
         "signals": {
             "sceneCut": "ffmpeg-scene",
             "audioRms": "ffmpeg-astats",
-            "visualMotion": "opencv-optflow" if cv2 else "ffmpeg-signalstats",
+            "visualMotion": "opencv-framediff" if cv2 else "ffmpeg-signalstats",
             # Three paths, not two. With OpenCV but no checkpoint the analyzer
             # scores edge magnitude (Sobel) — a real per-frame vision measurement,
             # not a file-level statistic. Reporting it as `ffmpeg-signalstats` made
