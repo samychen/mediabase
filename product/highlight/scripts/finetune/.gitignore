@@ -1,0 +1,5 @@
+# 看护/校准的运行期产物：每次巡查与每轮实验都会重写，不进版本库。
+# 工具、手册（PLAYBOOK.md）与模板是代码，照常提交。
+work/
+state.json
+watchdog.log
