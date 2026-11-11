@@ -43,6 +43,11 @@ TYPE_PROMPTS: Dict[str, List[str]] = {
         "gameplay footage of a virtual world",
         "an esports match of a computer game",
     ],
+    "fps": [
+        "a first person shooter match with a gun and crosshair",
+        "an esports shooter game with a HUD and kill feed",
+        "a competitive FPS gameplay with weapons",
+    ],
     "music": [
         "a musical performance on a stage",
         "a music video with a singer or band",

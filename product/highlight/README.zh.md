@@ -296,6 +296,7 @@ stderr**（写 stdout 会毁掉 FIFO 匹配）。`--doctor` 打印解释器/FFmp
 ```
 product/highlight/
 ├─ protocol/contract.json        线协议唯一真源
+├─ docs/FINETUNE.zh.md           模型 fine-tune 操作手册（检测器 / CLIP / Whisper / 权重配方四方向）
 ├─ engine/
 │  ├─ vhl_bridge.py              stdin/stdout 行协议 + 任务池 + EDL/报告
 │  ├─ contract.py                contract.json → 动词表（缺失时退回生成模块）
@@ -491,7 +492,7 @@ pnpm run verify:highlight:ui          # 真 Chrome（CDP）+ 真引擎，截图�
 | 翻译（Ollama） | ✅ | ✅ | `translateToLang` |
 | 叙事上下文扩展 | ✅ | ✅ | `contextLeadInSec` / `contextLeadOutSec` / `contextMergeGapSec` |
 | 多模态加权融合 | ✅ | ✅ | `weights` 作为**一个复合参数**（7 个子键）暴露；面板渲染成一块带归一提示的控件 |
-| 内容类型适配（预设 / 自适应降权 / 自动分类） | ✅ | ✅ | `contentPreset`（5 预设 + auto）+ `adaptiveWeights`（默认开）；auto 需 CLIP，缺则拒绝选用、运行失败降级 general（第十三节） |
+| 内容类型适配（预设 / 自适应降权 / 自动分类） | ✅ | ✅ | `contentPreset`（6 预设 + auto）+ `adaptiveWeights`（默认开）；auto 需 CLIP，缺则拒绝选用、运行失败降级 general（第十三节） |
 | 帧级精确剪辑 | ✅ | ✅ | `frameAccurate`（重编码）与 `fastStreamCopy` 二选一 |
 | 异步任务 + 进度 + 取消 | ✅ | ✅ | 阶段窗口映射、协作式取消、无半成品 |
 | 队列 / 背压 | ✅ | ✅ | 有界队列 + `CONFLICT` + `queueDepth` |
@@ -587,7 +588,7 @@ Prometheus、任务持久化与报告指纹。剩下三项**不是欠债，是�
 的人脸信号恒为 0），它不再区分任何窗口，却仍按权重给所有窗口加同一个常数——把真正有区分度
 的信号淹掉。这一轮加三个机制对症，全部**只动权重**，不替调用方决定跑哪些信号。
 
-**1. 内容预设 `contentPreset`（启发式起点，不是学习参数）。** 五个具体预设各是一份归一权重
+**1. 内容预设 `contentPreset`（启发式起点，不是学习参数）。** 六个具体预设各是一份归一权重
 向量，编码的是显而易见的先验，**手调的起点而非真值**——应当用显式 `weights` 去覆盖它，而不是
 把它当结论。`general` 就是引擎的历史默认，选它等于没选。
 
@@ -598,6 +599,7 @@ Prometheus、任务持久化与报告指纹。剩下三项**不是欠债，是�
 | `interview` | 0.08 | 0.18 | 0.05 | 0.05 | 0.30 | 0.10 | 0.24 | 静态 talking head：人脸与话语承载高光 |
 | `gameplay` | 0.15 | 0.18 | 0.30 | 0.17 | 0.03 | 0.12 | 0.05 | 画面运动与语义事件主导，摄像头人脸是附带 |
 | `music` | 0.12 | 0.45 | 0.18 | 0.08 | 0.07 | 0.07 | 0.03 | 节拍/ drop / 渐强是高光，歌词不是 |
+| `fps` | 0.10 | 0.25 | 0.00 | 0.00 | 0.15 | 0.00 | 0.50 | 解说词与音频峰值承载高光；第一人称视角运动几乎不区分（2026-11-11 按 CF 素材校准，弱标注证据，单片段证据量——用你自己的素材复核，见 docs/FINETUNE.zh.md D1/D2） |
 
 预设**只是一份权重向量**：它从不打开/关闭某个信号，也不强制任何模型依赖。跑不跑 face / clip /
 whisper 仍由调用方决定；预设只说"每个**可用**信号该占多少"。所以选 `interview` 而本机没装
@@ -651,3 +653,6 @@ MediaPipe，人脸信号照样是 0——预设不会替你装模型，也不会
 视频内容的准确判断。`auto` 在测试图卡上可能给出看似自信却无意义的分数（整段都是同一类画面时
 区间很窄）。要精确控制就用显式 `weights`；要评估预设好坏，拿真实素材对照 `adaptiveWeights: false`
 的原始配方，看报告里的 `effective_weights` 与 `signal_activity`，而不是相信预设名。
+
+要把引擎适配到新领域（换检测模型、调 CLIP、fine-tune Whisper、学一组权重），完整操作步骤
+见 `docs/FINETUNE.zh.md`。

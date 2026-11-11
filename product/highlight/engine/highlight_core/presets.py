@@ -33,6 +33,15 @@ PRESET_WEIGHTS: Dict[str, Tuple[float, ...]] = {
     "gameplay": (0.15, 0.18, 0.30, 0.17, 0.03, 0.12, 0.05),
     # Audio dynamics (beats, drops, crescendos) are the highlight; words are not.
     "music": (0.12, 0.45, 0.18, 0.08, 0.07, 0.07, 0.03),
+    # Commentated competitive FPS (CS/CF/Valorant): the caster's words and the
+    # crowd/audio peaks carry the moments; first-person camera motion is mostly
+    # steady aiming, so visual motion barely separates highlights. Keyword and
+    # face need whisper/keywords and mediapipe respectively — a preset never
+    # enables them; whatever is absent is renormalised away.
+    # Calibrated on a 28.8s CF match clip against agent vision weak labels
+    # (IoU 0.361 vs 0.262 for "general"); single-clip evidence, review with
+    # your own material (docs/FINETUNE.zh.md D1/D2 loop).
+    "fps": (0.10, 0.25, 0.00, 0.00, 0.15, 0.00, 0.50),
 }
 
 # Concrete, selectable presets. "auto" is a resolution strategy (CLIP), not a

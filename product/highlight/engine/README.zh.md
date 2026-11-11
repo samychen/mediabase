@@ -88,7 +88,7 @@ pnpm run test:highlight:py        # 或 python3 -m unittest discover -s product/
 让一套引擎适配不同类型视频的三个机制都在上游 `highlighter/`（副本里同名），产品 README 第十三节
 有完整设计与用法；这里只记算法侧的接缝：
 
-- **`presets.py`** — 五个具体预设（`general/sports/interview/gameplay/music`）各是一份归一权重
+- **`presets.py`** — 六个具体预设（`general/sports/interview/gameplay/music/fps`）各是一份归一权重
   向量，`preset_weights(name)` 返回 `ScoringWeights`。**只是权重**：不打开/关闭信号，不强制模型。
   向量是手调的启发式起点，不是学习参数。`auto` 不在 `PRESET_NAMES` 里——它是解析策略，不是向量。
 - **`classify.py`** — `contentPreset=auto` 时由 `pipeline` 调用。OpenCLIP 零样本：采 12 帧，对每类

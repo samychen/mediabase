@@ -282,6 +282,30 @@ def build_config(options: Dict[str, Any], report: Optional[Dict[str, Any]] = Non
     return HighlightConfig(**kwargs)
 
 
+def _apply_whisper_model_path(
+    config: HighlightConfig, options: Dict[str, Any], report: Optional[Dict[str, Any]]
+) -> None:
+    """Special option `whisperModelPath`: local CTranslate2 dir wins over the hub size.
+
+    The generic `requires` check never sees special options (build_config skips
+    them), so the capability gate is repeated here — same rule as §5.9: an
+    explicit opt-in for a missing model is a rejection, not a silent default.
+    faster-whisper's first argument is size_or_path, so a local directory is a
+    legal value; it must override the contract-enum'd hub name, not merge with it.
+    """
+    path = str(options.get("whisperModelPath") or "")
+    if not path:
+        return
+    if report is not None and not _capability(report, "whisper"):
+        label, hint = _REQUIRES_HINT["whisper"]
+        raise EngineError(
+            "UNAVAILABLE", f"whisperModelPath 需要 {label},当前环境未安装;安装方式: {hint}"
+        )
+    if not pathlib.Path(path).exists():
+        raise EngineError("NOT_FOUND", f"转写模型目录不存在: {path}")
+    config.whisper_model_size = path
+
+
 def options_catalog(report: Optional[Dict[str, Any]] = None) -> List[Dict[str, Any]]:
     """What a client may set, its limits, and whether this deployment can honour it."""
     rows: List[Dict[str, Any]] = []
@@ -414,6 +438,7 @@ class Runtime:
         srt_path = str(options.get("srtPath") or "")
         if srt_path and not pathlib.Path(srt_path).exists():
             raise EngineError("NOT_FOUND", f"字幕文件不存在: {srt_path}")
+        _apply_whisper_model_path(config, options, report)
 
         out = pathlib.Path(output_path)
         out.parent.mkdir(parents=True, exist_ok=True)

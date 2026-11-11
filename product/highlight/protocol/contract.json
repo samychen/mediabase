@@ -153,6 +153,15 @@
       "group": "text",
       "requires": "whisper"
     },
+    "whisperModelPath": {
+      "field": "",
+      "type": "str",
+      "default": "",
+      "group": "text",
+      "requires": "whisper",
+      "special": true,
+      "comment": "Local CTranslate2 model directory (fine-tune output, docs/FINETUNE.zh.md C2); overrides whisperModelSize when set. Bridge-handled like srtPath: validated at job creation, never passed to HighlightConfig — a hub size name belongs in whisperModelSize, an absolute path belongs here (faster-whisper's first arg is size_or_path)."
+    },
     "subtitleLanguage": {
       "field": "subtitle_language",
       "type": "str",
@@ -190,6 +199,34 @@
       "group": "analysis",
       "requires": "onnxruntime"
     },
+    "onnxModelFormat": {
+      "field": "onnx_model_format",
+      "type": "str",
+      "default": "yolox",
+      "enum": ["yolox", "rtdetr"],
+      "group": "analysis",
+      "requires": "onnxruntime",
+      "comment": "Output layout the engine decodes: yolox = raw head [N,5+nc] fed RAW 0-255 pixels (grid decode strides 8/16/32, engine-side); rtdetr = [num_queries,4+nc] normalized cxcywh + logits fed 0-1. The ONNX export must match — see docs/FINETUNE.zh.md A4/A5 (check_layout.py)."
+    },
+    "onnxConfThreshold": {
+      "field": "onnx_conf_threshold",
+      "type": "float",
+      "default": 0.35,
+      "min": 0.0,
+      "max": 1.0,
+      "group": "analysis",
+      "requires": "onnxruntime"
+    },
+    "onnxIouThreshold": {
+      "field": "onnx_iou_threshold",
+      "type": "float",
+      "default": 0.45,
+      "min": 0.0,
+      "max": 1.0,
+      "group": "analysis",
+      "requires": "onnxruntime",
+      "comment": "Per-class greedy NMS IoU inside the engine's detector."
+    },
     "enableFaceDetection": {
       "field": "enable_face_detection",
       "type": "bool",
@@ -211,6 +248,22 @@
       "group": "analysis",
       "requires": "clip"
     },
+    "clipModelName": {
+      "field": "clip_model_name",
+      "type": "str",
+      "default": "ViT-B-32",
+      "group": "analysis",
+      "requires": "clip",
+      "comment": "OpenCLIP architecture id (first arg of open_clip.create_model_and_transforms); any arch the installed open-clip-torch knows, must stay consistent with clipPretrained."
+    },
+    "clipPretrained": {
+      "field": "clip_pretrained",
+      "type": "str",
+      "default": "laion2b_s34b_b79k",
+      "group": "analysis",
+      "requires": "clip",
+      "comment": "OpenCLIP checkpoint: a hub tag OR a local state_dict path (fine-tune output, docs/FINETUNE.zh.md B2/B3). A bad arch/tag/path fails the task with the loader's own error — explicit opt-in fails loudly, it is not silently 0."
+    },
     "srtPath": {
       "field": "",
       "type": "str",
@@ -222,7 +275,7 @@
       "field": "content_preset",
       "type": "str",
       "default": "general",
-      "enum": ["general", "sports", "interview", "gameplay", "music", "auto"],
+      "enum": ["general", "sports", "interview", "gameplay", "music", "fps", "auto"],
       "group": "scoring",
       "comment": "Weight profile per video type; presets are heuristic starting points, not learned. 'auto' classifies content via OpenCLIP and so needs the clip capability (enforced host-side and bridge-side, since the generic requires is per-option not per-value); the other values are pure weight vectors needing no model. An explicit weights choice overrides any preset."
     },

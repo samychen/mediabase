@@ -163,6 +163,34 @@ class BuildConfigTests(unittest.TestCase):
         config = b.build_config({"srtPath": "/tmp/x.srt", "_trace": "abc", "maxHighlights": 4})
         self.assertEqual(config.max_highlights, 4)
 
+    def test_whisper_model_path_overrides_the_hub_size(self):
+        # A local CTranslate2 dir is a legal size_or_path for faster-whisper and
+        # must win over the contract-enum'd hub name (docs/FINETUNE.zh.md C2).
+        import tempfile
+
+        with tempfile.TemporaryDirectory() as ct2_dir:
+            config = b.build_config({"whisperModelSize": "small"})
+            b._apply_whisper_model_path(config, {"whisperModelPath": ct2_dir}, None)
+            self.assertEqual(config.whisper_model_size, ct2_dir)
+
+    def test_whisper_model_path_without_the_capability_is_unavailable(self):
+        # Special options bypass build_config, so the generic requires check never
+        # sees them — the capability gate is repeated in the special handler.
+        report = {"whisper": {"available": False}, "runtime": {}, "face": {}, "clip": {}}
+        config = b.build_config({})
+        with self.assertRaises(b.EngineError) as caught:
+            b._apply_whisper_model_path(config, {"whisperModelPath": "/tmp/ct2_dir"}, report)
+        self.assertEqual(caught.exception.code, "UNAVAILABLE")
+        self.assertIn("faster-whisper", caught.exception.message)
+
+    def test_whisper_model_path_to_a_missing_dir_is_not_found(self):
+        config = b.build_config({})
+        with self.assertRaises(b.EngineError) as caught:
+            b._apply_whisper_model_path(
+                config, {"whisperModelPath": "/nonexistent/ct2_dir"}, None
+            )
+        self.assertEqual(caught.exception.code, "NOT_FOUND")
+
     def test_explicit_opt_in_to_a_missing_model_is_unavailable(self):
         # Defaults may degrade silently; an explicit request may not. "I asked for
         # CLIP guidance and got a 0 weighted signal" is a lie, not a degradation.
