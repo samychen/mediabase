@@ -38,9 +38,12 @@
 // engine/src/xmedia_protocol.h (see scripts/gen-protocol.mjs). Edit the JSON,
 // not the header.
 
+#include <algorithm>
 #include <chrono>
+#include <climits>
 #include <cstdint>
 #include <cstdio>
+#include <cstdlib>
 #include <deque>
 #include <initializer_list>
 #include <iostream>
@@ -50,8 +53,14 @@
 #include <sstream>
 #include <string>
 #include <string_view>
+#include <thread>
 #include <utility>
 #include <vector>
+
+#include <fcntl.h>
+#include <signal.h>
+#include <sys/wait.h>
+#include <unistd.h>
 
 #include "media/transcode/ffmpeg_transcode_job.h"
 #include "player/public/global.h"
@@ -63,6 +72,11 @@ namespace {
 // Process-level: was --sandbox engaged? Reported in every status so operators
 // (and the host's engine-state) can confirm the hardening is active.
 bool g_sandboxed = false;
+
+// argv[0] of this bridge: the bake binary is probed as a SIBLING of the bridge
+// (engine/build/xmedia-bake[.app/...]) unless bake.start's optionsJson names
+// one explicitly.
+std::string g_argv0;
 
 constexpr size_t kMaxQueuedEvents = 256;
 
@@ -185,6 +199,130 @@ struct Job {
   std::unique_ptr<xmedia::media::TranscodeJob> job;
 };
 
+// ---------------------------------------------------------------------------
+// bake.* — the offline HTML→MP4 pipeline (HyperFrames aligned).
+//
+// The pipeline itself runs in a ONE-SHOT `xmedia-bake` child process (CEF
+// requires a .app bundle and its own multiprocess model, which cannot live
+// inside this bridge's seccomp/Seatbelt sandbox). The bridge owns the job
+// lifecycle only: spawn, drain the child's stderr for structured
+// `PROGRESS\t<stage>\t<percent>` lines, wait, cancel via SIGTERM → SIGKILL.
+// The child removes its own partial output on cancel/failure (exit 3 =
+// cancelled); the bridge never invents an output file.
+struct BakeSnapshot {
+  bool running = false;
+  bool done = false;
+  bool ok = false;
+  bool cancelled = false;
+  int progress = 0;
+  std::string stage = "queued";
+  std::string html;
+  std::string output;
+  std::string error;
+  int64_t started_ms = 0;
+  int64_t finished_ms = 0;
+  int exit_code = -1;
+};
+
+struct BakeJob {
+  std::mutex mutex;
+  BakeSnapshot snap;
+  pid_t pid = -1;
+  int stderr_fd = -1;  // owned by the reader thread; closed there
+};
+
+std::string BakeStatusJson(const BakeSnapshot& snap) {
+  std::ostringstream os;
+  os << "{\"kind\":\"bake\""
+     << ",\"running\":" << (snap.running ? "true" : "false")
+     << ",\"done\":" << (snap.done ? "true" : "false")
+     << ",\"ok\":" << (snap.ok ? "true" : "false")
+     << ",\"cancelled\":" << (snap.cancelled ? "true" : "false")
+     << ",\"progress\":" << snap.progress
+     << ",\"stage\":\"" << JsonEscape(snap.stage) << "\""
+     << ",\"html\":\"" << JsonEscape(snap.html) << "\""
+     << ",\"output\":\"" << JsonEscape(snap.output) << "\""
+     << ",\"error\":\"" << JsonEscape(snap.error) << "\""
+     << ",\"exitCode\":" << snap.exit_code
+     << ",\"elapsedMs\":" << (snap.started_ms > 0
+          ? (snap.running ? NowMs() : snap.finished_ms) - snap.started_ms
+          : 0)
+     << "}";
+  return os.str();
+}
+
+// Minimal extraction of one STRING field from a flat JSON object. The host
+// validates optionsJson against a zod schema BEFORE it reaches the wire, so
+// this only has to understand the JSON the host emits (compact, one level).
+// Returns "" when absent — indistinguishable from empty, which is the same
+// decision the host's own "optional string" decoding makes.
+std::string JsonStringField(const std::string& json, const std::string& key) {
+  const std::string needle = "\"" + key + "\":";
+  size_t at = json.find(needle);
+  if (at == std::string::npos) {
+    // Tolerate a space after the colon too.
+    at = json.find("\"" + key + "\": ");
+    if (at == std::string::npos) return "";
+  }
+  size_t cursor = at + needle.size();
+  while (cursor < json.size() && json[cursor] == ' ') ++cursor;
+  if (cursor >= json.size() || json[cursor] != '"') return "";
+  ++cursor;
+  std::string out;
+  while (cursor < json.size() && json[cursor] != '"') {
+    if (json[cursor] == '\\' && cursor + 1 < json.size()) {
+      ++cursor;  // keep escapes verbatim: values are paths/enum names
+      if (cursor < json.size()) out += json[cursor++];
+      continue;
+    }
+    out += json[cursor++];
+  }
+  return out;
+}
+
+double JsonNumberField(const std::string& json, const std::string& key,
+                       double fallback) {
+  const std::string needle = "\"" + key + "\":";
+  size_t at = json.find(needle);
+  if (at == std::string::npos) {
+    at = json.find("\"" + key + "\": ");
+    if (at == std::string::npos) return fallback;
+  }
+  size_t cursor = at + needle.size();
+  while (cursor < json.size() && (json[cursor] == ' ')) ++cursor;
+  const char* begin = json.c_str() + cursor;
+  char* end = nullptr;
+  const double value = std::strtod(begin, &end);
+  return end != begin ? value : fallback;
+}
+
+bool JsonBoolField(const std::string& json, const std::string& key,
+                   bool fallback) {
+  const std::string value = JsonStringField(json, key);
+  if (value == "true") return true;
+  if (value == "false") return false;
+  return fallback;
+}
+
+// file:// URL from a caller-supplied path/URL: network URLs pass through, a
+// plain path becomes absolute and gets the scheme. CEF consumes UTF-8 URLs.
+std::string ToCefUrl(const std::string& html_path) {
+  if (html_path.rfind("http://", 0) == 0 || html_path.rfind("https://", 0) == 0 ||
+      html_path.rfind("file://", 0) == 0) {
+    return html_path;
+  }
+  std::vector<char> resolved(PATH_MAX + 1, '\0');
+  if (realpath(html_path.c_str(), resolved.data()) == nullptr) {
+    return html_path;  // let the child fail with its own clear message
+  }
+  return std::string("file://") + resolved.data();
+}
+
+std::string DirOf(const std::string& path) {
+  const size_t slash = path.find_last_of('/');
+  return slash == std::string::npos ? std::string(".") : path.substr(0, slash);
+}
+
 // Build the status JSON blob for one job. `sandboxed` is process-level and is
 // echoed here so the host can read it even before any publish is issued.
 std::string StatusJson(const PublishSnapshot& snap, bool sandboxed) {
@@ -231,7 +369,42 @@ class Bridge {
     if (verb == xmedia_protocol::kPublishStart.data()) return PublishStart(parts);
     if (verb == xmedia_protocol::kPublishStop.data()) return PublishStop(parts);
     if (verb == xmedia_protocol::kPublishStatus.data()) return PublishStatus(parts);
+    if (verb == xmedia_protocol::kBakeStart.data()) return BakeStart(parts);
+    if (verb == xmedia_protocol::kBakeStatus.data()) return BakeStatus(parts);
+    if (verb == xmedia_protocol::kBakeCancel.data()) return BakeCancel(parts);
     return Err("UNKNOWN_COMMAND", verb);
+  }
+
+  // quit: terminate bake children so an exiting bridge does not orphan a
+  // Chromium multiprocess tree mid-bake.
+  void TerminateBakes() {
+    std::vector<pid_t> pids;
+    {
+      std::lock_guard<std::mutex> lk(bakes_mutex_);
+      for (const auto& [id, job] : bakes_) {
+        std::lock_guard<std::mutex> jlk(job->mutex);
+        if (job->snap.running && job->pid > 0) pids.push_back(job->pid);
+      }
+    }
+    for (const pid_t pid : pids) kill(pid, SIGTERM);
+    const auto deadline = std::chrono::steady_clock::now() + std::chrono::milliseconds(800);
+    for (;;) {
+      bool alive = false;
+      {
+        std::lock_guard<std::mutex> lk(bakes_mutex_);
+        for (const auto& [id, job] : bakes_) {
+          std::lock_guard<std::mutex> jlk(job->mutex);
+          if (job->snap.running) alive = true;
+        }
+      }
+      if (!alive || std::chrono::steady_clock::now() > deadline) break;
+      std::this_thread::sleep_for(std::chrono::milliseconds(50));
+    }
+    std::lock_guard<std::mutex> lk(bakes_mutex_);
+    for (const auto& [id, job] : bakes_) {
+      std::lock_guard<std::mutex> jlk(job->mutex);
+      if (job->snap.running && job->pid > 0) kill(job->pid, SIGKILL);
+    }
   }
 
  private:
@@ -362,13 +535,310 @@ class Bridge {
     return it == jobs_.end() ? nullptr : it->second.get();
   }
 
+  // ------------------------------------------------------------------
+  // bake.* — spawn/supervise/cancel the one-shot xmedia-bake child.
+  // ------------------------------------------------------------------
+
+  std::string BakeStatusOf(const std::string& jobId) {
+    BakeJob* job = FindBake(jobId);
+    if (job == nullptr) return Ok({BakeStatusJson(BakeSnapshot{})});
+    std::lock_guard<std::mutex> l(job->mutex);
+    return Ok({BakeStatusJson(job->snap)});
+  }
+
+  std::string BakeStatus(const std::vector<std::string>& parts) {
+    return BakeStatusOf(Col(parts, xmedia_protocol::BakeStatusReq::kJobId, ""));
+  }
+
+  std::string BakeCancel(const std::vector<std::string>& parts) {
+    const std::string jobId = Col(parts, xmedia_protocol::BakeCancelReq::kJobId, "");
+    if (BakeJob* job = FindBake(jobId); job != nullptr) {
+      // SIGTERM first: the child's handler stops the frame loop, removes its
+      // partial output and exits 3. The waiter escalates to SIGKILL (below)
+      // when a stuck page swallows the signal.
+      kill(job->pid, SIGTERM);
+      {
+        std::lock_guard<std::mutex> l(job->mutex);
+        job->snap.cancelled = true;
+      }
+    }
+    return BakeStatusOf(jobId);
+  }
+
+  std::string BakeStart(const std::vector<std::string>& parts) {
+    const std::string jobId = Col(parts, xmedia_protocol::BakeStartReq::kJobId, "");
+    const std::string html_path = Col(parts, xmedia_protocol::BakeStartReq::kHtmlPath, "");
+    const std::string out_path = Col(parts, xmedia_protocol::BakeStartReq::kOutPath, "");
+    const std::string options_json = Col(parts, xmedia_protocol::BakeStartReq::kOptionsJson, "{}");
+    if (jobId.empty() || html_path.empty() || out_path.empty()) {
+      return Err("INVALID_PARAMS", "bake.start requires <jobId> <htmlPath> <outPath> [optionsJson]");
+    }
+    if (IsNetworkUrl(out_path)) {
+      return Err("INVALID_PARAMS", "bake output must be a local file path");
+    }
+    {
+      std::lock_guard<std::mutex> lk(bakes_mutex_);
+      if (bakes_.count(jobId)) return Err("BUSY", "bake job already exists: " + jobId);
+    }
+
+    // Resolve the bake binary: optionsJson override first, then a sibling of
+    // this bridge (macOS: the assembled .app bundle's MacOS/<bin>). Absence is
+    // a CODED rejection — the bridge never pretends the capability exists.
+    std::string bake_bin = JsonStringField(options_json, "bakeBin");
+    if (bake_bin.empty()) {
+      const std::string dir = DirOf(g_argv0.empty() ? out_path : g_argv0);
+      // macOS prefers the assembled bundle (CEF resolves its framework and
+      // Helper.app relative to it); the flat binary covers Linux/Windows.
+      const std::string apple_bundle =
+          dir + "/xmedia-bake.app/Contents/MacOS/xmedia-bake";
+      if (access(apple_bundle.c_str(), X_OK) == 0) {
+        bake_bin = apple_bundle;
+      } else {
+        const std::string flat = dir + "/xmedia-bake";
+        if (access(flat.c_str(), X_OK) == 0) bake_bin = flat;
+      }
+    }
+    if (bake_bin.empty() || access(bake_bin.c_str(), X_OK) != 0) {
+      return Err("UNAVAILABLE",
+                 "bake binary not found or not executable "
+                 "(build the engine with XMEDIA_BUILD_CEF=1)");
+    }
+    // Existence check on the RAW path (a caller-supplied file:// URL is taken
+    // on faith; converting it back would need URL decoding). ToCefUrl() below
+    // realpaths plain paths into absolute file:// URLs.
+    if (!IsNetworkUrl(html_path) && html_path.rfind("file://", 0) != 0 &&
+        access(html_path.c_str(), R_OK) != 0) {
+      return Err("NOT_FOUND", "html page not found: " + html_path);
+    }
+
+    // Build the child argv. Values are single argv elements (no shell), so an
+    // inline JSON payload is safe here.
+    std::vector<std::string> argv;
+    argv.push_back(bake_bin);
+    argv.push_back("--url");
+    argv.push_back(ToCefUrl(html_path));
+    argv.push_back("--out");
+    argv.push_back(out_path);
+    const double seconds = JsonNumberField(options_json, "seconds", 1.0);
+    const int fps = static_cast<int>(JsonNumberField(options_json, "fps", 10));
+    const int width = static_cast<int>(JsonNumberField(options_json, "width", 320));
+    const int height = static_cast<int>(JsonNumberField(options_json, "height", 240));
+    const int chunks = static_cast<int>(JsonNumberField(options_json, "chunks", 1));
+    const std::string codec = JsonStringField(options_json, "codec");
+    const std::string clock = JsonStringField(options_json, "clock");
+    auto push_opt = [&argv](const char* name, const std::string& value) {
+      if (!value.empty()) {
+        argv.push_back(name);
+        argv.push_back(value);
+      }
+    };
+    argv.push_back("--seconds");
+    argv.push_back(std::to_string(seconds));
+    argv.push_back("--fps");
+    argv.push_back(std::to_string(std::max(1, fps)));
+    argv.push_back("--width");
+    argv.push_back(std::to_string(std::max(2, width)));
+    argv.push_back("--height");
+    argv.push_back(std::to_string(std::max(2, height)));
+    push_opt("--codec", codec);
+    push_opt("--clock", clock);
+    if (chunks > 1) {
+      argv.push_back("--chunks");
+      argv.push_back(std::to_string(chunks));
+    }
+    push_opt("--data", JsonStringField(options_json, "data"));
+    if (JsonBoolField(options_json, "hfSeconds", false)) argv.push_back("--hf-seconds");
+    if (!JsonBoolField(options_json, "audio", true)) {
+      argv.push_back("--audio");
+      argv.push_back("0");
+    }
+
+    // Register the job BEFORE forking so a fast-exiting child cannot race the
+    // pool. The child removes its own partial output; the bridge only records.
+    BakeJob* raw = nullptr;
+    {
+      std::lock_guard<std::mutex> lk(bakes_mutex_);
+      auto job = std::make_unique<BakeJob>();
+      job->snap.running = true;
+      job->snap.html = html_path;
+      job->snap.output = out_path;
+      job->snap.stage = "spawn";
+      job->snap.started_ms = NowMs();
+      raw = job.get();
+      bakes_.emplace(jobId, std::move(job));
+    }
+
+    int stderr_pipe[2];
+    if (pipe(stderr_pipe) != 0) {
+      std::lock_guard<std::mutex> l(raw->mutex);
+      raw->snap.running = false;
+      raw->snap.done = true;
+      raw->snap.error = "pipe() failed";
+      raw->snap.finished_ms = NowMs();
+      return Err("ENGINE", "pipe() failed for the bake child");
+    }
+    const pid_t pid = fork();
+    if (pid < 0) {
+      close(stderr_pipe[0]);
+      close(stderr_pipe[1]);
+      std::lock_guard<std::mutex> l(raw->mutex);
+      raw->snap.running = false;
+      raw->snap.done = true;
+      raw->snap.error = "fork() failed";
+      raw->snap.finished_ms = NowMs();
+      return Err("ENGINE", "fork() failed for the bake child");
+    }
+    if (pid == 0) {
+      // Child: stderr goes to the pipe (stdout inherited — unused but harmless
+      // as long as nothing prints; the child only logs to stderr).
+      dup2(stderr_pipe[1], 2);
+      close(stderr_pipe[0]);
+      close(stderr_pipe[1]);
+      signal(SIGTERM, SIG_DFL);
+      signal(SIGINT, SIG_DFL);
+      std::vector<char*> child_argv;
+      for (const std::string& a : argv) child_argv.push_back(const_cast<char*>(a.c_str()));
+      child_argv.push_back(nullptr);
+      execv(bake_bin.c_str(), child_argv.data());
+      _exit(127);
+    }
+    close(stderr_pipe[1]);
+    {
+      std::lock_guard<std::mutex> l(raw->mutex);
+      raw->pid = pid;
+      raw->stderr_fd = stderr_pipe[0];
+    }
+
+    // Reader thread: PROGRESS lines update the snapshot + the events queue;
+    // every other line is forwarded to THIS process's stderr, which the host
+    // routes into the scoped logger.
+    std::thread([raw, jobId, fd = stderr_pipe[0]]() {
+      std::string buffer;
+      char chunk[4096];
+      bool open = true;
+      while (open) {
+        const ssize_t n = ::read(fd, chunk, sizeof(chunk));
+        if (n <= 0) break;
+        buffer.append(chunk, chunk + n);
+        size_t nl;
+        while ((nl = buffer.find('\n')) != std::string::npos) {
+          const std::string line = buffer.substr(0, nl);
+          buffer.erase(0, nl + 1);
+          if (line.rfind("PROGRESS\t", 0) == 0) {
+            const size_t tab = line.find('\t', 9);
+            if (tab == std::string::npos) continue;
+            const std::string stage = line.substr(9, tab - 9);
+            const int percent =
+                std::atoi(line.c_str() + tab + 1);
+            std::lock_guard<std::mutex> l(raw->mutex);
+            raw->snap.stage = stage;
+            raw->snap.progress = std::max(0, std::min(100, percent));
+            QueueEvent(std::string("{\"type\":\"BakeProgress\",\"jobId\":\"") +
+                       JsonEscape(jobId) + "\",\"stage\":\"" + JsonEscape(stage) +
+                       "\",\"progress\":" + std::to_string(raw->snap.progress) + "}");
+          } else if (!line.empty()) {
+            std::fprintf(stderr, "[bake %s] %s\n", jobId.c_str(), line.c_str());
+          }
+        }
+      }
+      close(fd);
+    }).detach();
+
+    // Waiter thread: reap the child, apply the terminal snapshot once, emit
+    // the terminal event. Escalation: a cancel that the child ignores for 8 s
+    // becomes SIGKILL (the child removes partials itself on SIGTERM; after a
+    // SIGKILL the bridge removes the output it knows about).
+    std::thread([raw, jobId]() {
+      int status = 0;
+      const auto started = std::chrono::steady_clock::now();
+      const auto cancel_deadline = started + std::chrono::seconds(8);
+      const auto hard_deadline = started + std::chrono::hours(6);
+      int exit_code = -1;
+      for (;;) {
+        const pid_t r = waitpid(raw->pid, &status, WNOHANG);
+        if (r == raw->pid) {
+          exit_code = WIFEXITED(status) ? WEXITSTATUS(status)
+                                        : (WIFSIGNALED(status) ? 128 + WTERMSIG(status) : -1);
+          break;
+        }
+        if (r < 0) break;
+        {
+          std::lock_guard<std::mutex> l(raw->mutex);
+          if (raw->snap.cancelled &&
+              std::chrono::steady_clock::now() > cancel_deadline) {
+            kill(raw->pid, SIGKILL);
+          }
+        }
+        if (std::chrono::steady_clock::now() > hard_deadline) {
+          kill(raw->pid, SIGKILL);
+        }
+        std::this_thread::sleep_for(std::chrono::milliseconds(100));
+      }
+      bool was_cancelled = false;
+      std::string output;
+      {
+        std::lock_guard<std::mutex> l(raw->mutex);
+        was_cancelled = raw->snap.cancelled;
+        output = raw->snap.output;
+        raw->snap.running = false;
+        raw->snap.done = true;
+        raw->snap.ok = exit_code == 0;
+        raw->snap.exit_code = exit_code;
+        raw->snap.finished_ms = NowMs();
+        if (exit_code == 0) {
+          raw->snap.progress = 100;
+          raw->snap.stage = "done";
+        } else if (exit_code == 3 || was_cancelled) {
+          raw->snap.cancelled = true;
+          raw->snap.error = "cancelled";
+          raw->snap.stage = "cancelled";
+        } else {
+          raw->snap.error = "bake exited with code " + std::to_string(exit_code);
+          raw->snap.stage = "failed";
+        }
+      }
+      if (was_cancelled && exit_code == 128 + SIGKILL) {
+        // SIGKILLed children get no cleanup chance: remove the partial output
+        // the bridge knows about so a cancelled bake never leaves a result.
+        RemoveFileQuiet(output);
+      }
+      QueueEvent(std::string("{\"type\":\"BakeDone\",\"jobId\":\"") + JsonEscape(jobId) +
+                 "\",\"ok\":" + (exit_code == 0 ? "true" : "false") +
+                 ",\"cancelled\":" + (was_cancelled ? "true" : "false") +
+                 ",\"exitCode\":" + std::to_string(exit_code) +
+                 ",\"output\":\"" + JsonEscape(output) + "\"}");
+    }).detach();
+
+    {
+      std::lock_guard<std::mutex> l(raw->mutex);
+      std::fprintf(stderr, "[xmedia-bridge] bake %s %s -> %s (bin=%s)\n",
+                   jobId.c_str(), raw->snap.html.c_str(), out_path.c_str(),
+                   bake_bin.c_str());
+      raw->snap.stage = "init";
+      return Ok({BakeStatusJson(raw->snap)});
+    }
+  }
+
+  BakeJob* FindBake(const std::string& jobId) {
+    std::lock_guard<std::mutex> lk(bakes_mutex_);
+    auto it = bakes_.find(jobId);
+    return it == bakes_.end() ? nullptr : it->second.get();
+  }
+
+  static void RemoveFileQuiet(const std::string& path) {
+    if (!path.empty()) std::remove(path.c_str());
+  }
+
   std::mutex jobs_mutex_;
   std::map<std::string, std::unique_ptr<Job>> jobs_;
+  std::mutex bakes_mutex_;
+  std::map<std::string, std::unique_ptr<BakeJob>> bakes_;
 };
 
 }  // namespace
 
 int main(int argc, char** argv) {
+  if (argc > 0) g_argv0 = argv[0];
   bool sandbox = false;
   for (int i = 1; i < argc; ++i) {
     if (std::string_view(argv[i]) == "--sandbox") sandbox = true;
@@ -384,5 +854,6 @@ int main(int argc, char** argv) {
     std::cout << bridge.Dispatch(parts) << '\n' << std::flush;
     if (parts[0] == xmedia_protocol::kQuit.data()) break;
   }
+  bridge.TerminateBakes();
   return 0;
 }

@@ -1,8 +1,11 @@
 // product/xmedia — the composed host, end to end.
 //
-// Three worlds, matching the base's engine-supervision contract:
+// Worlds, matching the base's engine-supervision contract:
 //   1. fake engine (Node): strict boot, full capability surface, command
 //      round trips, agent tools, events and the publish control plane.
+//   1b. bake control plane: offline HTML→MP4 jobs, the pull route for the
+//      finished file, cancellation (all against the fake engine; the REAL
+//      bake needs the CEF toolchain and runs under scripts/verify.mjs).
 //   2. degraded (no engine binary): the host still composes, and every call
 //      fails with a CODED UNAVAILABLE error a client can branch on.
 //   3. crashing engine: the host survives and the product's restart policy
@@ -12,6 +15,10 @@
 // present. Nothing here requires a C++ toolchain.
 
 import { afterAll, beforeAll, describe, expect, it } from 'vitest'
+import { randomUUID } from 'node:crypto'
+import { rmSync } from 'node:fs'
+import { tmpdir } from 'node:os'
+import { join } from 'node:path'
 import { API_NAMES, TOOL_NAMES } from '../packages/host/engine/src/index.ts'
 import {
   bootXmedia,
@@ -211,6 +218,122 @@ describe('the xmedia host with a working engine', () => {
     const state = await host!.rpc.call<{ sandboxed: boolean }>('xmedia.engine.state')
     expect(typeof state.sandboxed).toBe('boolean')
     expect(state.sandboxed).toBe(false)
+  })
+})
+
+// ---- world 1b: the bake control plane (offline HTML→MP4) ---------------------
+
+describe('the xmedia bake control plane', () => {
+  let host: BootedHost | null = null
+  let outPath: string | null = null
+
+  beforeAll(async () => {
+    host = await bootXmedia({ XMEDIA_STRICT_CAPABILITIES: '1' })
+  })
+  afterAll(async () => {
+    await host?.stop()
+    host = null
+    if (outPath !== null) rmSync(outPath, { force: true })
+    outPath = null
+  })
+
+  it('validates bake arguments at the boundary (before any job exists)', async () => {
+    const noOutput = await expectError(host!.rpc, 'xmedia.bake.start', { htmlPath: '/tmp/page.html' })
+    expect(noOutput.code).toBe(INVALID_PARAMS)
+    const relative = await expectError(host!.rpc, 'xmedia.bake.start', {
+      htmlPath: '/tmp/page.html', output: 'out.mp4',
+    })
+    expect(relative.code).toBe(INVALID_PARAMS)
+  })
+
+  it('bakes, exposes the finished file through the pull route, and reports events', async () => {
+    outPath = join(tmpdir(), `xmedia-bake-${randomUUID()}.mp4`)
+    const started = await host!.rpc.call<{ jobId: string; running: boolean; kind: string }>(
+      'xmedia.bake.start', { htmlPath: '/tmp/page.html', output: outPath, seconds: 1, fps: 10 },
+    )
+    expect(started).toMatchObject({ running: true, kind: 'bake' })
+
+    const done = await waitFor<{ done: boolean; ok: boolean; url: string; progress: number }>(
+      async () => {
+        const s = await host!.rpc.call<{
+          done: boolean; ok: boolean; url: string; progress: number
+        }>('xmedia.bake.status', { jobId: started.jobId })
+        return s.done ? s : false
+      }, 10_000)
+    expect(done.ok).toBe(true)
+    expect(done.progress).toBe(100)
+    expect(done.url).toBe(`/api/xmedia.bake.${started.jobId}`)
+
+    // The route serves the file the engine produced: a full GET (200) and a
+    // ranged read (206) prove a browser <video> can stream it.
+    const url = `http://127.0.0.1:${host!.port}${done.url}`
+    const full = await fetch(url)
+    expect(full.status).toBe(200)
+    expect(full.headers.get('accept-ranges')).toBe('bytes')
+    const ranged = await fetch(url, { headers: { Range: 'bytes=0-3' } })
+    expect(ranged.status).toBe(206)
+    expect((ranged.headers.get('content-range') ?? '').endsWith(`/${(await full.arrayBuffer()).byteLength}`))
+      .toBe(true)
+
+    const events = await host!.rpc.call<Array<{ type: string }>>('xmedia.events')
+    expect(events.some((e) => e.type === 'BakeProgress')).toBe(true)
+    expect(events.some((e) => e.type === 'BakeDone')).toBe(true)
+
+    const m = await host!.rpc.call<{ bake: { jobsStarted: number } }>('xmedia.metrics')
+    expect(m.bake.jobsStarted).toBeGreaterThanOrEqual(1)
+  })
+
+  it('cancels a mid-run bake (SIGTERM semantics: no result, no route)', async () => {
+    const slow = await bootXmedia({
+      XMEDIA_STRICT_CAPABILITIES: '1',
+      FAKE_ENGINE_MODE: 'bake-slow',
+      XMEDIA_ENGINE_AUTO_RESTART: '0',
+    })
+    try {
+      const out = join(tmpdir(), `xmedia-bake-cancel-${randomUUID()}.mp4`)
+      const started = await slow.rpc.call<{ jobId: string }>('xmedia.bake.start', {
+        htmlPath: '/tmp/page.html', output: out,
+      })
+      await slow.rpc.call('xmedia.bake.cancel', { jobId: started.jobId })
+      const done = await waitFor<{ done: boolean; cancelled: boolean; ok: boolean; url: string }>(
+        async () => {
+          const s = await slow.rpc.call<{
+            done: boolean; cancelled: boolean; ok: boolean; url: string
+          }>('xmedia.bake.status', { jobId: started.jobId })
+          return s.done ? s : false
+        }, 10_000)
+      expect(done.cancelled).toBe(true)
+      expect(done.ok).toBe(false)
+      expect(done.url).toBe('')
+      rmSync(out, { force: true })
+    } finally {
+      await slow.stop()
+    }
+  })
+
+  it('reports a failed bake honestly (failure injection)', async () => {
+    const failing = await bootXmedia({
+      XMEDIA_STRICT_CAPABILITIES: '1',
+      FAKE_ENGINE_MODE: 'bake-fail',
+      XMEDIA_ENGINE_AUTO_RESTART: '0',
+    })
+    try {
+      const started = await failing.rpc.call<{ jobId: string }>('xmedia.bake.start', {
+        htmlPath: '/tmp/page.html', output: join(tmpdir(), `xmedia-bake-fail-${randomUUID()}.mp4`),
+      })
+      const done = await waitFor<{ done: boolean; ok: boolean; url: string; error: string }>(
+        async () => {
+          const s = await failing.rpc.call<{
+            done: boolean; ok: boolean; url: string; error: string
+          }>('xmedia.bake.status', { jobId: started.jobId })
+          return s.done ? s : false
+        }, 10_000)
+      expect(done.ok).toBe(false)
+      expect(done.url).toBe('')
+      expect(done.error).not.toBe('')
+    } finally {
+      await failing.stop()
+    }
   })
 })
 

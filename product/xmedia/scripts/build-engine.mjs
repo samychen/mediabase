@@ -9,6 +9,8 @@
 //
 // Optional: XMEDIA_FFMPEG_ROOT (custom FFmpeg/libyuv prefix),
 //           XMEDIA_DEPS_LIBDIR (dylib directory for the runtime rpath),
+//           XMEDIA_BUILD_CEF=1 (also build the offline bake CLI — needs the
+//             CEF distro + GLFW dev; CEF distro auto-probes ../cef),
 //           CMAKE_BUILD_PARALLEL_LEVEL.
 
 import { spawnSync } from 'node:child_process'
@@ -63,6 +65,18 @@ if (kitSource) configure.push(`-DXMEDIA_KIT_SOURCE_DIR=${kitSource}`)
 else configure.push(`-DXMEDIA_KIT_DIR=${kitDir}`)
 if (process.env.XMEDIA_FFMPEG_ROOT) configure.push(`-DXMEDIA_FFMPEG_ROOT=${process.env.XMEDIA_FFMPEG_ROOT}`)
 if (process.env.XMEDIA_DEPS_LIBDIR) configure.push(`-DXMEDIA_DEPS_LIBDIR=${process.env.XMEDIA_DEPS_LIBDIR}`)
+// The bake CLI needs the kit's opt-in CEF + GLFW layers. Source-tree mode only
+// (installed mode does not export those targets). GLFW is found system-wide;
+// on macOS `brew install glfw`, Linux follows the kit's docs/BUILDING.md.
+const wantBake = process.env.XMEDIA_BUILD_CEF === '1'
+if (wantBake && !kitSource) {
+  console.error('XMEDIA_BUILD_CEF=1 需要 XMEDIA_KIT_SOURCE_DIR(源码树消费):CEF/GLFW 目标不随 installed SDK 导出')
+  process.exit(1)
+}
+if (wantBake) {
+  configure.push('-DXMEDIA_ENABLE_CEF=ON', '-DXMEDIA_ENABLE_GLFW=ON')
+  if (process.env.XMEDIA_CEF_ROOT) configure.push(`-DXMEDIA_CEF_ROOT=${process.env.XMEDIA_CEF_ROOT}`)
+}
 
 run('cmake', configure)
 run('cmake', ['--build', BUILD_DIR])

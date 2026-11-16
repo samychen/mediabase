@@ -126,6 +126,61 @@ if(XMEDIA_DEPS_LIBDIR)
       INSTALL_RPATH "${XMEDIA_DEPS_LIBDIR}")
 endif()
 
+# xmedia-bake — the offline HTML→MP4 bake CLI (HyperFrames aligned). It is a
+# PRODUCT-owned executable that consumes the kit's CEF/GL/transcode layers as
+# library targets and is spawned by the bridge for `bake.start` jobs.
+#
+# The layers it needs are OPT-IN upstream: XMEDIA_ENABLE_CEF (CEF distro, which
+# itself degrades to XMEDIA_HAS_CEF=0 when no distro is found) and
+# XMEDIA_ENABLE_GLFW. scripts/build-engine.mjs forwards XMEDIA_BUILD_CEF=1 into
+# all three. In installed-SDK mode the CEF/GLFW targets are not exported, so
+# bake is source-tree-only — without it the bridge answers bake.* with a coded
+# UNAVAILABLE instead of pretending the capability exists.
+if(XMEDIA_KIT_SOURCE_DIR
+   AND TARGET xmedia::cef AND TARGET xmedia::platform_glfw AND XMEDIA_ENABLE_FFMPEG)
+  # xmedia_assemble_cef_app() needs the kit's helper (cmake/XmediaCefApp.cmake,
+  # included by examples/tests upstream but NOT by the kit top level).
+  include("${XMEDIA_KIT_SOURCE_DIR}/cmake/XmediaCefApp.cmake")
+  # The kit probes XMEDIA_CEF_ROOT as a DIRECTORY-scoped normal variable inside
+  # media/ — it does not survive into this scope, where the .app assembly reads
+  # it. Re-probe with the kit's own candidate list (cmake passed on the command
+  # line wins as the cache entry).
+  if(NOT XMEDIA_CEF_ROOT)
+    foreach(_candidate "${XMEDIA_KIT_SOURCE_DIR}/../cef"
+                        "$ENV{HOME}/Develop/vspo/cef")
+      if(EXISTS "${_candidate}/include/cef_version.h")
+        set(XMEDIA_CEF_ROOT "${_candidate}")
+        break()
+      endif()
+    endforeach()
+  endif()
+  add_executable(xmedia-bake src/bake_main.cc)
+  target_link_libraries(xmedia-bake PRIVATE
+      xmedia::xmedia-kit xmedia::platform_glfw xmedia::cef xmedia::transcode
+      $<$<BOOL:${XMEDIA_HAS_LOTTIE}>:xmedia::lottie>)
+  if(DEFINED FFmpeg_INCLUDE_DIRS)
+    target_include_directories(xmedia-bake SYSTEM PRIVATE ${FFmpeg_INCLUDE_DIRS})
+  endif()
+  xmedia_configure_target(xmedia-bake)
+  # macOS CEF contract: the host must run inside a .app bundle (framework +
+  # Helper.app assembled around the binary; the bundle's MacOS/<bin> path is
+  # what the bridge spawns).
+  xmedia_assemble_cef_app(xmedia-bake)
+  if(XMEDIA_DEPS_LIBDIR)
+    set_target_properties(xmedia-bake PROPERTIES
+        BUILD_RPATH "${XMEDIA_DEPS_LIBDIR}"
+        INSTALL_RPATH "${XMEDIA_DEPS_LIBDIR}")
+  endif()
+  message(STATUS "xmedia-bake: enabled (CEF at ${XMEDIA_CEF_ROOT})")
+else()
+  if(NOT XMEDIA_KIT_SOURCE_DIR)
+    message(STATUS "xmedia-bake: disabled (requires XMEDIA_KIT_SOURCE_DIR consumption)")
+  else()
+    message(STATUS "xmedia-bake: disabled (build the kit with XMEDIA_ENABLE_CEF=ON "
+                   "and XMEDIA_ENABLE_GLFW=ON — see scripts/build-engine.mjs)")
+  endif()
+endif()
+
 enable_testing()
 add_test(NAME xmedia-bridge.line-protocol
     COMMAND "${CMAKE_COMMAND}"

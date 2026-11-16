@@ -23,12 +23,20 @@
 //   XMEDIA_PUBLISH_OUTPUT=rtmp://127.0.0.1:1935/verify \
 //   XMEDIA_MTX_API=http://127.0.0.1:9997 pnpm run verify:xmedia
 //
+// The offline bake (HTML→MP4) is exercised too: with the fake engine it runs
+// end to end (the fake writes the output file); with a REAL engine it needs
+// the CEF toolchain (XMEDIA_BUILD_CEF=1 built xmedia-bake). A real engine
+// WITHOUT the bake binary must fail bake.start with a coded, honest refusal —
+// that refusal is asserted, never skipped silently. A real bake of a real
+// page needs XMEDIA_BAKE_HTML=<page.html> (e.g. the kit's
+// tests/testdata/hf_gsap_smoke.html).
+//
 // Run:  pnpm run verify:xmedia
 //       XMEDIA_URL=http://127.0.0.1:3092 node product/xmedia/scripts/verify.mjs
 
 import { spawn } from 'node:child_process'
 import { createServer } from 'node:net'
-import { existsSync, mkdtempSync, readFileSync, rmSync } from 'node:fs'
+import { existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { fileURLToPath } from 'node:url'
@@ -171,6 +179,7 @@ try {
     'xmedia.hello', 'xmedia.events', 'xmedia.engine.state', 'xmedia.metrics',
     'xmedia.publish.start', 'xmedia.publish.stop', 'xmedia.publish.status',
     'xmedia.publish.viewers',
+    'xmedia.bake.start', 'xmedia.bake.status', 'xmedia.bake.cancel',
   ]) {
     checks.expect(`控制面含 ${wanted}`, methods.includes(wanted))
   }
@@ -310,6 +319,95 @@ try {
       JSON.stringify(m?.jobsStarted))
   } else {
     console.log('· 真实引擎但未设置 XMEDIA_PUBLISH_OUTPUT,跳过实时推流(避免启动注定失败的 job)')
+  }
+
+  // ---- bake control plane (offline HTML→MP4) ---------------------------------
+  {
+    const idle = await rpc.call('xmedia.bake.status')
+    checks.expect('bake.status 返回结构化烘焙状态',
+      idle?.kind === 'bake' && typeof idle?.running === 'boolean' &&
+      typeof idle?.stage === 'string' && typeof idle?.progress === 'number',
+      JSON.stringify(idle))
+    checks.expect('工具注册表含 xmedia.bake.start', tools.includes('xmedia.bake.start'))
+
+    // Where is the real bake binary? Sibling of the bridge (macOS: .app bundle).
+    const bakeBinCandidates = realEngine
+      ? [
+          join(engineBin, '..', 'xmedia-bake.app', 'Contents', 'MacOS', 'xmedia-bake'),
+          join(engineBin, '..', 'xmedia-bake'),
+        ]
+      : []
+    const bakeBin = bakeBinCandidates.find((p) => existsSync(p)) ?? null
+    const bakeHtml = process.env.XMEDIA_BAKE_HTML ?? ''
+    const bakeOut = join(tmpdir(), `xmedia-verify-bake-${Date.now()}.mp4`)
+
+    if (!realEngine || bakeBin !== null) {
+      // Fake engine: the fake "encodes" by writing the output file. Real engine
+      // with the CEF toolchain: a REAL bake of a real page. The bridge refuses
+      // a non-existent local page before spawning, so the smoke writes one.
+      const smokeHtml = join(tmpdir(), `xmedia-verify-bake-page-${Date.now()}.html`)
+      writeFileSync(smokeHtml,
+        '<!doctype html><html><body style="margin:0"><h1 style="font-size:40px">xmedia bake verify</h1></body></html>')
+      const params = {
+        htmlPath: realEngine && bakeHtml !== '' ? bakeHtml : smokeHtml,
+        output: bakeOut,
+        seconds: 1, fps: 10, width: 320, height: 240,
+        ...(realEngine ? { audio: false } : {}),
+      }
+      const started = await rpc.call('xmedia.bake.start', params)
+      const jobId = started?.jobId
+      checks.expect('bake.start 启动烘焙任务',
+        typeof jobId === 'string' && started?.running === true && started?.kind === 'bake',
+        JSON.stringify(started))
+      let done = null
+      for (let i = 0; i < 120; i += 1) {
+        done = await rpc.call('xmedia.bake.status', { jobId })
+        if (done?.done) break
+        await new Promise((r) => setTimeout(r, 500))
+      }
+      checks.expect('烘焙任务收口(done)', done?.done === true, JSON.stringify(done))
+      checks.expect('烘焙成功且进度收口 100', done?.ok === true && done?.progress === 100,
+        JSON.stringify(done))
+      checks.expect('成片拉取路由出现', typeof done?.url === 'string' && done.url.startsWith('/api/xmedia.bake.'),
+        JSON.stringify(done?.url))
+      if (done?.url) {
+        const clipUrl = `${base}${done.url}`
+        const full = await fetch(clipUrl)
+        checks.expect('成片路由 200 且可 Range 流式读取',
+          full.status === 200 && full.headers.get('accept-ranges') === 'bytes',
+          `HTTP ${full.status}`)
+        const sizeHeader = full.headers.get('content-length')
+        const ranged = await fetch(clipUrl, { headers: { Range: 'bytes=0-15' } })
+        checks.expect('成片路由 Range 206',
+          ranged.status === 206 && (ranged.headers.get('content-range') ?? '').includes(`/${sizeHeader ?? ''}`),
+          `HTTP ${ranged.status} · ${ranged.headers.get('content-range')}`)
+      }
+      if (realEngine && existsSync(bakeOut)) {
+        // Real bake: prove the file is a DECODABLE MP4 container (not just a
+        // written file) — ffprobe reads duration/codec.
+        const probe = spawn('ffprobe', ['-v', 'error', '-show_entries',
+          'format=format_name,duration', '-of', 'json', bakeOut], { stdio: ['ignore', 'pipe', 'pipe'] })
+        let out = ''
+        probe.stdout.on('data', (d) => { out += d })
+        await new Promise((r) => probe.once('exit', r))
+        checks.expect('真实烘焙产物可被 ffprobe 解码',
+          /"format_name"/.test(out) && /mp4|matroska|avi/.test(out), out.slice(0, 200))
+      }
+      await rpc.call('xmedia.bake.cancel', { jobId }).catch(() => undefined)
+      rmSync(bakeOut, { force: true })
+      rmSync(smokeHtml, { force: true })
+    } else {
+      // Real engine WITHOUT the bake binary: bake.start must refuse with an
+      // honest refusal naming the cause — a missing capability is a coded
+      // rejection, never a silent zero.
+      const refused = await rpc.call('xmedia.bake.start', {
+        htmlPath: '/tmp/xmedia-verify-page.html', output: bakeOut,
+      }).catch((e) => e)
+      const detail = refused instanceof Error ? `${refused.message}` : JSON.stringify(refused)
+      checks.expect('无烘焙工具链时 bake.start 诚实拒绝并指名原因',
+        detail.includes('bake binary not found'), detail.slice(0, 200))
+      console.log('· 真实引擎未构建 xmedia-bake(需 XMEDIA_BUILD_CEF=1),烘焙按诚实拒绝断言')
+    }
   }
 
   // ---- sandbox probe (only when explicitly requested with a real binary) ------

@@ -17,8 +17,9 @@
 
 | 层 | 职责 |
 |---|---|
-| `xmedia-bridge`（C++ 子进程） | 消费 xmedia-kit：`media::TranscodeJob` 编码/封装并推 RTMP |
-| `@xmedia/host-engine`（TS 能力包） | 进程监督、控制面命令、viewer URL、health、events、manifest |
+| `xmedia-bridge`（C++ 子进程） | 消费 xmedia-kit：`media::TranscodeJob` 编码/封装并推 RTMP；`bake.*` 派生一次性 `xmedia-bake` 子进程 |
+| `xmedia-bake`（C++ 子进程，可选） | 离线 HTML→MP4 烘焙（HyperFrames 对齐）：CEF OSR + GL 元素合成 + 编码封装 |
+| `@xmedia/host-engine`（TS 能力包） | 进程监督、控制面命令、viewer URL、health、events、manifest、烘焙成片拉取路由 |
 | MediaMTX（第三方进程，MIT） | 接收 RTMP，向浏览器提供 WHEP(WebRTC) / HLS |
 | 浏览器 `<video>` | 直连 MediaMTX 播放，**媒体字节不经过 mediabase** |
 
@@ -29,6 +30,8 @@ status/info/diagnostics/snapshot`）、JPEG 抓帧、`--scratch` 字节交换、
 `--allow-hardware` 硬解开关、`GET /api/xmedia.snapshot` 数据面路由与对应测试。
 **净减代码**：C++ sidecar 只剩 `TranscodeJob` 一条产品路径，TS 能力包只剩
 8 个控制面方法（含 `xmedia.metrics`）、4 个 agent 工具、0 条数据面路由。
+（2026-11-17 起：新增 `xmedia.bake.*` 三方法/三工具与**烘焙成片拉取路由**——
+本产品唯一的数据面路由，见第 3.2 节；控制面现为 11 方法 / 7 工具。）
 
 **基座契约完全没动**：协议版本仍是 1，stdout 仍是一问一答 tab 行，
 `EngineClient` 没有新增选项、没有 fd 3、没有 `StreamFrameMeta` 变更；
@@ -77,6 +80,9 @@ status/info/diagnostics/snapshot`）、JPEG 抓帧、`--scratch` 字节交换、
 | `publish.start` | `jobId, input, output, format, vcodec, acodec, realtime` | `ok\t<任务 JSON>` |
 | `publish.stop` | `jobId` | `ok\t<任务 JSON>` |
 | `publish.status` | `jobId`（**空=空闲快照**） | `ok\t<任务 JSON>` |
+| `bake.start` | `jobId, htmlPath, outPath, optionsJson` | `ok\t<烘焙 JSON>` |
+| `bake.status` | `jobId`（**空=空闲快照**） | `ok\t<烘焙 JSON>` |
+| `bake.cancel` | `jobId` | `ok\t<烘焙 JSON>` |
 | `events` | — | `ok\t<事件 JSON 数组>`（drain） |
 | `quit` | — | `ok` |
 
@@ -95,6 +101,31 @@ status/info/diagnostics/snapshot`）、JPEG 抓帧、`--scratch` 字节交换、
 - `vcodec` / `acodec` 缺列默认 `copy`；**显式空列 = 丢掉该轨**（`-vn` / `-an`）。
 - `realtime=1` 按输入时戳配速（直播必需），`0` 为离线尽快跑完。
 - 文件输出被取消时 `finalize_on_cancel=true`，仍留下可播放容器。
+
+### 3.2 bake.*（离线 HTML→MP4，HyperFrames 对齐）
+
+`bake.start` 把一个 HyperFrames Studio 对齐契约的页面（`data-start/duration` 等属性驱动）
+烘成 MP4：宿主校验旋钮后经 `bake.start` 交给 bridge，bridge **spawn 一次性 `xmedia-bake`
+子进程**（macOS 上是 CEF 契约要求的 `.app` bundle），子进程管线：
+CEF OSR（VirtualTime bake 时钟逐帧步进）→ 元素拆纹理（`data-*` 元素各自成为 GL 场景层）→
+合成读回 → I420 → 编码封装（macOS 默认 `h264_videotoolbox`，其他平台 `libx264`——
+kit 按 `avcodec_find_encoder_by_name` 查找，要的是**编码器名**而非编解码名）→
+可选音频混合轨（AAC 192k）→ 分块无损拼接 → `<out>.html_elements.json` 元数据导出。
+
+- **进度**：子进程 stderr 发 `PROGRESS\t<stage>\t<percent>`，bridge 解析进 events 队列
+  （`BakeProgress` / `BakeDone`），宿主经 `xmedia.events` 排空并转发 `xmedia.bake` 事件。
+- **取消**：`bake.cancel` → 子进程 SIGTERM（协作式：帧循环退出、自行删除半成品与分块文件、
+  退出码 3）；8s 未退升级 SIGKILL，此时由 bridge 删除已知输出路径。
+- **旋钮**（`optionsJson`，宿主 zod 校验）：`seconds / fps / width / height / codec / clock
+  (virtual_time|seek|live) / chunks / data(window.update 注入) / hfSeconds(HF 秒制时序) /
+  audio`。
+- **成片路由**：唯一数据面例外——`GET /api/xmedia.bake.<jobId>`（200 + Range 206）。
+  路由名即任务 ID（无路径参数可穿越）、文件**真实存在**才注册、表有界（24 条最旧淘汰）；
+  发布路径仍然零字节经过 mediabase。
+- **诚实降级**：未构建 `xmedia-bake`（`XMEDIA_BUILD_CEF=1`）时 `bake.start` 回
+  编码错误、detail 指名 `bake binary not found`——拒绝一个不存在的能力，绝不静默 0。
+- **沙箱豁免**：bridge 自身可上 seccomp/Seatbelt，但 bake 子进程**不继承**——Chromium
+  多进程模型与该类沙箱互斥（CEF 有自己的渲染进程沙箱），README 特此记录这一刻意决定。
 
 **为什么用 `TranscodeJob` 而不是同步 `Transcode()`**：桥接是单线程 stdin 循环，
 同步调用会冻结整条命令通道，导致 `status` / `stop` 无人应答。`TranscodeJob`
@@ -283,6 +314,26 @@ XMEDIA_DEPS_LIBDIR=/path/to/pinned-ffmpeg/lib \
 
 产物：`product/xmedia/engine/build/xmedia-bridge`。`XMEDIA_DEPS_LIBDIR` 写入运行时 rpath。
 
+### 6.1 烘焙工具链（可选，`XMEDIA_BUILD_CEF=1`）
+
+`xmedia-bake`（离线 HTML→MP4）需要 kit 的两个 **opt-in 层**：CEF（二进制 distro，
+kit 自动探测 `<kit>/../cef` 与 `~/Develop/vspo/cef`）与 GLFW（brew install glfw）。
+只支持**源码树消费**（CEF/GLFW 目标不随 installed SDK 导出）：
+
+```sh
+XMEDIA_BUILD_CEF=1 \
+XMEDIA_KIT_SOURCE_DIR=/path/to/xmedia-kit \
+XMEDIA_FFMPEG_ROOT=/path/to/pinned-ffmpeg \
+XMEDIA_DEPS_LIBDIR=/path/to/pinned-ffmpeg/lib \
+  pnpm run build:xmedia:engine
+```
+
+产物：`engine/build/xmedia-bake.app`（macOS CEF 契约要求的 bundle，bridge 探测
+自身同级目录自动发现；`XMEDIA_BAKE_BIN` 可显式覆盖）。缺 distro 时 kit 降级为
+`XMEDIA_HAS_CEF=0`，bake 目标不构建、配置不报错，宿主对 `bake.start` 回**编码拒绝**
+并指名原因。许可姿态：CEF 的 BSD 许可与 Chromium 组件由部署方的 distro 承担，
+kit 不重分发、本产品不打包任何 CEF 二进制。
+
 **四个必须知道的点**（都是实测后修正的）：
 
 - 消费方 CMake 工程要 `project(... LANGUAGES C CXX)`：SDK 的 `FindFFmpeg.cmake`
@@ -335,7 +386,10 @@ pnpm run host:xmedia                       # http://127.0.0.1:3092
 | `XMEDIA_WHEP_BASE` | WHEP 基址（浏览器可达） | `http://127.0.0.1:8889` |
 | `XMEDIA_HLS_BASE` | HLS 基址（浏览器可达） | `http://127.0.0.1:8888` |
 | `XMEDIA_PUBLISH_PATH` | 默认流路径 | `xmedia` |
-| `XMEDIA_LIVE_VCODEC` | 实时网络输出的视频编码器（覆盖平台默认；本机 FFmpeg 无 libx264） | macOS `h264_videotoolbox` / 其他 `libx264` |
+| `XMEDIA_LIVE_VCODEC` | 实时网络输出的视频编码器（覆盖平台默认） | macOS `h264_videotoolbox` / 其他 `libx264` |
+| `XMEDIA_BAKE_BIN` | 烘焙 CLI 可执行（空 = bridge 探测自身同级 `.app`/平铺二进制） | 空 |
+| `XMEDIA_BAKE_ROUTE` | 烘焙成片经 `/api/xmedia.bake.<jobId>` 拉取路由对外提供 | 开 |
+| `XMEDIA_BUILD_CEF=1` | （仅构建期）同时构建 `xmedia-bake`：需要 kit 的 CEF distro + GLFW | 关 |
 | `XMEDIA_STRICT_CAPABILITIES=1` | manifest 不实即拒绝启动 | 关 |
 | `XMEDIA_READONLY=1` | 拒绝一切 `mutates` 方法 | 关 |
 | `XMEDIA_ENGINE_SANDBOX=1` | 启动引擎时加 `--sandbox`（POSIX 资源上限；Linux seccomp / macOS Seatbelt best-effort） | 关 |
@@ -368,7 +422,8 @@ XMEDIA_TEST_SANDBOX=1 XMEDIA_ENGINE_BIN=$PWD/product/xmedia/engine/build/xmedia-
 `verify:xmedia` 覆盖：health → strict `capabilities.verify` → `api.list` / `tools.list` /
 `api.streams`（断言 **`xmedia.frames` 与整条引擎自检面已不存在**）→ 协议契约检查（头文件覆盖全部动词、版本=1）
 → `hello` → viewer URL → `publish.start/status/stop`（含空闲 `status` 与 `jobId` 路由）
-→ `xmedia.metrics` 结构化指标 → （有 MediaMTX 时）v3 API 确认 `path.ready` 与轨列表、
+→ `xmedia.metrics` 结构化指标 → **bake 全链**（fake 引擎跑通；真实引擎烘真实页面后
+ffprobe 解码断言；无工具链时断言诚实拒绝）→ （有 MediaMTX 时）v3 API 确认 `path.ready` 与轨列表、
 **默认无 AAC**、**WHEP 真实 SDP 握手返回 201 + answer** → `events` → 监督状态（含 `sandboxed`）
 → 页面含 `<video>`、不含帧订阅与自检区块。
 
@@ -377,7 +432,9 @@ XMEDIA_TEST_SANDBOX=1 XMEDIA_ENGINE_BIN=$PWD/product/xmedia/engine/build/xmedia-
 | 检查 | 结果 |
 |---|---|
 | `cmake --build` + `ctest` | ✅ 链接 `xmedia::transcode`；`sandbox.cc` / 生成的 `xmedia_protocol.h` 编译通过；线协议冒烟通过 |
-| `gen:protocol` / `verify:protocol` | ✅ `contract.json` → `xmedia_protocol.h`（7 动词）；头文件覆盖全部动词、版本=1 |
+| `gen:protocol` / `verify:protocol` | ✅ `contract.json` → `xmedia_protocol.h`（10 动词）；头文件覆盖全部动词、版本=1 |
+| **真实烘焙端到端（2026-11-17，XMEDIA_BUILD_CEF=1）** | ✅ `xmedia-bake.app` 组装；真引擎烘真实页面 9.7s（CEF OSR VT 时钟 + h264_videotoolbox 10 帧）→ 成片路由 `200` + `Range 206` → ffprobe 解码断言通过 |
+| 真实引擎无烘焙工具链 | ✅ `bake.start` 编码拒绝，detail 指名 `bake binary not found`（诚实降级断言进 verify） |
 | 真实 RTMP 推流 → MediaMTX | ✅ `path ready`，`source.type=rtmpConn`，`tracks=["H264"]`，`inboundBytes≈180 KB` |
 | **WHEP 真实 SDP 握手** | ✅ `201 Created` + `Location` + 完整 SDP answer |
 | WHEP 路径一致性（曾踩坑） | ✅ 同路径返回 201；错路径返回 `no stream is available` |
@@ -388,7 +445,7 @@ XMEDIA_TEST_SANDBOX=1 XMEDIA_ENGINE_BIN=$PWD/product/xmedia/engine/build/xmedia-
 | 任务池（多 `jobId` 并发） | ✅ 两个 `publish.start` 拿到不同 `jobId`，按 `jobId` 路由互不干扰，停止一个不影响另一个 |
 | `xmedia.metrics` | ✅ 幂等计数；`jobsStarted/Succeeded/Failed/activeJobs/failureReasons/recent` 结构化返回 |
 | `typecheck:xmedia` / `verify:xmedia:compose` | ✅ 全绿 |
-| `test:xmedia` | ✅ 15/15（6 世界：正常 / 无引擎 / 崩溃监督 / 只读 / 沙箱 / 协议契约；含"任务池并发 / 指标幂等 / 空闲 status / 沙箱状态"） |
+| `test:xmedia` | ✅ 19/19（7 世界：正常 / **烘焙控制面** / 无引擎 / 崩溃监督 / 只读 / 沙箱 / 协议契约；含"任务池并发 / 指标幂等 / 空闲 status / 沙箱状态 / 成片路由 200+206 / 取消不留半成品 / 失败注入"） |
 | `verify:xmedia` fake + 真实 C++ 各一遍 | ✅ 全部检查通过（含"自检面已移除 / 协议契约一致"逐项断言） |
 
 降级语义：引擎二进制不存在时宿主照常启动，调用返回带码
@@ -408,8 +465,9 @@ XMEDIA_TEST_SANDBOX=1 XMEDIA_ENGINE_BIN=$PWD/product/xmedia/engine/build/xmedia-
 2. **播放交给浏览器**。音频、A/V 同步、seek、硬解、色彩管理、字幕由 `<video>` 与
    MediaMTX 提供，Host 不实现任何帧传输、背压或 pacing；C++ 侧连 Player 都不实例化。
    这是"用最小复杂度换可靠性"。
-3. **控制面/媒体面彻底分离**。Host 只发命令、只返回 URL，`ctx.api.route` **零注册**：
-   没有任何图片/字节数据面，也不使用 `EngineClient.readScratch()`。
+3. **控制面/媒体面彻底分离**。Host 只发命令、只返回 URL；`ctx.api.route` 有且仅有
+   **烘焙成片拉取路由**（`xmedia.bake.<jobId>`，文件存在才注册、表有界）——发布路径仍
+   零字节经过 mediabase，也不使用 `EngineClient.readScratch()`。
 4. **能力自注册 + 边界校验**。方法、工具、health、manifest 全在 `apply()` 注册；
    参数用 `@mediabase/schema`，引擎 JSON 列显式解析成带码 `ENGINE` 错误。
 5. **监督策略留在产品层**。`EngineClient` 只报 `onExit`；重启/退避/秒退判定在能力包，
@@ -423,7 +481,10 @@ XMEDIA_TEST_SANDBOX=1 XMEDIA_ENGINE_BIN=$PWD/product/xmedia/engine/build/xmedia-
    自动化回归仍只到 WHEP `201 + SDP answer` 与 MediaMTX v3 API；实时预览无音频（见第四节）；
    任务池已破除单 `BUSY` 限制（多个 `TranscodeJob` 以 `jobId` 并发），但仍**不**做多租户隔离、
    配额、长稳 soak、崩溃后播放位置重建；macOS 的 Seatbelt 因废弃 API 不支持内联档案而不生效
-   （如实回 `false`，仅 POSIX 资源上限兜底），真正的进程沙箱以 Linux seccomp 为准。
+   （如实回 `false`，仅 POSIX 资源上限兜底），真正的进程沙箱以 Linux seccomp 为准；
+   烘焙子进程**不继承** bridge 沙箱（Chromium 多进程模型与 seccomp/Seatbelt 互斥，CEF 自带
+   渲染进程沙箱）——刻意豁免，见 3.2 节。上游 player_qt 编辑器骨架与 HyperFrames Studio
+   编辑器本体**不移植**（前者与"播放归浏览器"冲突且无实际功能，后者 kit 不携带）。
    这些是"内部验收工具"不需要的复杂度，不做。
 8. **许可**：xmedia-kit BSD-3-Clause（`media/filters/legacy/` 内算法保留 LGPL-2.1），
    MediaMTX MIT；捆绑 FFmpeg 的链接与分发义务由**产品仓**承担。基座 MIT、不含原生二进制。
@@ -434,6 +495,9 @@ XMEDIA_TEST_SANDBOX=1 XMEDIA_ENGINE_BIN=$PWD/product/xmedia/engine/build/xmedia-
 
 | 现象 | 检查 |
 |---|---|
+| `bake.start` 报 `bake binary not found` | 未构建烘焙工具链：`XMEDIA_BUILD_CEF=1 XMEDIA_KIT_SOURCE_DIR=… pnpm run build:xmedia:engine`（需要 CEF distro 与 GLFW）；或用 `XMEDIA_BAKE_BIN` 指向已有产物 |
+| `bake.status` 停在 failed、`error` 为 `no first frame in 30s` | CEF 冷启动超预算或页面无法加载：先用浏览器/`curl` 确认页面可达；`file://` 页面的**脚本子资源必须内联**（OSR 对相对 file:// 脚本渲染黑屏）；第二次烘焙通常显著变快（CEF 暖缓存） |
+| 烘焙产物黑屏/上下颠倒 | 先跑 `data:text` 之外的真实页面样本；上下颠倒说明读回翻转被改动（引擎按"画面方向与浏览器一致"处理行序） |
 | 开始发布后立刻失败 | `publish.status` 的 `error`：网络输出缺 `format` 会报 `INVALID_PARAMS`；`SourceOpenFailed` 通常是 MediaMTX 没起来或端口不通 |
 | `no stream is available on path '…'` | **先看 `/v3/paths/list`**：`items` 为空说明推流已结束或还没开始（第四节坑 3），重新「开始发布」即可；`/api/health` 里 `running:false / done:true` 可确认片源播完。只有推流中仍报错才是 path 不一致（坑 1）或未等首帧。前端已自动重发与重试 |
 | WHEP 连接失败 | 先确认 `mediamtx.yml` 已启动、`webrtc: true`；HLS 回退同样需要活跃流，流结束点 HLS 也无效 |

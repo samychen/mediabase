@@ -18,6 +18,9 @@ inline constexpr std::string_view kQuit = "quit";
 inline constexpr std::string_view kPublishStart = "publish.start";
 inline constexpr std::string_view kPublishStop = "publish.stop";
 inline constexpr std::string_view kPublishStatus = "publish.status";
+inline constexpr std::string_view kBakeStart = "bake.start";
+inline constexpr std::string_view kBakeStatus = "bake.status";
+inline constexpr std::string_view kBakeCancel = "bake.cancel";
 
 // Framing per verb (kVerb: reply starts with the verb token, e.g. "hello\t1\t..";
 // kOk: reply starts with "ok\t", e.g. "ok\t{...}").
@@ -28,6 +31,9 @@ inline constexpr Framing kFraming_Quit = Framing::kOk;
 inline constexpr Framing kFraming_PublishStart = Framing::kOk;
 inline constexpr Framing kFraming_PublishStop = Framing::kOk;
 inline constexpr Framing kFraming_PublishStatus = Framing::kOk;
+inline constexpr Framing kFraming_BakeStart = Framing::kOk;
+inline constexpr Framing kFraming_BakeStatus = Framing::kOk;
+inline constexpr Framing kFraming_BakeCancel = Framing::kOk;
 
 // Request / response column indices, per verb. Indices are 0-based over the
 // PAYLOAD columns only: a wire line is "<verb>\t<col0>\t<col1>…" (request) or
@@ -94,6 +100,33 @@ enum class PublishStatusReq : int {
 };
 
 enum class PublishStatusRes : int {
+  kStatusJson = 0,
+};
+
+enum class BakeStartReq : int {
+  kJobId = 0,
+  kHtmlPath = 1,
+  kOutPath = 2,
+  kOptionsJson = 3,
+};
+
+enum class BakeStartRes : int {
+  kStatusJson = 0,
+};
+
+enum class BakeStatusReq : int {
+  kJobId = 0,
+};
+
+enum class BakeStatusRes : int {
+  kStatusJson = 0,
+};
+
+enum class BakeCancelReq : int {
+  kJobId = 0,
+};
+
+enum class BakeCancelRes : int {
   kStatusJson = 0,
 };
 

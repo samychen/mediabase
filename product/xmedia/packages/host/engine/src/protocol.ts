@@ -47,9 +47,13 @@ interface VerbConst {
   PUBLISH_START: 'publish.start'
   PUBLISH_STOP: 'publish.stop'
   PUBLISH_STATUS: 'publish.status'
+  BAKE_START: 'bake.start'
+  BAKE_STATUS: 'bake.status'
+  BAKE_CANCEL: 'bake.cancel'
 }
 
-for (const key of ['HELLO', 'PING', 'EVENTS', 'QUIT', 'PUBLISH_START', 'PUBLISH_STOP', 'PUBLISH_STATUS']) {
+for (const key of ['HELLO', 'PING', 'EVENTS', 'QUIT', 'PUBLISH_START', 'PUBLISH_STOP', 'PUBLISH_STATUS',
+  'BAKE_START', 'BAKE_STATUS', 'BAKE_CANCEL']) {
   if (!(key in verbMap)) throw new Error(`protocol: VERB.${key} missing from contract.json`)
 }
 
@@ -100,4 +104,11 @@ export const PUBLISH_VERBS = Object.freeze({
   START: VERB.PUBLISH_START,
   STOP: VERB.PUBLISH_STOP,
   STATUS: VERB.PUBLISH_STATUS,
+})
+
+/** The `bake.*` verbs (offline HTML→MP4 pipeline; see contract.json's comment). */
+export const BAKE_VERBS = Object.freeze({
+  START: VERB.BAKE_START,
+  STATUS: VERB.BAKE_STATUS,
+  CANCEL: VERB.BAKE_CANCEL,
 })
