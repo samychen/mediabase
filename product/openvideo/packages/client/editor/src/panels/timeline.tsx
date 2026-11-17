@@ -9,7 +9,7 @@
 import { useMemo, useState, type MouseEvent as ReactMouseEvent, type ReactElement } from 'react'
 import type { Context } from '@deepseek-ai/cordis'
 import { useI18n } from '@mediabase/i18n'
-import { applyOp, fmtTime, mainSegments, rid, splitClip, totalDuration } from '@openvideo/edl'
+import { applyOp, fmtTime, mainSegments, totalDuration } from '@openvideo/edl'
 import { useEditor } from '../use-editor.ts'
 import {
   IconChevronLeft,
@@ -31,6 +31,23 @@ import {
 
 const MIN_PPS = 8
 const MAX_PPS = 400
+
+/**
+ * Ruler step ladder, in seconds. The label gap is a floor, not a target: the
+ * first step whose on-screen width reaches `MIN_LABEL_GAP` wins, so zooming
+ * never produces overlapping labels and never leaves the ruler bare.
+ */
+const TICK_STEPS = [0.1, 0.2, 0.5, 1, 2, 5, 10, 15, 30, 60, 120, 300, 600] as const
+const MIN_LABEL_GAP = 72
+
+function tickStep(pps: number): number {
+  return TICK_STEPS.find((s) => s * pps >= MIN_LABEL_GAP) ?? TICK_STEPS[TICK_STEPS.length - 1]!
+}
+
+/** Snap a time to the nearest output frame (the grid every cut lands on). */
+function snapToFrame(t: number, fps: number): number {
+  return Math.round(t * fps) / fps
+}
 
 export function TimelinePanel({ ctx }: { ctx: Context }): ReactElement | null {
   const editor = useEditor(ctx)
@@ -57,6 +74,22 @@ export function TimelinePanel({ ctx }: { ctx: Context }): ReactElement | null {
   const total = totalDuration(segments)
   const laneWidth = Math.max((total + 5) * pps, 300)
 
+  // Ruler ticks. Derived from the zoom, not baked into CSS: the old
+  // `repeating-linear-gradient(… 48px)` was a fixed pixel pitch, so it drifted
+  // away from the real scale as soon as pps changed.
+  const ticks = useMemo(() => {
+    const step = tickStep(pps)
+    const count = Math.ceil((laneWidth / pps) / step)
+    const minor = step / 5
+    const out: Array<{ t: number; major: boolean }> = []
+    for (let i = 0; i <= count; i++) {
+      const t = i * step
+      out.push({ t, major: true })
+      if (i < count) for (let k = 1; k < 5; k++) out.push({ t: t + k * minor, major: false })
+    }
+    return out
+  }, [laneWidth, pps])
+
   const nameOf = (src: string): string => {
     if (!src.startsWith('asset:')) return src
     return assets.find((a) => a.id === src.slice(6))?.name ?? src.slice(6, 12)
@@ -73,7 +106,10 @@ export function TimelinePanel({ ctx }: { ctx: Context }): ReactElement | null {
 
   const seekFromEvent = (e: ReactMouseEvent<HTMLDivElement>): void => {
     const rect = e.currentTarget.getBoundingClientRect()
-    store.setPlayhead(Math.max(0, (e.clientX - rect.left) / pps))
+    const t = Math.max(0, (e.clientX - rect.left) / pps)
+    // A seek lands on the frame grid: the cut and the playhead then agree, and
+    // "split here" can never be half a frame off the point the user clicked.
+    store.setPlayhead(snapToFrame(t, draft.output.fps))
   }
 
   const addText = (): void => {
@@ -117,10 +153,21 @@ export function TimelinePanel({ ctx }: { ctx: Context }): ReactElement | null {
       </div>
 
       <div className="ov-lanes">
-        {/* ruler: click to seek */}
+        {/* ruler: ticks derived from the zoom, click to seek */}
         <div className="ov-lane ov-ruler">
           <div className="ov-lane-label">{fmtTime(total)}</div>
           <div className="ov-lane-content" style={{ width: laneWidth }} onClick={seekFromEvent}>
+            {ticks.map((tick) => (
+              <div
+                key={`${tick.major ? 'M' : 'm'}${tick.t}`}
+                className={tick.major ? 'ov-tick ov-tick-major' : 'ov-tick ov-tick-minor'}
+                style={{ left: tick.t * pps }}
+              >
+                {tick.major && tick.t * pps + 44 <= laneWidth && (
+                  <span className="ov-tick-label">{fmtTime(tick.t)}</span>
+                )}
+              </div>
+            ))}
             <div className="ov-playhead" style={{ left: state.playhead * pps }} />
           </div>
         </div>
@@ -180,12 +227,9 @@ export function TimelinePanel({ ctx }: { ctx: Context }): ReactElement | null {
                       title={t('ov.timeline.split')}
                       onClick={() => {
                         store.setPlayhead(seg.start + seg.dur / 2)
-                        const at = seg.dur / 2
                         store.setDraft((d) => {
-                          const clip = d.main.elements[seg.i]
-                          if (clip === undefined) return
-                          const halves = splitClip(clip, at, seg.dur, rid())
-                          if (halves !== null) d.main.elements.splice(seg.i, 1, ...halves)
+                          const out = applyOp(d, 'split_clip', { clip: seg.i, at: seg.dur / 2 })
+                          return 'error' in out ? false : undefined
                         })
                       }}
                     >
@@ -251,7 +295,8 @@ export function TimelinePanel({ ctx }: { ctx: Context }): ReactElement | null {
                         className="ov-mini ov-mini-danger"
                         title={t('ov.timeline.delete')}
                         onClick={() => store.setDraft((d) => {
-                          d.overlays?.[ti]?.elements.splice(ei, 1)
+                          const out = applyOp(d, 'remove_overlay', { track: ti, index: ei })
+                          return 'error' in out ? false : undefined
                         })}
                       >
                         <IconX size={11} />
@@ -301,7 +346,8 @@ export function TimelinePanel({ ctx }: { ctx: Context }): ReactElement | null {
                         className="ov-mini ov-mini-danger"
                         title={t('ov.timeline.delete')}
                         onClick={() => store.setDraft((d) => {
-                          d.audio?.[ti]?.elements.splice(ei, 1)
+                          const out = applyOp(d, 'remove_audio', { track: ti, index: ei })
+                          return 'error' in out ? false : undefined
                         })}
                       >
                         <IconX size={11} />

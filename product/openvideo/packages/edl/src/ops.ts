@@ -33,6 +33,7 @@ export const OP_NAMES = [
   'set_clip_audio',
   'add_text',
   'remove_text',
+  'remove_overlay',
   'add_audio',
   'remove_audio',
   'set_captions',
@@ -76,13 +77,22 @@ export function applyOp(draft: Edl, name: OpName | string, args: Record<string, 
     case 'trim_clip': {
       const clip = clipAt(args.clip)
       if (clip === null) return { error: `there is no clip ${String(args.clip)}` }
-      if (typeof args.start === 'number') clip.trimStart = Math.max(0, args.start)
+      // An image has no head to trim: `start` is ignored rather than refused, so
+      // one drag handler can drive both kinds without branching on type.
+      if (typeof args.start === 'number' && clip.type !== 'image') {
+        clip.trimStart = Math.max(0, args.start)
+      }
       if (typeof args.seconds === 'number') {
         if (args.seconds < 0.05) return { error: 'a clip has to play for at least 0.05 seconds' }
-        if (clip.type === 'image') return { error: 'an image clip\'s length is its duration; set it directly' }
+        // An image's play window IS its duration; video uses the same field as
+        // the play-window form, so both write `duration`.
         clip.duration = args.seconds
+        // A play window wins over a tail trim (see mainDur). Keeping both would
+        // leave two contradicting lengths in the document; the play window is
+        // what the user just set, so the tail marker goes.
+        delete clip.trimEnd
       }
-      const played = clip.type === 'video' ? clip.duration : clip.duration
+      const played = clip.duration
       return { said: `Trimmed clip ${String(args.clip)} to ${played?.toFixed(1) ?? '?'}s from ${(clip.trimStart ?? 0).toFixed(1)}s` }
     }
     case 'split_clip': {
@@ -141,12 +151,17 @@ export function applyOp(draft: Edl, name: OpName | string, args: Record<string, 
       draft.overlays[0]!.elements.push(el)
       return { said: `Added the text "${text.slice(0, 40)}"` }
     }
+    case 'remove_overlay':
+    // `remove_text` is the original name and stays as an alias: the agent
+    // prompt and the tool list already use it, and the branch was never
+    // text-only (an overlay track may hold media elements too). One
+    // implementation, two names — the document sees the same transform.
     case 'remove_text': {
       const track = draft.overlays?.[Number(args.track)]
       const index = Number(args.index)
       if (track === undefined || track.elements[index] === undefined) return { error: 'there is no text there' }
       track.elements.splice(index, 1)
-      return { said: 'Removed a text element' }
+      return { said: name === 'remove_text' ? 'Removed a text element' : 'Removed an overlay element' }
     }
     case 'add_audio': {
       const raw = String(args.src ?? '')
@@ -285,6 +300,15 @@ export const OPS: readonly OpDef[] = [
   {
     name: 'remove_text',
     description: 'Remove an on-screen text element by its track and index in the document.',
+    params: z.object({
+      project: z.string().description('project id').required(),
+      track: z.natural().required(),
+      index: z.natural().required(),
+    }),
+  },
+  {
+    name: 'remove_overlay',
+    description: 'Remove any overlay element (text OR media) by its track and index. Same transform as remove_text, which stays as an alias.',
     params: z.object({
       project: z.string().description('project id').required(),
       track: z.natural().required(),
