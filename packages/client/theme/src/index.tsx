@@ -104,7 +104,17 @@ export function apply(ctx: Context, rawConfig: ThemeConfig): void {
 
   function activate(id: ThemeId): void {
     current = id
-    if (typeof document !== 'undefined') document.documentElement.setAttribute('data-theme', id)
+    const apply = (): void => {
+      if (typeof document !== 'undefined') document.documentElement.setAttribute('data-theme', id)
+    }
+    // Crossfade the flip where the browser can (View Transitions): the capture
+    // and the animation are the browser's own, feature-detected — without the
+    // API the switch is exactly the attribute flip it always was.
+    const transition = typeof document !== 'undefined'
+      ? (document as unknown as { startViewTransition?: (update: () => void) => void }).startViewTransition
+      : undefined
+    if (transition !== undefined) transition(apply)
+    else apply()
     try {
       localStorage.setItem(THEME_KEY, id)
     } catch {

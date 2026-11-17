@@ -6,7 +6,7 @@
 // agent calls (`applyOp` from @openvideo/edl), so a button and a sentence
 // produce identical documents. Saves are the store's debounced update.
 
-import { useMemo, useState, type MouseEvent as ReactMouseEvent, type ReactElement } from 'react'
+import { useMemo, useState, type KeyboardEvent as ReactKeyboardEvent, type MouseEvent as ReactMouseEvent, type ReactElement } from 'react'
 import type { Context } from '@deepseek-ai/cordis'
 import { useI18n } from '@mediabase/i18n'
 import { applyOp, fmtTime, mainSegments, totalDuration } from '@openvideo/edl'
@@ -112,6 +112,29 @@ export function TimelinePanel({ ctx }: { ctx: Context }): ReactElement | null {
     store.setPlayhead(snapToFrame(t, draft.output.fps))
   }
 
+  /** Keyboard seek on the ruler slider: arrows step one frame, shift = one second,
+    * Home/End jump to the ends — the same frame grid a click lands on. */
+  const seekKeyDown = (e: ReactKeyboardEvent<HTMLDivElement>): void => {
+    const fine = 1 / draft.output.fps
+    let next: number | null = null
+    if (e.key === 'ArrowRight') next = state.playhead + (e.shiftKey ? 1 : fine)
+    else if (e.key === 'ArrowLeft') next = state.playhead - (e.shiftKey ? 1 : fine)
+    else if (e.key === 'Home') next = 0
+    else if (e.key === 'End') next = total
+    if (next === null) return
+    e.preventDefault()
+    store.setPlayhead(snapToFrame(Math.min(Math.max(next, 0), total), draft.output.fps))
+  }
+
+  /** Chips stay divs (they nest per-chip action buttons, which a <button> must not),
+    * so the select gesture is repeated for the keyboard: focus + Enter/Space. */
+  const chipKeyDown = (select: () => void) => (e: ReactKeyboardEvent<HTMLDivElement>): void => {
+    if (e.key !== 'Enter' && e.key !== ' ') return
+    e.preventDefault()
+    e.stopPropagation()
+    select()
+  }
+
   const addText = (): void => {
     const start = Number(textForm.start) || 0
     const seconds = Number(textForm.seconds) || 3
@@ -125,11 +148,11 @@ export function TimelinePanel({ ctx }: { ctx: Context }): ReactElement | null {
   return (
     <div className="ov-timeline">
       <div className="ov-toolbar">
-        <button className="secondary" title={t('ov.timeline.zoomOut')} onClick={() => setPps((p) => Math.max(MIN_PPS, Math.round(p / 1.4)))}><IconMinus size={13} /></button>
-        <button className="secondary" title={t('ov.timeline.zoomIn')} onClick={() => setPps((p) => Math.min(MAX_PPS, Math.round(p * 1.4)))}><IconPlus size={13} /></button>
+        <button className="secondary" title={t('ov.timeline.zoomOut')} aria-label={t('ov.timeline.zoomOut')} onClick={() => setPps((p) => Math.max(MIN_PPS, Math.round(p / 1.4)))}><IconMinus size={13} /></button>
+        <button className="secondary" title={t('ov.timeline.zoomIn')} aria-label={t('ov.timeline.zoomIn')} onClick={() => setPps((p) => Math.min(MAX_PPS, Math.round(p * 1.4)))}><IconPlus size={13} /></button>
         <button
           className="secondary"
-          title={t('ov.timeline.split')}
+          title={t('ov.timeline.split')} aria-label={t('ov.timeline.split')}
           onClick={() => {
             if (!store.splitAtPlayhead()) store.flash('ov.status.splitFailed')
           }}
@@ -156,7 +179,19 @@ export function TimelinePanel({ ctx }: { ctx: Context }): ReactElement | null {
         {/* ruler: ticks derived from the zoom, click to seek */}
         <div className="ov-lane ov-ruler">
           <div className="ov-lane-label">{fmtTime(total)}</div>
-          <div className="ov-lane-content" style={{ width: laneWidth }} onClick={seekFromEvent}>
+          <div
+            className="ov-lane-content"
+            style={{ width: laneWidth }}
+            onClick={seekFromEvent}
+            role="slider"
+            tabIndex={0}
+            aria-label={t('ov.timeline.seek')}
+            aria-valuemin={0}
+            aria-valuemax={Math.max(total, 0.1)}
+            aria-valuenow={state.playhead}
+            aria-valuetext={fmtTime(state.playhead)}
+            onKeyDown={seekKeyDown}
+          >
             {ticks.map((tick) => (
               <div
                 key={`${tick.major ? 'M' : 'm'}${tick.t}`}
@@ -190,6 +225,11 @@ export function TimelinePanel({ ctx }: { ctx: Context }): ReactElement | null {
                   className={selected ? 'ov-chip ov-chip-main ov-chip-selected' : 'ov-chip ov-chip-main'}
                   style={{ left: seg.start * pps, width }}
                   draggable
+                  role="button"
+                  tabIndex={0}
+                  aria-pressed={selected}
+                  aria-label={nameOf(el.src)}
+                  onKeyDown={chipKeyDown(() => store.select({ kind: 'main', index: seg.i }))}
                   onDragStart={() => setDragIndex(seg.i)}
                   onDragOver={(e) => e.preventDefault()}
                   onDrop={(e) => {
@@ -216,7 +256,7 @@ export function TimelinePanel({ ctx }: { ctx: Context }): ReactElement | null {
                   <span className="ov-chip-actions" onClick={(e) => e.stopPropagation()}>
                     <button
                       className="ov-mini"
-                      title={t('ov.timeline.moveLeft')}
+                      title={t('ov.timeline.moveLeft')} aria-label={t('ov.timeline.moveLeft')}
                       disabled={seg.i === 0}
                       onClick={() => store.setDraft((d) => { applyOp(d, 'move_clip', { clip: seg.i, to: seg.i - 1 }) })}
                     >
@@ -224,7 +264,7 @@ export function TimelinePanel({ ctx }: { ctx: Context }): ReactElement | null {
                     </button>
                     <button
                       className="ov-mini"
-                      title={t('ov.timeline.split')}
+                      title={t('ov.timeline.split')} aria-label={t('ov.timeline.split')}
                       onClick={() => {
                         store.setPlayhead(seg.start + seg.dur / 2)
                         store.setDraft((d) => {
@@ -237,7 +277,7 @@ export function TimelinePanel({ ctx }: { ctx: Context }): ReactElement | null {
                     </button>
                     <button
                       className="ov-mini"
-                      title={t('ov.timeline.moveRight')}
+                      title={t('ov.timeline.moveRight')} aria-label={t('ov.timeline.moveRight')}
                       disabled={seg.i === draft.main.elements.length - 1}
                       onClick={() => store.setDraft((d) => { applyOp(d, 'move_clip', { clip: seg.i, to: seg.i + 1 }) })}
                     >
@@ -245,7 +285,7 @@ export function TimelinePanel({ ctx }: { ctx: Context }): ReactElement | null {
                     </button>
                     <button
                       className="ov-mini ov-mini-danger"
-                      title={t('ov.timeline.delete')}
+                      title={t('ov.timeline.delete')} aria-label={t('ov.timeline.delete')}
                       onClick={() => store.setDraft((d) => { applyOp(d, 'delete_clip', { clip: seg.i }) })}
                     >
                       <IconX size={11} />
@@ -265,7 +305,7 @@ export function TimelinePanel({ ctx }: { ctx: Context }): ReactElement | null {
               {t('ov.timeline.overlays')}
               <button
                 className="ov-mini"
-                title={track.hidden === true ? t('ov.timeline.showTrack') : t('ov.timeline.hideTrack')}
+                title={track.hidden === true ? t('ov.timeline.showTrack') : t('ov.timeline.hideTrack')} aria-label={track.hidden === true ? t('ov.timeline.showTrack') : t('ov.timeline.hideTrack')}
                 onClick={() => store.setDraft((d) => {
                   const target = d.overlays?.[ti]
                   if (target !== undefined) target.hidden = target.hidden !== true
@@ -282,6 +322,11 @@ export function TimelinePanel({ ctx }: { ctx: Context }): ReactElement | null {
                     key={el.id}
                     className={selected ? 'ov-chip ov-chip-overlay ov-chip-selected' : 'ov-chip ov-chip-overlay'}
                     style={{ left: el.startTime * pps, width: Math.max(el.duration * pps, 26) }}
+                    role="button"
+                    tabIndex={0}
+                    aria-pressed={selected}
+                    aria-label={el.type === 'text' ? el.text.slice(0, 24) : nameOf(el.src)}
+                    onKeyDown={chipKeyDown(() => store.select({ kind: 'overlay', track: ti, index: ei }))}
                     onClick={(e) => {
                       e.stopPropagation()
                       store.select({ kind: 'overlay', track: ti, index: ei })
@@ -293,7 +338,7 @@ export function TimelinePanel({ ctx }: { ctx: Context }): ReactElement | null {
                     <span className="ov-chip-actions" onClick={(e) => e.stopPropagation()}>
                       <button
                         className="ov-mini ov-mini-danger"
-                        title={t('ov.timeline.delete')}
+                        title={t('ov.timeline.delete')} aria-label={t('ov.timeline.delete')}
                         onClick={() => store.setDraft((d) => {
                           const out = applyOp(d, 'remove_overlay', { track: ti, index: ei })
                           return 'error' in out ? false : undefined
@@ -317,7 +362,7 @@ export function TimelinePanel({ ctx }: { ctx: Context }): ReactElement | null {
               {t('ov.timeline.audio')}
               <button
                 className="ov-mini"
-                title={track.muted === true ? t('ov.timeline.unmuteTrack') : t('ov.timeline.muteTrack')}
+                title={track.muted === true ? t('ov.timeline.unmuteTrack') : t('ov.timeline.muteTrack')} aria-label={track.muted === true ? t('ov.timeline.unmuteTrack') : t('ov.timeline.muteTrack')}
                 onClick={() => store.setDraft((d) => {
                   const target = d.audio?.[ti]
                   if (target !== undefined) target.muted = target.muted !== true
@@ -335,6 +380,11 @@ export function TimelinePanel({ ctx }: { ctx: Context }): ReactElement | null {
                     key={el.id}
                     className={selected ? 'ov-chip ov-chip-audio ov-chip-selected' : 'ov-chip ov-chip-audio'}
                     style={{ left: el.startTime * pps, width: Math.max(dur * pps, 26) }}
+                    role="button"
+                    tabIndex={0}
+                    aria-pressed={selected}
+                    aria-label={nameOf(el.src)}
+                    onKeyDown={chipKeyDown(() => store.select({ kind: 'audio', track: ti, index: ei }))}
                     onClick={(e) => {
                       e.stopPropagation()
                       store.select({ kind: 'audio', track: ti, index: ei })
@@ -344,7 +394,7 @@ export function TimelinePanel({ ctx }: { ctx: Context }): ReactElement | null {
                     <span className="ov-chip-actions" onClick={(e) => e.stopPropagation()}>
                       <button
                         className="ov-mini ov-mini-danger"
-                        title={t('ov.timeline.delete')}
+                        title={t('ov.timeline.delete')} aria-label={t('ov.timeline.delete')}
                         onClick={() => store.setDraft((d) => {
                           const out = applyOp(d, 'remove_audio', { track: ti, index: ei })
                           return 'error' in out ? false : undefined

@@ -16,7 +16,8 @@ import type { Socket } from 'node:net'
 import type { Duplex } from 'node:stream'
 import { timingSafeEqual } from 'node:crypto'
 import { readFile } from 'node:fs/promises'
-import { dirname, extname, join, normalize, resolve, sep } from 'node:path'
+import { basename, dirname, extname, join, normalize, resolve, sep } from 'node:path'
+import { gzipSync } from 'node:zlib'
 import { WebSocketServer } from 'ws'
 import { makeServer, RpcCode, type RpcMethods } from '@mediabase/rpc'
 
@@ -172,7 +173,34 @@ const MIME: Record<string, string> = {
   '.map': 'application/json; charset=utf-8',
 }
 
-async function serveStatic(pathname: string, res: http.ServerResponse, distRoot: string, distIndex: string): Promise<void> {
+/** Text representations worth shrinking on the wire (never the byte routes). */
+const COMPRESSIBLE = new Set(['.html', '.js', '.css', '.json', '.svg', '.map'])
+/** A bundler content hash in the file name (`index-CJXz2xkP.js`) — safe to cache forever. */
+const HASHED_ASSET = /-[A-Za-z0-9_-]{8}\.[A-Za-z0-9]+$/
+
+/** Caching + on-the-wire encoding for one static file, per modern-web guidance:
+  * a hashed asset is immutable (re-download only when its name changes), the
+  * SPA entry revalidates (it names the hashed assets), and text bodies are
+  * gzipped when the client asks. Byte routes and streams are untouched. */
+function staticPlan(target: string, body: Buffer, acceptEncoding: string | undefined): { headers: Record<string, string>; gzip: boolean } {
+  const headers: Record<string, string> = {
+    'content-type': MIME[extname(target)] ?? 'application/octet-stream',
+    'cache-control': HASHED_ASSET.test(basename(target))
+      ? 'public, max-age=31536000, immutable'
+      : 'no-cache',
+  }
+  if (
+    COMPRESSIBLE.has(extname(target)) && body.length > 1024 &&
+    (acceptEncoding ?? '').includes('gzip')
+  ) {
+    headers['content-encoding'] = 'gzip'
+    headers.vary = 'accept-encoding'
+    return { headers, gzip: true }
+  }
+  return { headers, gzip: false }
+}
+
+async function serveStatic(pathname: string, res: http.ServerResponse, distRoot: string, distIndex: string, acceptEncoding?: string): Promise<void> {
   const target = resolve(normalize(join(distRoot, pathname)))
   if (target !== distRoot && !target.startsWith(distRoot + sep)) {
     res.writeHead(403)
@@ -182,8 +210,9 @@ async function serveStatic(pathname: string, res: http.ServerResponse, distRoot:
   const serveIndex = async (): Promise<void> => {
     try {
       const body = await readFile(distIndex)
-      res.writeHead(200, { 'content-type': MIME['.html'] ?? 'text/html; charset=utf-8' })
-      res.end(body)
+      const { headers, gzip } = staticPlan(distIndex, body, acceptEncoding)
+      res.writeHead(200, headers)
+      res.end(gzip ? gzipSync(body) : body)
     } catch {
       res.writeHead(404, { 'content-type': 'text/plain; charset=utf-8' })
       res.end('web client not built.')
@@ -195,8 +224,9 @@ async function serveStatic(pathname: string, res: http.ServerResponse, distRoot:
   }
   try {
     const body = await readFile(target)
-    res.writeHead(200, { 'content-type': MIME[extname(target)] ?? 'application/octet-stream' })
-    res.end(body)
+    const { headers, gzip } = staticPlan(target, body, acceptEncoding)
+    res.writeHead(200, headers)
+    res.end(gzip ? gzipSync(body) : body)
   } catch {
     await serveIndex()
   }
@@ -464,7 +494,7 @@ export function createGateway(opts: GatewayOptions): Gateway {
       res.end()
       return
     }
-    void serveStatic(pathname, res, distRoot, opts.distIndex)
+    void serveStatic(pathname, res, distRoot, opts.distIndex, req.headers['accept-encoding'])
   }
 
   const server = http.createServer((req, res) => {

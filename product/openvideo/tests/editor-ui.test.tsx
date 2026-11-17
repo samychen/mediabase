@@ -153,4 +153,40 @@ describe('the openvideo editor in the shell', () => {
     const view = ctx.get('view') as { file: string; w: number; h: number } | undefined
     expect(view).toMatchObject({ file: '开场剪辑', w: 1280, h: 720 })
   })
+
+  it('exposes the timeline to the keyboard: a slider ruler and pressable chips', async () => {
+    const store = ctx.get('openvideoEditor') as EditorStore
+    handlers['openvideo.projects.get'] = {
+      project: {
+        id: 'p1',
+        name: '开场剪辑',
+        brief: '',
+        createdAt: '2026-01-01T00:00:00.000Z',
+        updatedAt: '2026-01-01T00:00:00.000Z',
+        coverAsset: null,
+        coverAt: null,
+        edl: {
+          version: 1,
+          output: { width: 1280, height: 720, fps: 30 },
+          main: { elements: [{ id: 'c1', type: 'video', src: 'asset:aaaaaaaaaaaaaaaa', duration: 4 }] },
+          overlays: [],
+          audio: [],
+        },
+      },
+    }
+    await act(async () => {
+      await store.openProject('p1')
+      await settle()
+    })
+    // the ruler is a slider: named, bounded, and reporting the playhead
+    const slider = container.querySelector('[role="slider"]')
+    expect(slider).not.toBeNull()
+    expect(slider?.getAttribute('aria-label')).toContain('播放位置')
+    expect(slider?.getAttribute('aria-valuemax')).toBe('4')
+    expect(slider?.getAttribute('aria-valuenow')).toBe('0')
+    // a chip is pressable and reports its selection state
+    const chip = container.querySelector('[role="button"][aria-pressed]')
+    expect(chip).not.toBeNull()
+    expect(chip?.getAttribute('aria-pressed')).toBe('false')
+  })
 })
