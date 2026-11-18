@@ -40,15 +40,20 @@ if (!kitDir && !kitSource) {
 // A stale cache from the other consumption mode makes CMake mix find_package()
 // and add_subdirectory() in one tree (e.g. an old `xmedia-kit_DIR` survives).
 // Drop the build directory whenever the selected seam or its path changes.
+// The wipe RESETS cache options too — the bake CLI's CEF/GLFW intent must be
+// read BEFORE the wipe and re-applied after it, or a routine seam switch
+// silently removes xmedia-bake (measured 2026-11-18).
 const cacheFile = join(BUILD_DIR, 'CMakeCache.txt')
+let hadCef = false
 if (existsSync(cacheFile)) {
   const text = readFileSync(cacheFile, 'utf8')
+  hadCef = /XMEDIA_ENABLE_CEF:BOOL=ON/.test(text)
   const cachedValue = (key) => new RegExp(`^${key}:PATH=(.*)$`, 'm').exec(text)?.[1] ?? ''
   const wantDir = kitSource ? '' : (kitDir ?? '')
   const wantSource = kitSource ?? ''
   if (cachedValue('XMEDIA_KIT_DIR') !== wantDir ||
       cachedValue('XMEDIA_KIT_SOURCE_DIR') !== wantSource) {
-    console.log('SDK 消费方式已变化，清理旧的 CMake 构建目录…')
+    console.log(`SDK 消费方式已变化，清理旧的 CMake 构建目录…${hadCef ? '（烘焙旗标将在新配置中沿用）' : ''}`)
     rmSync(BUILD_DIR, { recursive: true, force: true })
   }
 }
@@ -68,7 +73,13 @@ if (process.env.XMEDIA_DEPS_LIBDIR) configure.push(`-DXMEDIA_DEPS_LIBDIR=${proce
 // The bake CLI needs the kit's opt-in CEF + GLFW layers. Source-tree mode only
 // (installed mode does not export those targets). GLFW is found system-wide;
 // on macOS `brew install glfw`, Linux follows the kit's docs/BUILDING.md.
-const wantBake = process.env.XMEDIA_BUILD_CEF === '1'
+// Intent is sticky: XMEDIA_BUILD_CEF=1 turns it on; UNSET keeps a previous ON
+// (so a routine seam switch does not silently drop xmedia-bake); =0 turns it
+// off explicitly.
+const cefEnv = process.env.XMEDIA_BUILD_CEF
+const wantBake = cefEnv === '1' || (cefEnv === undefined && hadCef)
+if (cefEnv === '0' && hadCef) console.log('XMEDIA_BUILD_CEF=0：本次构建产物将不含烘焙 CLI')
+if (cefEnv === undefined && hadCef) console.log('沿用上次的烘焙旗标(XMEDIA_ENABLE_CEF=ON)')
 if (wantBake && !kitSource) {
   console.error('XMEDIA_BUILD_CEF=1 需要 XMEDIA_KIT_SOURCE_DIR(源码树消费):CEF/GLFW 目标不随 installed SDK 导出')
   process.exit(1)
