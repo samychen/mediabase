@@ -359,10 +359,11 @@ describe('the xmedia HF Studio capability', () => {
     // The browser talks to the studio DIRECTLY — the host only hands out the
     // URL. The fake server proves that boundary is real (no proxying needed).
     // Poll for readiness: spawn returns before server.listen binds the port.
+    // 20 s (the default 10 s flaked once under a fully loaded machine).
     const page = await waitFor<{ status: number }>(async () => {
       const r = await fetch(state.url).catch(() => null)
       return r?.ok ? { status: r.status } : false
-    }, 10_000)
+    }, 20_000)
     expect(page.status).toBe(200)
     const projects = await (await fetch(`${state.url}api/projects`)).json()
     expect(projects).toMatchObject({ projects: [] })

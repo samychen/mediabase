@@ -1046,12 +1046,18 @@ importers:
       '@xmedia/host-engine':
         specifier: ^0.1.6
         version: link:../../packages/host/engine
+      '@xmedia/host-studio':
+        specifier: ^0.1.6
+        version: link:../../packages/host/studio
 
   product/xmedia/packages/bundle/app:
     dependencies:
       '@xmedia/host-engine':
         specifier: ^0.1.6
         version: link:../../host/engine
+      '@xmedia/host-studio':
+        specifier: ^0.1.6
+        version: link:../../host/studio
 
   product/xmedia/packages/host/engine:
     dependencies:
@@ -1061,6 +1067,24 @@ importers:
       '@mediabase/engine-client':
         specifier: ^0.1.6
         version: link:../../../../../packages/base/engine-client
+      '@mediabase/log':
+        specifier: ^0.1.6
+        version: link:../../../../../packages/base/log
+      '@mediabase/rpc':
+        specifier: ^0.1.6
+        version: link:../../../../../packages/base/rpc
+      '@mediabase/schema':
+        specifier: ^0.1.6
+        version: link:../../../../../packages/base/schema
+      '@mediabase/tools':
+        specifier: ^0.1.6
+        version: link:../../../../../packages/host/tools
+
+  product/xmedia/packages/host/studio:
+    dependencies:
+      '@mediabase/api':
+        specifier: ^0.1.6
+        version: link:../../../../../packages/host/api
       '@mediabase/log':
         specifier: ^0.1.6
         version: link:../../../../../packages/base/log
