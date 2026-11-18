@@ -462,6 +462,8 @@ ffprobe 解码断言；无工具链时断言诚实拒绝）→ （有 MediaMTX �
 1. **不改上游、不进基座**。sidecar 是独立 CMake 工程，通过 SDK 官方的
    `find_package(xmedia-kit)` / `add_subdirectory` 消费；`@mediabase/*` 对 xmedia 一无所知。
    `publish.*` 是产品动词，协议版本 1 不变。
+   **消费版本**：kit `main@26e96c8`（2026-11-18 pull，含 HF 对齐烘焙重构、GPU 合成修复、
+   Studio 应用）——重建后 bake/bridge 无需产品侧改动即兼容，真机烘焙端到端复验通过。
 2. **播放交给浏览器**。音频、A/V 同步、seek、硬解、色彩管理、字幕由 `<video>` 与
    MediaMTX 提供，Host 不实现任何帧传输、背压或 pacing；C++ 侧连 Player 都不实例化。
    这是"用最小复杂度换可靠性"。
@@ -483,8 +485,10 @@ ffprobe 解码断言；无工具链时断言诚实拒绝）→ （有 MediaMTX �
    配额、长稳 soak、崩溃后播放位置重建；macOS 的 Seatbelt 因废弃 API 不支持内联档案而不生效
    （如实回 `false`，仅 POSIX 资源上限兜底），真正的进程沙箱以 Linux seccomp 为准；
    烘焙子进程**不继承** bridge 沙箱（Chromium 多进程模型与 seccomp/Seatbelt 互斥，CEF 自带
-   渲染进程沙箱）——刻意豁免，见 3.2 节。上游 player_qt 编辑器骨架与 HyperFrames Studio
-   编辑器本体**不移植**（前者与"播放归浏览器"冲突且无实际功能，后者 kit 不携带）。
+   渲染进程沙箱）——刻意豁免，见 3.2 节。上游的 HF Studio 应用（Python stdlib 服务器 +
+   vanilla JS 单文件 UI，`tools/hf_studio.py --serve`，kit `docs/HF_COMPOSE.md`）**尚未移植**：
+   它是独立战役（需决定服务器栈、面板形状、与宿主 UI 的关系），烘焙管线已先行接好，
+   Studio 的导出正是调用同一条 `html_bake` 管线。
    这些是"内部验收工具"不需要的复杂度，不做。
 8. **许可**：xmedia-kit BSD-3-Clause（`media/filters/legacy/` 内算法保留 LGPL-2.1），
    MediaMTX MIT；捆绑 FFmpeg 的链接与分发义务由**产品仓**承担。基座 MIT、不含原生二进制。
