@@ -114,8 +114,17 @@ html[data-theme='studio-light'] {
 .ov-lane-label .ov-mini { margin-left: -2px; }
 .ov-lane-content { position: relative; height: 46px; background: var(--inset, #0d1117);
   border: none; box-shadow: inset 0 0 0 1px var(--border, #21262d); border-radius: 8px; }
-.ov-ruler .ov-lane-content { height: 18px;
-  background-image: repeating-linear-gradient(to right, var(--border, #30363d) 0 1px, transparent 1px 48px); }
+.ov-ruler .ov-lane-content { height: 18px; overflow: hidden; cursor: text; }
+/* Ticks are elements, not a background gradient: a fixed pixel pitch cannot
+   follow the zoom (it drifted to one line every 0.12s at 400pps). */
+.ov-tick { position: absolute; top: 0; bottom: 0; width: 1px; pointer-events: none; }
+.ov-tick-major { background: var(--border, #30363d); }
+.ov-tick-minor { background: var(--border, #30363d); opacity: 0.4; top: auto; height: 4px; bottom: 0; }
+.ov-tick-label { position: absolute; top: 2px; left: 4px; font-size: 10px; line-height: 1;
+  color: var(--muted, #8b949e); white-space: nowrap; font-variant-numeric: tabular-nums; }
+/* keyboard focus: the ruler slider and the chips are focusable (role=slider / role=button) */
+.ov-lane-content:focus-visible, .ov-chip:focus-visible {
+  outline: 2px solid var(--accent, #58a6ff); outline-offset: 1px; }
 .ov-chip { position: absolute; top: 3px; bottom: 3px; border-radius: 6px; padding: 2px 6px;
   overflow: hidden; cursor: pointer; display: flex; flex-direction: column;
   border: none; box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.06); }

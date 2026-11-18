@@ -13,5 +13,8 @@ export default defineConfig({
       '/api': { target: 'http://127.0.0.1:3088' },
     },
   },
-  build: { outDir: 'dist', sourcemap: true },
+  // React is the stable vendor layer: its own chunk keeps the immutable cache
+  // warm across app-code releases (the gateway caches hashed assets forever).
+  // The roster stays STATIC imports by design — this splits without touching it.
+  build: { outDir: 'dist', sourcemap: true, rollupOptions: { output: { manualChunks: { react: ['react', 'react-dom'] } } } },
 })

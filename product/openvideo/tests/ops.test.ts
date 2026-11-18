@@ -49,6 +49,35 @@ describe('applyOp: main track', () => {
     expect(refused(cut(), 'trim_clip', { clip: 0, seconds: 0.01 })).toContain('0.05')
   })
 
+  it('trim_clip sets an image clip\'s duration', () => {
+    // An image's play window IS its duration, so trim_clip must accept it —
+    // otherwise the only trim gesture the UI can offer is refused by the op.
+    const doc = cut()
+    doc.main.elements.push({ id: 'img', type: 'image', src: 'asset:cccccccccccccccc', duration: 2 })
+    said(doc, 'trim_clip', { clip: 2, seconds: 4 })
+    expect(doc.main.elements[2]).toMatchObject({ type: 'image', duration: 4 })
+  })
+
+  it('trim_clip ignores start on an image instead of refusing it', () => {
+    // One drag handler drives both kinds; an image has no head, so the value
+    // is dropped rather than turned into an error the UI has to special-case.
+    const doc = cut()
+    doc.main.elements.push({ id: 'img', type: 'image', src: 'asset:cccccccccccccccc', duration: 2 })
+    said(doc, 'trim_clip', { clip: 2, start: 3, seconds: 4 })
+    expect(doc.main.elements[2]).toMatchObject({ type: 'image', duration: 4 })
+    expect(doc.main.elements[2]?.trimStart).toBeUndefined()
+  })
+
+  it('trim_clip clears trimEnd when it writes a play window', () => {
+    // A play window wins over a tail trim (mainDur). Leaving both would put two
+    // contradicting lengths in the document.
+    const doc = cut()
+    doc.main.elements[0] = { ...doc.main.elements[0]!, trimEnd: 2 }
+    said(doc, 'trim_clip', { clip: 0, seconds: 5 })
+    expect(doc.main.elements[0]?.trimEnd).toBeUndefined()
+    expect(doc.main.elements[0]).toMatchObject({ duration: 5 })
+  })
+
   it('split_clip cuts in two and keeps the whole length', () => {
     const doc = cut()
     said(doc, 'split_clip', { clip: 0, at: 4 })
@@ -95,6 +124,29 @@ describe('applyOp: overlays, audio, shape', () => {
     said(doc, 'remove_text', { track: 0, index: 0 })
     expect(doc.overlays?.[0]?.elements).toHaveLength(0)
     expect(refused(doc, 'remove_text', { track: 3, index: 0 })).toContain('no text')
+  })
+
+  it('remove_overlay removes a media element and refuses a missing index', () => {
+    // An overlay track may hold video/image elements, not only text; the UI's
+    // delete button must go through an op for both kinds.
+    const doc = cut()
+    doc.overlays = [{
+      id: 'ov',
+      elements: [{ id: 'm', type: 'image', src: 'asset:dddddddddddddddd', startTime: 0, duration: 2, x: 0, y: 0, width: 100 }],
+    }]
+    expect(said(doc, 'remove_overlay', { track: 0, index: 0 })).toContain('overlay')
+    expect(doc.overlays![0]?.elements).toHaveLength(0)
+    expect(refused(doc, 'remove_overlay', { track: 0, index: 0 })).toContain('no text')
+  })
+
+  it('remove_text still works as an alias for the same transform', () => {
+    const doc = cut()
+    doc.overlays = [{
+      id: 'ov',
+      elements: [{ id: 'm', type: 'image', src: 'asset:dddddddddddddddd', startTime: 0, duration: 2, x: 0, y: 0, width: 100 }],
+    }]
+    expect(said(doc, 'remove_text', { track: 0, index: 0 })).toContain('text')
+    expect(doc.overlays![0]?.elements).toHaveLength(0)
   })
 
   it('add_audio / remove_audio manage the music bed', () => {

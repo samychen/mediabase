@@ -15,12 +15,12 @@
 import type { Context } from '@deepseek-ai/cordis'
 import type { AgentResult, AgentTurn } from '@mediabase/protocol'
 import {
+  applyOp,
   captionTimeline,
   describeEdl,
   mainSegments,
   parseVtt,
   rid,
-  splitClip,
   type AssetRow,
   type Cue,
   type Edl,
@@ -94,8 +94,10 @@ export interface EditorStore {
   removeProject(id: string): Promise<void>
   renameProject(name: string): Promise<void>
   setBrief(brief: string): Promise<void>
-  /** A local edit: one undo step unless `coalesce` folds it into the last one. */
-  setDraft(fn: (draft: Edl) => void, coalesce?: boolean): void
+  /** A local edit: one undo step unless `coalesce` folds it into the last one.
+   *  Return `false` from the transform to refuse it — the draft is dropped and
+   *  no undo step is recorded (a refused op must not look like a no-op undo). */
+  setDraft(fn: (draft: Edl) => void | boolean, coalesce?: boolean): void
   saveNow(): Promise<void>
   undo(): void
   redo(): void
@@ -378,7 +380,11 @@ export function createEditorStore(ctx: Context): EditorStore {
       const { draft } = state
       if (draft === null) return
       const next = structuredClone(draft)
-      fn(next)
+      // A transform that refuses (`applyOp` returned an error) says so by
+      // returning false: the draft is discarded and NO undo step is pushed.
+      // Without this a refused click leaves an empty step — undo appears to do
+      // nothing, which is worse than the refusal itself.
+      if (fn(next) === false) return
       if (coalesce !== true) {
         past.push(draft)
         future.length = 0
@@ -616,11 +622,9 @@ export function createEditorStore(ctx: Context): EditorStore {
       const at = playhead - active.start
       if (at <= 0.05 || at >= active.dur - 0.05) return false
       store.setDraft((d) => {
-        const clip = d.main.elements[active.i]
-        if (clip === undefined) return
-        const halves = splitClip(clip, at, active.dur, rid())
-        if (halves === null) return
-        d.main.elements.splice(active.i, 1, ...halves)
+        // Same checked operation an agent calls — one path, one audit trail.
+        const out = applyOp(d, 'split_clip', { clip: active.i, at })
+        return 'error' in out ? false : undefined
       })
       set({ sel: { kind: 'main', index: active.i } })
       return true

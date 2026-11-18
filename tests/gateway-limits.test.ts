@@ -59,13 +59,13 @@ function closeCode(ws: WebSocket): Promise<number> {
  * keep-alive connections across tests, which can make a request land on a
  * previous server's socket and hide the behaviour under test.
  */
-function get(url: string): Promise<{ status: number; body: string }> {
+function get(url: string, headers: Record<string, string> = {}): Promise<{ status: number; body: string; headers: http.IncomingHttpHeaders }> {
   return new Promise((resolve, reject) => {
-    const req = http.get(url, (res) => {
+    const req = http.get(url, { headers }, (res) => {
       let body = ''
       res.setEncoding('utf8')
       res.on('data', (chunk: string) => { body += chunk })
-      res.on('end', () => resolve({ status: res.statusCode ?? 0, body }))
+      res.on('end', () => resolve({ status: res.statusCode ?? 0, body, headers: res.headers }))
     })
     req.on('error', reject)
   })
@@ -225,5 +225,43 @@ describe('gateway limits: graceful close', () => {
     const closing = g.close({ drainMs: 10_000 })
     expect(await received).toBe(big.byteLength)
     await closing
+  })
+})
+
+describe('gateway static serving: caching and compression (modern-web guidance)', () => {
+  it('marks hashed assets immutable, the SPA entry and unhashed files revalidating', async () => {
+    const dir = mkdtempSync(join(tmpdir(), 'mediabase-gateway-static-'))
+    writeFileSync(join(dir, 'index.html'), '<!doctype html><div id="root">shell</div>')
+    writeFileSync(join(dir, 'index-CJXz2xkP.js'), 'console.log(1)')
+    writeFileSync(join(dir, 'logo.png'), 'png')
+    const g = await gateway({ distIndex: join(dir, 'index.html') })
+
+    // the SPA entry names the hashed assets — it must revalidate
+    const entry = await get(`http://127.0.0.1:${g.port()}/`)
+    expect(entry.headers['cache-control']).toBe('no-cache')
+    // a bundler content hash in the name IS the cache key — cache forever
+    const hashed = await get(`http://127.0.0.1:${g.port()}/index-CJXz2xkP.js`)
+    expect(hashed.headers['cache-control']).toBe('public, max-age=31536000, immutable')
+    // a public/ file copied without a hash could change under its name — revalidate
+    const unhashed = await get(`http://127.0.0.1:${g.port()}/logo.png`)
+    expect(unhashed.headers['cache-control']).toBe('no-cache')
+  })
+
+  it('gzips a text body only when the client asks for it', async () => {
+    const dir = mkdtempSync(join(tmpdir(), 'mediabase-gateway-gzip-'))
+    const big = '<!doctype html>' + 'x'.repeat(4 * 1024)
+    writeFileSync(join(dir, 'index.html'), big)
+    const g = await gateway({ distIndex: join(dir, 'index.html') })
+
+    const plain = await get(`http://127.0.0.1:${g.port()}/`)
+    expect(plain.headers['content-encoding']).toBeUndefined()
+    expect(plain.body).toBe(big)
+    expect(plain.headers['cache-control']).toBe('no-cache')
+
+    const zipped = await get(`http://127.0.0.1:${g.port()}/`, { 'accept-encoding': 'gzip' })
+    expect(zipped.headers['content-encoding']).toBe('gzip')
+    expect(zipped.headers.vary).toBe('accept-encoding')
+    // a gzipped body is not the plain text (decompressing it is zlib's job — the header is the contract here)
+    expect(zipped.body).not.toBe(big)
   })
 })
