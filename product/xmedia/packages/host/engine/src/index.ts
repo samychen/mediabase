@@ -297,7 +297,7 @@ const BakeStartParamsS = z.object({
   height: z.number().min(16).max(4096).description('高度;默认 240'),
   codec: z.string().description('视频编码器名(avcodec 编码器名,如 libx264/h264_videotoolbox);默认 macOS h264_videotoolbox / 其他 libx264'),
   clock: z.union([z.const('virtual_time'), z.const('seek'), z.const('live')])
-    .description('烘焙时钟;默认 virtual_time(VT 步进,确定性可复现)'),
+    .description('烘焙时钟;默认按页面来源选择——本地页 virtual_time(VT 确定性),远程 URL live(VT 会冻结 CEF 网络栈,远程页永远加载不完)'),
   chunks: z.number().min(1).max(64).description('分块数;每块独立编码后无损拼接'),
   data: z.dict(z.any()).description('页面数据注入(window.update 契约;首帧后注入一次)'),
   hfSeconds: z.boolean().description('HyperFrames 秒制时序(data-start/duration 单位为秒)'),
@@ -704,13 +704,21 @@ export function apply(ctx: Context, rawConfig: XmediaEngineConfig): void {
     // as the live publish path.
     const codec = options.codec ??
       (process.platform === 'darwin' ? 'h264_videotoolbox' : 'libx264')
+    // Clock default follows the page's origin: VirtualTime freezes CEF's
+    // network-service timers, so a REMOTE page never finishes its TLS
+    // handshake under VT (measured: SSL handshake failed / net_error -100 →
+    // no first frame in 30s). Remote pages bake with the live wall clock;
+    // local pages keep the deterministic VT default.
+    const remotePage = /^[a-z][a-z0-9+.-]*:\/\//i.test(htmlPath) &&
+      !htmlPath.startsWith('file://')
+    const clock = options.clock ?? (remotePage ? 'live' : undefined)
     const optionsJson = JSON.stringify({
       seconds: options.seconds,
       fps: options.fps,
       width: options.width,
       height: options.height,
       codec,
-      clock: options.clock,
+      clock,
       chunks: options.chunks,
       // The bridge extracts `data` as a JSON STRING: double-stringify. A
       // nested object would be invisible to the bridge's minimal extractor.

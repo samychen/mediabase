@@ -117,8 +117,11 @@ kit 按 `avcodec_find_encoder_by_name` 查找，要的是**编码器名**而非�
 - **取消**：`bake.cancel` → 子进程 SIGTERM（协作式：帧循环退出、自行删除半成品与分块文件、
   退出码 3）；8s 未退升级 SIGKILL，此时由 bridge 删除已知输出路径。
 - **旋钮**（`optionsJson`，宿主 zod 校验）：`seconds / fps / width / height / codec / clock
-  (virtual_time|seek|live) / chunks / data(window.update 注入) / hfSeconds(HF 秒制时序) /
-  audio`。
+  / chunks / data(window.update 注入) / hfSeconds(HF 秒制时序) / audio`。
+  **时钟默认按页面来源选择**：本地页 `virtual_time`（VT 步进，确定性可复现）；
+  **远程 URL 默认 `live`**——VirtualTime 会冻结 CEF 网络服务的定时器，远程页面
+  TLS 握手永远完不成（实测 `SSL handshake failed / net_error -100` → 30s 无首帧），
+  而墙钟 live 下远程页面烘焙正常（bilibili 首页 10 帧实测通过）。
 - **成片路由**：唯一数据面例外——`GET /api/xmedia.bake.<jobId>`（200 + Range 206）。
   路由名即任务 ID（无路径参数可穿越）、文件**真实存在**才注册、表有界（24 条最旧淘汰）；
   发布路径仍然零字节经过 mediabase。
