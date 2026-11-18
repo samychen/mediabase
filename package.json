@@ -49,6 +49,8 @@
     "test:xmedia": "vitest run --config product/xmedia/vitest.config.ts",
     "verify:xmedia:compose": "node scripts/verify-composition.mjs packages/bundle/app/cordis.patch.yml product/xmedia/packages/bundle/app/cordis.patch.yml",
     "verify:xmedia": "node product/xmedia/scripts/verify.mjs",
+    "sync:studio": "node product/xmedia/scripts/sync-studio.mjs",
+    "check:xmedia-drift": "node product/xmedia/scripts/sync-studio.mjs --check && node product/xmedia/scripts/verify-protocol.mjs",
     "sync:highlight-engine": "node product/highlight/scripts/sync-engine.mjs",
     "gen:highlight-protocol": "node product/highlight/scripts/gen-protocol.mjs",
     "gen:highlight-roster": "node product/highlight/scripts/gen-client-roster.mjs",

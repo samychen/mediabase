@@ -135,6 +135,26 @@ kit 按 `avcodec_find_encoder_by_name` 查找，要的是**编码器名**而非�
 - **沙箱豁免**：bridge 自身可上 seccomp/Seatbelt，但 bake 子进程**不继承**——Chromium
   多进程模型与该类沙箱互斥（CEF 有自己的渲染进程沙箱），README 特此记录这一刻意决定。
 
+### 3.3 HF Studio 编辑器（独立 Python 进程，`@xmedia/host-studio`）
+
+上游 kit 的 HF Studio 应用（HyperFrames 对齐创作工作台：Home 项目管理 / agent 对话 /
+分镜叙事 Arc 模板 / 5 轨时间线 / 导出）以**第二个 sidecar** 接入：
+
+- **进程**：`python3 studio/tools/hf_studio.py --serve --home --port 8120`（stdlib
+  ThreadingHTTPServer，只绑 127.0.0.1）。编辑器 UI 与 REST API 由 Studio **自己提供**，
+  浏览器直连——宿主只做监督与入口分发，**不代理任何 studio 字节**（与 MediaMTX 边界同构）。
+- **vendored 切片 + 漂移闸门**：`scripts/sync-studio.mjs` 从 kit 检出同步 14 个文件 +
+  `assets/sfx`/`templates` 到 `studio/`（副本独立运行），施加两处**机械变换**并断言锚点：
+  T1 `bake_bin()` 接缝（env `XMEDIA_BAKE_BIN` → 产品 `engine/build/xmedia-bake[.app]` 探测，
+  导出/分镜帧因此走产品烘焙管线）；T2 agent 提示词的机器路径参数化（上游硬编码
+  `/Users/.../avbase`）。`check:xmedia-drift` = `sync-studio --check` + 协议漂移检查。
+- **身份对齐**：Studio 默认项目根 `~/.xmedia/projects` 与本产品身份目录 `.xmedia` 是
+  **同一个目录**（刻意：项目数据在产品 home 内）。
+- **监督**：spawn/崩溃事件（`xmedia.studio`）/重启上限/秒退判定都在能力包，
+  `ctx.effect` 清理；`python3` 缺失时如实报告未运行（verify 断言）。
+- **agent 对话**：规则引擎开箱即用；`claude`/`codex` CLI 在 PATH 上时自动启用子进程
+  模式（5 轮历史 + 每轮 undo 快照）；可选 LLM 走 `XMEDIA_LLM_ENDPOINT/_API_KEY/_MODEL`。
+
 **为什么用 `TranscodeJob` 而不是同步 `Transcode()`**：桥接是单线程 stdin 循环，
 同步调用会冻结整条命令通道，导致 `status` / `stop` 无人应答。`TranscodeJob`
 自带 worker 与 cancel，正是为异步宿主准备的。
@@ -398,6 +418,11 @@ pnpm run host:xmedia                       # http://127.0.0.1:3092
 | `XMEDIA_BAKE_BIN` | 烘焙 CLI 可执行（空 = bridge 探测自身同级 `.app`/平铺二进制） | 空 |
 | `XMEDIA_BAKE_ROUTE` | 烘焙成片经 `/api/xmedia.bake.<jobId>` 拉取路由对外提供 | 开 |
 | `XMEDIA_BUILD_CEF=1` | （仅构建期）同时构建 `xmedia-bake`：需要 kit 的 CEF distro + GLFW | 关 |
+| `XMEDIA_STUDIO_PYTHON` / `XMEDIA_STUDIO_SCRIPT` | Studio 服务器解释器 / 入口脚本 | `python3` / `<产品根>/studio/tools/hf_studio.py` |
+| `XMEDIA_STUDIO_PORT` | Studio loopback 端口（浏览器直连，宿主不代理） | 8120 |
+| `XMEDIA_BAKE_BIN` | 烘焙 CLI（Studio 导出/分镜帧经此接缝调用） | 空 = bake_bin() 探测 |
+| `XMEDIA_STUDIO_AUTO_START` / `_AUTO_RESTART` / `_MAX_RESTARTS` / `_RESTART_DELAY_MS` | Studio 监督策略 | 开 / 开 / 3 / 500 |
+| `XMEDIA_KIT_ROOT` | （agent 对话提示词用）kit 源码根，默认为同步副本根 | 空 |
 | `XMEDIA_STRICT_CAPABILITIES=1` | manifest 不实即拒绝启动 | 关 |
 | `XMEDIA_READONLY=1` | 拒绝一切 `mutates` 方法 | 关 |
 | `XMEDIA_ENGINE_SANDBOX=1` | 启动引擎时加 `--sandbox`（POSIX 资源上限；Linux seccomp / macOS Seatbelt best-effort） | 关 |
@@ -493,10 +518,10 @@ ffprobe 解码断言；无工具链时断言诚实拒绝）→ （有 MediaMTX �
    配额、长稳 soak、崩溃后播放位置重建；macOS 的 Seatbelt 因废弃 API 不支持内联档案而不生效
    （如实回 `false`，仅 POSIX 资源上限兜底），真正的进程沙箱以 Linux seccomp 为准；
    烘焙子进程**不继承** bridge 沙箱（Chromium 多进程模型与 seccomp/Seatbelt 互斥，CEF 自带
-   渲染进程沙箱）——刻意豁免，见 3.2 节。上游的 HF Studio 应用（Python stdlib 服务器 +
-   vanilla JS 单文件 UI，`tools/hf_studio.py --serve`，kit `docs/HF_COMPOSE.md`）**尚未移植**：
-   它是独立战役（需决定服务器栈、面板形状、与宿主 UI 的关系），烘焙管线已先行接好，
-   Studio 的导出正是调用同一条 `html_bake` 管线。
+   渲染进程沙箱）——刻意豁免，见 3.2 节。HF Studio 编辑器已作为**第二个 sidecar** 接入
+   （3.3 节）：vendored 切片 + 两处机械变换 + 漂移闸门；上游 `xmedia_mcp.py` MCP 门面
+   与 `tools/web` 的 Vite 源树不在移植范围（前者与基座 agent/tools 重复，后者是构建期
+   源码，产品消费其单文件构建产物 `studio_ui.html`）。
    这些是"内部验收工具"不需要的复杂度，不做。
 8. **许可**：xmedia-kit BSD-3-Clause（`media/filters/legacy/` 内算法保留 LGPL-2.1），
    MediaMTX MIT；捆绑 FFmpeg 的链接与分发义务由**产品仓**承担。基座 MIT、不含原生二进制。

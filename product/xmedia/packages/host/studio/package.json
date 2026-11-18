@@ -1,0 +1,23 @@
+{
+  "name": "@xmedia/host-studio",
+  "version": "0.1.6",
+  "private": true,
+  "type": "module",
+  "description": "HF Studio web-app capability: supervises the vendored Python stdlib server (projects, chat, storyboard, timeline, export) on its own loopback port; the browser talks to it directly and the host never proxies studio bytes",
+  "main": "src/index.ts",
+  "types": "src/index.ts",
+  "exports": {
+    ".": "./src/index.ts"
+  },
+  "files": [
+    "src"
+  ],
+  "dependencies": {
+    "@mediabase/api": "^0.1.6",
+    "@mediabase/log": "^0.1.6",
+    "@mediabase/rpc": "^0.1.6",
+    "@mediabase/schema": "^0.1.6",
+    "@mediabase/tools": "^0.1.6"
+  },
+  "license": "MIT"
+}

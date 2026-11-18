@@ -71,6 +71,20 @@
   </section>
 
   <section>
+    <h2>HF Studio 编辑器（HyperFrames 对齐创作工作台）</h2>
+    <div class="row">
+      <button id="studio-open" class="primary">打开 Studio（新标签）</button>
+      <a id="studio-link" class="label" href="#" target="_blank" rel="noopener" style="display:none"></a>
+    </div>
+    <pre id="studio-state" class="muted" style="margin-top: 10px">状态读取中…</pre>
+    <p class="label" style="margin: 8px 0 0; line-height: 1.6">
+      独立 Python 进程（stdlib HTTP 服务器，仅绑 127.0.0.1）：Home 项目管理、agent 对话、
+      分镜叙事（Arc 模板）、时间线编辑与导出。浏览器直连 Studio，<strong>宿主不代理其字节</strong>；
+      导出经本产品的烘焙管线（xmedia-bake）。
+    </p>
+  </section>
+
+  <section>
     <h2>引擎监督状态</h2>
     <pre id="state" class="muted">连接中…</pre>
   </section>
@@ -292,9 +306,37 @@ const refreshHealth = async () => {
   }
 }
 
+// ---- HF Studio 入口 --------------------------------------------------------
+const refreshStudio = async () => {
+  const value = await call('xmedia.studio.state')
+  if (value && !value.error) {
+    $('studio-state').textContent = JSON.stringify(value, null, 2)
+    $('studio-state').classList.remove('muted')
+    if (value.running) {
+      const link = $('studio-link')
+      link.href = value.url + query
+      link.textContent = value.url
+      link.style.display = 'inline'
+    }
+  } else {
+    $('studio-state').textContent = 'Studio 状态读取失败'
+  }
+  return value
+}
+$('studio-open').onclick = async () => {
+  const value = await call('xmedia.studio.url')
+  if (value && !value.error && value.url) {
+    window.open(value.url + query, '_blank', 'noopener')
+    show(value)
+  } else {
+    show(value ?? { error: 'studio url 不可用' })
+  }
+}
+
 ws.addEventListener('open', () => {
   void refreshViewers()
   void refreshPublish()
+  void refreshStudio()
   void refreshHealth()
 })
 

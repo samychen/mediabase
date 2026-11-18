@@ -51,6 +51,29 @@
         # Override per FFmpeg build, e.g. XMEDIA_LIVE_VCODEC=h264_vaapi.
         liveVideoCodec: !!js ctx.env.str('LIVE_VCODEC')
 
+# HF Studio web app (HyperFrames 对齐的视频创作工作台): an independent Python
+# process serving its OWN editor UI + REST API on loopback — the browser talks
+# to it directly and the host never proxies studio bytes (same boundary shape
+# as MediaMTX above). The vendored server lives in studio/ (synced from the
+# kit by scripts/sync-studio.mjs with a drift gate). SHORT env names again.
+- insert:
+    - id: xmedia-studio
+      name: '@xmedia/host-studio'
+      config:
+        pythonBin: !!js ctx.env.str('STUDIO_PYTHON')
+        scriptPath: !!js ctx.env.str('STUDIO_SCRIPT') ?? ctx.appPaths.root + 'studio/tools/hf_studio.py'
+        # NOTE: num() (prefixed) — rawNum reads the ENVIRONMENT-owned name
+        # without the identity prefix (that is the PORT row's contract).
+        port: !!js ctx.env.num('STUDIO_PORT') ?? 8120
+        homeMode: true
+        # The Studio's export/storyboard features shell out to the bake CLI;
+        # XMEDIA_BAKE_BIN is its documented seam (vendored xmedia.py bake_bin()).
+        bakeBinary: !!js ctx.env.str('BAKE_BIN')
+        autoStart: !!js ctx.env.flag('STUDIO_AUTO_START') ?? true
+        autoRestart: !!js ctx.env.flag('STUDIO_AUTO_RESTART')
+        maxRestarts: !!js ctx.env.num('STUDIO_MAX_RESTARTS')
+        restartDelayMs: !!js ctx.env.num('STUDIO_RESTART_DELAY_MS')
+
 # A patch replaces the WHOLE config of the row it targets, so this override
 # restates every field the base `server` row carried — only the default port
 # differs (:3088 base / :3090 openvideo / :3091 mtxconsole / :3092 xmedia),

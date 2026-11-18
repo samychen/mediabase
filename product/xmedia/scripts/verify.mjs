@@ -180,6 +180,7 @@ try {
     'xmedia.publish.start', 'xmedia.publish.stop', 'xmedia.publish.status',
     'xmedia.publish.viewers',
     'xmedia.bake.start', 'xmedia.bake.status', 'xmedia.bake.cancel',
+    'xmedia.studio.state', 'xmedia.studio.url', 'xmedia.studio.restart',
   ]) {
     checks.expect(`控制面含 ${wanted}`, methods.includes(wanted))
   }
@@ -427,6 +428,26 @@ try {
     }
   }
 
+  // ---- HF Studio web app (its own loopback server; the browser connects
+  // directly — the host hands out the URL and never proxies studio bytes) ------
+  {
+    const studioUrl = (await rpc.call('xmedia.studio.url'))?.url
+    checks.expect('HF Studio 入口 URL 指向 loopback',
+      typeof studioUrl === 'string' && studioUrl.startsWith('http://127.0.0.1:'),
+      JSON.stringify(studioUrl))
+    const pyOk = spawnSync('python3', ['--version'], { stdio: 'ignore' }).status === 0
+    const studioState = await rpc.call('xmedia.studio.state')
+    if (pyOk) {
+      const projects = await fetch(`${studioUrl}api/projects`)
+      checks.expect('HF Studio /api/projects 可达(浏览器直连边界)',
+        projects.status === 200,
+        `HTTP ${projects.status} at ${studioUrl}api/projects`)
+    } else {
+      checks.expect('无 python3 时 Studio 如实报告未运行',
+        studioState?.running === false, JSON.stringify(studioState))
+    }
+  }
+
   // ---- sandbox probe (only when explicitly requested with a real binary) ------
   // Spawns the C++ engine directly with --sandbox and asks for an idle status;
   // the reply must report sandboxed=true. Gated so the default smoke (fake or
@@ -469,6 +490,7 @@ try {
   checks.expect('页面注明实时预览默认重编码', html.includes('默认重新编码'))
   checks.expect('页面不含 C++ 引擎自检区块与 snapshot 抓帧',
     !html.includes('引擎自检') && !html.includes('xmedia.snapshot'))
+  checks.expect('页面含 HF Studio 入口区', html.includes('HF Studio 编辑器'))
   rpc.close()
 } catch (e) {
   checks.fail('冒烟执行', e instanceof Error ? e.stack ?? e.message : String(e))

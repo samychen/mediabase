@@ -337,6 +337,55 @@ describe('the xmedia bake control plane', () => {
   })
 })
 
+// ---- world 1c: the HF Studio web app capability -------------------------------
+
+describe('the xmedia HF Studio capability', () => {
+  let host: BootedHost | null = null
+
+  beforeAll(async () => {
+    host = await bootXmedia({ XMEDIA_STRICT_CAPABILITIES: '1' })
+  })
+  afterAll(async () => {
+    await host?.stop()
+    host = null
+  })
+
+  it('supervises the studio server and hands out its loopback URL', async () => {
+    const state = await host!.rpc.call<{ running: boolean; url: string; port: number }>(
+      'xmedia.studio.state')
+    expect(state.running).toBe(true)
+    expect(state.url).toBe(`http://127.0.0.1:${state.port}/`)
+
+    // The browser talks to the studio DIRECTLY — the host only hands out the
+    // URL. The fake server proves that boundary is real (no proxying needed).
+    // Poll for readiness: spawn returns before server.listen binds the port.
+    const page = await waitFor<{ status: number }>(async () => {
+      const r = await fetch(state.url).catch(() => null)
+      return r?.ok ? { status: r.status } : false
+    }, 10_000)
+    expect(page.status).toBe(200)
+    const projects = await (await fetch(`${state.url}api/projects`)).json()
+    expect(projects).toMatchObject({ projects: [] })
+  })
+
+  it('restarts the studio server through the control plane', async () => {
+    const before = await host!.rpc.call<{ pid: number }>('xmedia.studio.state')
+    const after = await host!.rpc.call<{ pid: number; running: boolean }>(
+      'xmedia.studio.restart')
+    expect(after.running).toBe(true)
+    expect(after.pid).not.toBe(before.pid)
+  })
+
+  it('carries the studio in health and honors it in the strict manifest', async () => {
+    const health = await (await fetch(`http://127.0.0.1:${host!.port}/api/health`)).json() as {
+      studio?: { running: boolean }
+    }
+    expect(health.studio?.running).toBe(true)
+    const reports = await host!.rpc.call<Array<{ ok: boolean }>>('capabilities.verify')
+    expect(reports.filter((r) => !r.ok)).toEqual([])
+  })
+})
+
 // ---- world 2: engine binary missing -----------------------------------------
 
 describe('the xmedia host with no engine binary', () => {
