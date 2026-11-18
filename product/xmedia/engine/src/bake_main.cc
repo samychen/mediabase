@@ -366,6 +366,15 @@ int main(int argc, char** argv) {
   composer_config.default_z = 0;
   GlElementComposer composer(composer_config);
 
+  // Non-contract pages (a plain web page, an app UI) carry NO data-* elements,
+  // and the element composer draws ONLY element quads — the full CEF frame is
+  // uploaded to an INVISIBLE master layer and element layers crop sub-rects
+  // out of it. Zero elements therefore bakes BLACK. For such pages this
+  // product composites the whole frame as a visible background layer instead
+  // (same primitives the lottie overlay uses). Contract pages are unaffected:
+  // their elements composite through the composer and this layer stays hidden.
+  GlScene::LayerId base_layer = GlScene::kNoLayer;
+
   const int total_frames = static_cast<int>(args.seconds * args.fps + 0.5);
   int64_t encoded = 0;
 
@@ -446,6 +455,18 @@ int main(int argc, char** argv) {
       }
     }
     composer.Sync(*scene, frame.get(), elements, t_ms);
+    if (elements.empty()) {
+      // No contract elements on this frame: show the full CEF frame directly,
+      // or the composited output is black (see base_layer above).
+      if (base_layer == GlScene::kNoLayer) {
+        base_layer = scene->AddVideoLayer(0);
+        scene->SetLayerRect(base_layer, 0.f, 0.f, 1.f, 1.f);
+      }
+      scene->SetLayerVisible(base_layer, true);
+      scene->Upload(base_layer, *frame);
+    } else if (base_layer != GlScene::kNoLayer) {
+      scene->SetLayerVisible(base_layer, false);
+    }
 #if defined(XMEDIA_HAS_LOTTIE) && XMEDIA_HAS_LOTTIE
     if (lottie_anim && lottie_layer != GlScene::kNoLayer) {
       auto lf = lottie_anim->RenderAtMs(t_ms);
