@@ -229,6 +229,14 @@ struct BakeJob {
   BakeSnapshot snap;
   pid_t pid = -1;
   int stderr_fd = -1;  // owned by the reader thread; closed there
+  // Last `xmedia-bake:` diagnostic the child printed on stderr. The terminal
+  // status carries it — "exited with code 1" alone would send the operator to
+  // the logs for a reason the process already told us.
+  std::string last_diag;
+  // The waiter JOINs this before writing the terminal snapshot: waitpid can
+  // fire before the reader drained the pipe's tail, and the last diagnostic
+  // usually sits in exactly that tail.
+  std::thread reader;
 };
 
 std::string BakeStatusJson(const BakeSnapshot& snap) {
@@ -711,38 +719,47 @@ class Bridge {
 
     // Reader thread: PROGRESS lines update the snapshot + the events queue;
     // every other line is forwarded to THIS process's stderr, which the host
-    // routes into the scoped logger.
-    std::thread([raw, jobId, fd = stderr_pipe[0]]() {
-      std::string buffer;
-      char chunk[4096];
-      bool open = true;
-      while (open) {
-        const ssize_t n = ::read(fd, chunk, sizeof(chunk));
-        if (n <= 0) break;
-        buffer.append(chunk, chunk + n);
-        size_t nl;
-        while ((nl = buffer.find('\n')) != std::string::npos) {
-          const std::string line = buffer.substr(0, nl);
-          buffer.erase(0, nl + 1);
-          if (line.rfind("PROGRESS\t", 0) == 0) {
-            const size_t tab = line.find('\t', 9);
-            if (tab == std::string::npos) continue;
-            const std::string stage = line.substr(9, tab - 9);
-            const int percent =
-                std::atoi(line.c_str() + tab + 1);
-            std::lock_guard<std::mutex> l(raw->mutex);
-            raw->snap.stage = stage;
-            raw->snap.progress = std::max(0, std::min(100, percent));
-            QueueEvent(std::string("{\"type\":\"BakeProgress\",\"jobId\":\"") +
-                       JsonEscape(jobId) + "\",\"stage\":\"" + JsonEscape(stage) +
-                       "\",\"progress\":" + std::to_string(raw->snap.progress) + "}");
-          } else if (!line.empty()) {
-            std::fprintf(stderr, "[bake %s] %s\n", jobId.c_str(), line.c_str());
+    // routes into the scoped logger. Owned by the job (the waiter joins it —
+    // see BakeJob::reader).
+    {
+      std::lock_guard<std::mutex> l(raw->mutex);
+      raw->reader = std::thread([raw, jobId, fd = stderr_pipe[0]]() {
+        std::string buffer;
+        char chunk[4096];
+        for (;;) {
+          const ssize_t n = ::read(fd, chunk, sizeof(chunk));
+          if (n <= 0) break;
+          buffer.append(chunk, chunk + n);
+          size_t nl;
+          while ((nl = buffer.find('\n')) != std::string::npos) {
+            const std::string line = buffer.substr(0, nl);
+            buffer.erase(0, nl + 1);
+            if (line.rfind("PROGRESS\t", 0) == 0) {
+              const size_t tab = line.find('\t', 9);
+              if (tab == std::string::npos) continue;
+              const std::string stage = line.substr(9, tab - 9);
+              const int percent =
+                  std::atoi(line.c_str() + tab + 1);
+              std::lock_guard<std::mutex> l(raw->mutex);
+              raw->snap.stage = stage;
+              raw->snap.progress = std::max(0, std::min(100, percent));
+              QueueEvent(std::string("{\"type\":\"BakeProgress\",\"jobId\":\"") +
+                         JsonEscape(jobId) + "\",\"stage\":\"" + JsonEscape(stage) +
+                         "\",\"progress\":" + std::to_string(raw->snap.progress) + "}");
+            } else if (!line.empty()) {
+              if (line.rfind("xmedia-bake:", 0) == 0) {
+                // The child's own reason (encoder init failure, paint timeout,
+                // CEF start failure …) — kept for the terminal status.
+                std::lock_guard<std::mutex> l(raw->mutex);
+                raw->last_diag = line;
+              }
+              std::fprintf(stderr, "[bake %s] %s\n", jobId.c_str(), line.c_str());
+            }
           }
         }
-      }
-      close(fd);
-    }).detach();
+        close(fd);
+      });
+    }
 
     // Waiter thread: reap the child, apply the terminal snapshot once, emit
     // the terminal event. Escalation: a cancel that the child ignores for 8 s
@@ -774,12 +791,19 @@ class Bridge {
         }
         std::this_thread::sleep_for(std::chrono::milliseconds(100));
       }
+      // Drain the stderr tail BEFORE the terminal snapshot: waitpid can beat
+      // the reader to the last lines, and the child's own diagnostic usually
+      // sits in exactly that tail (measured: "no first frame in 30s" was lost
+      // to this race once).
+      if (raw->reader.joinable()) raw->reader.join();
       bool was_cancelled = false;
       std::string output;
+      std::string diag;
       {
         std::lock_guard<std::mutex> l(raw->mutex);
         was_cancelled = raw->snap.cancelled;
         output = raw->snap.output;
+        diag = raw->last_diag;
         raw->snap.running = false;
         raw->snap.done = true;
         raw->snap.ok = exit_code == 0;
@@ -790,10 +814,12 @@ class Bridge {
           raw->snap.stage = "done";
         } else if (exit_code == 3 || was_cancelled) {
           raw->snap.cancelled = true;
-          raw->snap.error = "cancelled";
+          raw->snap.error = diag.empty() ? "cancelled"
+                              : "cancelled: " + diag;
           raw->snap.stage = "cancelled";
         } else {
-          raw->snap.error = "bake exited with code " + std::to_string(exit_code);
+          raw->snap.error = "bake exited with code " + std::to_string(exit_code) +
+                            (diag.empty() ? "" : ": " + diag);
           raw->snap.stage = "failed";
         }
       }

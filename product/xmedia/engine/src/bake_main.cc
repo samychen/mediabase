@@ -116,7 +116,14 @@ struct Args {
   int fps = 10;
   int width = 320;
   int height = 240;
-  std::string codec = "h264";  // the product bakes MP4, not MJPEG
+  // The kit looks encoders up by ENCODER name (avcodec_find_encoder_by_name);
+  // "h264" is a codec name and resolves to nothing. Default to the platform's
+  // hardware encoder, mirroring the host's live-publish default.
+#if defined(__APPLE__)
+  std::string codec = "h264_videotoolbox";
+#else
+  std::string codec = "libx264";
+#endif
   std::string clock = "virtual_time";
   int chunks = 1;
   std::string data_json;

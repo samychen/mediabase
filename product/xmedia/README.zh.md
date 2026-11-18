@@ -499,7 +499,9 @@ ffprobe 解码断言；无工具链时断言诚实拒绝）→ （有 MediaMTX �
 
 | 现象 | 检查 |
 |---|---|
-| `bake.start` 报 `bake binary not found` | 未构建烘焙工具链：`XMEDIA_BUILD_CEF=1 XMEDIA_KIT_SOURCE_DIR=… pnpm run build:xmedia:engine`（需要 CEF distro 与 GLFW）；或用 `XMEDIA_BAKE_BIN` 指向已有产物 |
+| `bake.start` 报 `bake binary not found` | 未构建烘焙工具链：`XMEDIA_BUILD_CEF=1 XMEDIA_KIT_SOURCE_DIR=… pnpm run build:xmedia:engine`（需要 CEF distro 与 GLFW）；或用 `XMEDIA_BAKE_BIN` 指向已有产物。烘焙旗标有粘性（换 SDK 源重建自动沿用），`XMEDIA_BUILD_CEF=0` 显式关闭 |
+| **烘焙远程 URL 失败 `no first frame in 30s`** | 机器必须**网络可达**该页面（本机实测 `hyperframes.heygen.com` 直连 exit 7 被阻断）。且注意：烘焙输入应是**契约页面**（`data-start/duration` 驱动）；远程 APP 页面（如 Studio 编辑器本体）只会被当作普通网页烘焙其界面。推荐把页面/工程落到本地后走 `file://`。失败时 `bake.status` 的 `error` 现在携带子进程的具体死因 |
+| 烘焙失败报 `video encoder: "h264" not in this FFmpeg build` | 用了编解码名当编码器名。宿主默认已按平台注入（macOS `h264_videotoolbox` / 其他 `libx264`）；直跑 CLI 或显式传参时请给**编码器名**（kit 按 `avcodec_find_encoder_by_name` 查找） |
 | `bake.status` 停在 failed、`error` 为 `no first frame in 30s` | CEF 冷启动超预算或页面无法加载：先用浏览器/`curl` 确认页面可达；`file://` 页面的**脚本子资源必须内联**（OSR 对相对 file:// 脚本渲染黑屏）；第二次烘焙通常显著变快（CEF 暖缓存） |
 | 烘焙产物黑屏/上下颠倒 | 先跑 `data:text` 之外的真实页面样本；上下颠倒说明读回翻转被改动（引擎按"画面方向与浏览器一致"处理行序） |
 | 开始发布后立刻失败 | `publish.status` 的 `error`：网络输出缺 `format` 会报 `INVALID_PARAMS`；`SourceOpenFailed` 通常是 MediaMTX 没起来或端口不通 |
