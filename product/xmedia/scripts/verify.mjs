@@ -34,7 +34,7 @@
 // Run:  pnpm run verify:xmedia
 //       XMEDIA_URL=http://127.0.0.1:3092 node product/xmedia/scripts/verify.mjs
 
-import { spawn } from 'node:child_process'
+import { spawn, spawnSync } from 'node:child_process'
 import { createServer } from 'node:net'
 import { existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
@@ -392,6 +392,23 @@ try {
         await new Promise((r) => probe.once('exit', r))
         checks.expect('真实烘焙产物可被 ffprobe 解码',
           /"format_name"/.test(out) && /mp4|matroska|avi/.test(out), out.slice(0, 200))
+        // And prove it is NOT BLACK. The element composer draws only data-*
+        // element quads, so a page without contract elements used to bake to
+        // pure black while every ffprobe/route check stayed green (measured).
+        // The bake CLI now composites the full frame as a background layer for
+        // element-less pages; assert the pixels prove it. Only asserted for the
+        // built-in smoke page — a caller-supplied page may legitimately be dark.
+        if (bakeHtml === '') {
+          const gray = spawnSync('ffmpeg', ['-hide_banner', '-loglevel', 'error',
+            '-i', bakeOut, '-frames:v', '1', '-vf', 'scale=160:90',
+            '-f', 'rawvideo', '-pix_fmt', 'gray', '-'], { stdio: ['ignore', 'pipe', 'ignore'] })
+          const pixels = gray.stdout ?? []
+          const mean = pixels.length > 0
+            ? pixels.reduce((a, b) => a + b, 0) / pixels.length
+            : 0
+          checks.expect('烘焙产物非全黑(首帧均值亮度 > 2)',
+            pixels.length > 0 && mean > 2, `mean=${mean.toFixed(2)} pixels=${pixels.length}`)
+        }
       }
       await rpc.call('xmedia.bake.cancel', { jobId }).catch(() => undefined)
       rmSync(bakeOut, { force: true })
