@@ -1,0 +1,14 @@
+{
+  "comment": "xmedia 插件清单 —— 数组顺序 = 默认导航顺序（插件可用 order 字段覆盖）。新功能 = 加一个 .js 文件 + 这里一行。契约见 index.html 顶部注释（对齐基座 UiPanel）。",
+  "plugins": [
+    "live.js",
+    "monitor.js",
+    "stream.js",
+    "player.js",
+    "sync.js",
+    "bake.js",
+    "config.js",
+    "studio.js",
+    "engine.js"
+  ]
+}

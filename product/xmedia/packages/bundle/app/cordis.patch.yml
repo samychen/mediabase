@@ -74,9 +74,33 @@
         maxRestarts: !!js ctx.env.num('STUDIO_MAX_RESTARTS')
         restartDelayMs: !!js ctx.env.num('STUDIO_RESTART_DELAY_MS')
 
+# MediaMTX control-plane bridge — a CAPABILITY-LEVEL composition: the in-repo
+# @xmedia/host-mtx-bridge package adapts MediaMTX's v3 API into ctx.api
+# (20 read/write methods + agent tools),
+# so this product's UI and agent consume ONE normalized vocabulary instead of
+# re-deriving the API. Credentials stay host-side; bytes NEVER flow through it
+# (media goes browser ⇄ MediaMTX directly).
+- insert:
+    - id: mediamtx
+      name: '@xmedia/host-mtx-bridge'
+      config:
+        # SHORT env names → XMEDIA_SERVER_URL etc. (same vocabulary the console
+        # product used). serverUrl defaults to http://127.0.0.1:9997 in the
+        # capability's Config; auth fields are only needed when MediaMTX
+        # enables its auth* settings.
+        serverUrl: !!js ctx.env.str('SERVER_URL')
+        serverName: !!js ctx.env.str('SERVER_NAME')
+        username: !!js ctx.env.str('USERNAME')
+        password: !!js ctx.env.str('PASSWORD')
+        serverToken: !!js ctx.env.str('SERVER_TOKEN')
+        timeoutMs: !!js ctx.env.num('TIMEOUT_MS')
+        # Multi-server registry JSON; default <home>/xmedia-mtx-servers.json —
+        # inside THIS product's home (.xmedia).
+        serversFile: !!js ctx.env.str('SERVERS_FILE')
+
 # A patch replaces the WHOLE config of the row it targets, so this override
 # restates every field the base `server` row carried — only the default port
-# differs (:3088 base / :3090 openvideo / :3091 mtxconsole / :3092 xmedia),
+# differs (:3088 base / :3090 openvideo / :3092 xmedia),
 # still overridable by the environment's own PORT.
 - id: server
   config:

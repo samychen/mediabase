@@ -46,13 +46,12 @@ scripts/     build-base · build-host · verify:compose · verify:base · notice
 tests/       package + composition + handoff-neutrality (no engine required)
 product/     in-repo product layers built ON the base — self-contained trees with
              their own scope, bundles, apps, scripts and tests (never imported by
-             @mediabase/*; the root workspace shares one install). Four shipped:
+             @mediabase/*; the root workspace shares one install). Three shipped:
              openvideo (agent-friendly video editor, ported from clawnify/OpenVideo
              MIT — the in-repo reference for the HANDOFF adoption checklist),
-             mediamtx-console (clean-room MediaMTX admin), xmedia (C++20 transcode
-             service) and highlight (Python sidecar for highlight detection).
-             Root scripts are per product: *:openvideo, *:mtxconsole, *:xmedia,
-             *:highlight.
+             xmedia (C++20 transcode service, with the MediaMTX bridge/plugins
+             fully merged in) and highlight (Python sidecar for highlight detection).
+             Root scripts are per product: *:openvideo, *:xmedia, *:highlight.
 ```
 
 This repo ships **no** agent notes or repo-local skills: `.agents/notes` and the

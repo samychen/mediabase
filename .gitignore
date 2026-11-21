@@ -26,7 +26,6 @@ product/highlight/engine/models/
 # runtime state a running host creates (confined plugins get a data dir here)
 .mediabase/
 .openvideo/
-.mtxconsole/
 .xmedia/
 .vhl/
 .vscode/

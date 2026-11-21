@@ -61,8 +61,8 @@
 
 # A patch replaces the WHOLE config of the row it targets, so this override
 # restates every field the base `server` row carried — only the default port
-# differs (:3088 base / :3090 openvideo / :3091 mtxconsole / :3092 xmedia /
-# :3093 VHL), still overridable by the environment's own PORT.
+# differs (:3088 base / :3090 openvideo / :3092 xmedia / :3093 VHL),
+# still overridable by the environment's own PORT.
 - id: server
   config:
     root: !!js ctx.appPaths.root

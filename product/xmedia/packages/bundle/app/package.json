@@ -8,6 +8,7 @@
     "cordis.patch.yml"
   ],
   "dependencies": {
+    "@xmedia/host-mtx-bridge": "^0.1.6",
     "@xmedia/host-engine": "^0.1.6",
     "@xmedia/host-studio": "^0.1.6"
   },

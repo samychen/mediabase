@@ -17,9 +17,9 @@
   （`absolutizeRowSpecifiers`），所以 Loader 自身的位置不能决定某一行挂不挂得上。
 - **实战路径已跑通并有输出**：`docs/WALKTHROUGH.zh.md` —— 基座旁边建一个计算器（JS/Python/C++
   三种后端 + 一页含 AI 聊天框的界面，零改动基座）。
-- **产品层真的能叠上去**：`product/` 下有四个实例 —— openvideo（剪辑）、mediamtx-console
-  （流媒体管理台）、xmedia（C++20 转码/推流）、highlight（Python 侧车高光引擎）。各自有
-  scope / bundle / 身份 / 端口，基座零改动；`verify:compose` 与 handoff 中立性测试守住这条界线。
+- **产品层真的能叠上去**：`product/` 下有三个实例 —— openvideo（剪辑）、
+  xmedia（C++20 转码/推流，含并入的 MediaMTX 流服务管理）、highlight（Python 侧车高光引擎）。
+  各自有 scope / bundle / 身份 / 端口，基座零改动；`verify:compose` 与 handoff 中立性测试守住这条界线。
 
 ## 不在本仓
 

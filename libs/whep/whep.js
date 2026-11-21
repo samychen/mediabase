@@ -3,9 +3,8 @@
 // offer, the answer comes back, the session URL rides in the `Location` header
 // and is DELETEd on teardown.
 //
-// SINGLE SOURCE OF TRUTH shared by:
-//   - xmedia  apps/web/dist/index.html        (loaded as <script type="module">)
-//   - mediamtx-console  packages/client/console/src/whep.ts  (re-exported)
+// SINGLE SOURCE OF TRUTH:
+//   - xmedia  apps/web/dist/index.html  (loaded as <script type="module">)
 //
 // Upstream error contract observed on MediaMTX v1.21: JSON
 // `{ "error": "no stream is available on path 'cam1'" }` — surfaced verbatim so
