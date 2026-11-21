@@ -3,7 +3,7 @@
 mediabase 的工具注册表（`ctx.tools`）有一个 MCP（Model Context Protocol）端点：
 `@mediabase/mcp` 把组合里注册的全部工具以 MCP Streamable HTTP 暴露出去，外部 agent
 （Claude Desktop、Cursor 等）由此驱动与内置 LLM agent 完全相同的工具面——
-mtxconsole 的 8 个运维动词、openvideo 的 8 个编辑动词，或任何产品注册的工具。
+xmedia 的 8 个流服务运维动词、openvideo 的 8 个编辑动词，或任何产品注册的工具。
 
 ## 端点
 

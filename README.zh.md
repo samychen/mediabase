@@ -43,7 +43,7 @@ pnpm run verify:base   # 对已启动的 host 做中性冒烟
   - 已会 TypeScript / 基本 React → `docs/LEARNING-PATH.zh.md`
   - 以 C++ 为主、弱前端 → `docs/LEARNING-PATH.cpp.zh.md`
 - **把工具暴露给外部 agent**：`docs/MCP.zh.md` —— MCP Streamable HTTP 端点（`POST /mcp`）、stdio 桥、Claude/Cursor 接入
-- **仓内产品层实例**：`product/openvideo/`（视频剪辑）、`product/mediamtx-console/`（流媒体服务器管理台，净室实现）、`product/xmedia/`（C++20 转码/推流服务）、`product/highlight/`（视频高光引擎）—— 产品叠在基座上（各自的 `@scope` + 产品 bundle + 独立身份），基座零改动；见各自 `README.zh.md`
+- **仓内产品层实例**：`product/openvideo/`（视频剪辑）、`product/xmedia/`（C++20 转码/推流服务，已并入 MediaMTX 流服务管理）、`product/highlight/`（视频高光引擎）—— 产品叠在基座上（各自的 `@scope` + 产品 bundle + 独立身份），基座零改动；见各自 `README.zh.md`
 
 ## 仓库内产品层：OpenVideo
 
@@ -61,28 +61,12 @@ pnpm run verify:openvideo  # 端到端冒烟
 
 详见 `product/openvideo/README.zh.md`（设计、边界与规范落点）与 `product/openvideo/AGENT.md`（agent 指南）。
 
-## 仓库内产品层：MediaMTX Console
-
-`product/mediamtx-console/` 是第二个仓内产品（agent 友好的 MediaMTX 流媒体
-服务器管理台，**净室实现**：不含第三方派生代码，接口知识来自对真实 MediaMTX
-v1.21 的实测与其公开路由表，见其 `NOTICE.md`）：`@mtxconsole/*` scope、自己的
-bundle 层与身份（`MTXCONSOLE_` / `~/.mtxconsole` / 端口 3091），基座零改动。
-浏览器经 WHEP/HLS/录像回放(fMP4) 直连 MediaMTX 取流（媒体字节不过宿主），宿主桥只管命令与行。
-
-```sh
-pnpm run build:mtxconsole   # 名册 + 页面
-pnpm run dev:mtxconsole     # http://127.0.0.1:3091
-pnpm run test:mtxconsole    # 产品测试套件（有 mediamtx 二进制时自动 LIVE）
-pnpm run verify:mtxconsole  # 端到端冒烟（LIVE/DEGRADED 双模式）
-```
-
-详见 `product/mediamtx-console/README.zh.md` 与 `product/mediamtx-console/AGENT.md`（agent 指南）。
-
 ## 仓库内产品层：xmedia
 
-`product/xmedia/` 是第三个仓内产品，也是**第一个原生后端**（转码 / 编码服务，推 RTMP）：
+`product/xmedia/` 是第二个仓内产品，也是**第一个原生后端**（转码 / 编码服务，推 RTMP）：
 消费 [xmedia-kit](https://github.com/samychen/xmedia-kit)（C++20 媒体 SDK，BSD-3-Clause）
-作为受监督子进程，TS 侧只做控制面与一条 WHEP 播放路径。身份 `XMEDIA_` / `~/.xmedia` / 端口
+作为受监督子进程；流服务管理（MediaMTX 桥 + 推流状态 / MSE 播放器 / 同步回放 / 配置 / 多服务器）
+已完全并入本产品，宿主桥只管命令与行、媒体字节不过桥。身份 `XMEDIA_` / `~/.xmedia` / 端口
 3092，基座零改动（唯一触碰是一处严格安全的 `EPIPE` 健壮性补丁）。协议同样单源：
 `contract.json` → C++ 头文件，由 `verify:protocol` 校验覆盖全部动词。
 
@@ -97,7 +81,7 @@ pnpm run verify:xmedia         # 端到端冒烟（fake engine）
 
 ## 仓库内产品层：Highlight（VHL）
 
-`product/highlight/` 是第四个仓内产品：把
+`product/highlight/` 是第三个仓内产品：把
 [video_highlight_engine](https://github.com/samychen/video_highlight_engine)（Python /
 Apache-2.0）作为受监督侧车接进来，做场景切分、音频能量、视觉显著性、人脸、零样本语义引导、
 Whisper 字幕、多模态加权融合与 FFmpeg 渲染。身份 `VHL_` / `~/.vhl` / 端口 3093，基座零改动。
@@ -131,17 +115,13 @@ pnpm run package         # Electron（无引擎资源）
 # 产品层（product/openvideo）
 pnpm run dev:openvideo       # 产品宿主 + 页面（:3090）
 pnpm run test:openvideo      # 产品测试套件
-
-# 第二个产品（product/mediamtx-console）
-pnpm run dev:mtxconsole      # 控制台宿主 + 页面（:3091，需要一个在跑的 MediaMTX）
-pnpm run test:mtxconsole     # 产品测试套件
 pnpm run verify:openvideo    # 产品端到端冒烟
 
-# 第三个产品（product/xmedia，原生 C++ 后端）
+# 第二个产品（product/xmedia，原生 C++ 后端 + MediaMTX 流服务）
 pnpm run host:xmedia         # 转码服务宿主 + 页面（:3092）
 pnpm run verify:xmedia       # 端到端冒烟（fake engine）
 
-# 第四个产品（product/highlight，Python 引擎侧车）
+# 第三个产品（product/highlight，Python 引擎侧车）
 pnpm run dev:highlight       # 高光引擎宿主 + 面板（:3093）
 pnpm run verify:highlight:all  # 端到端冒烟（替身 + 真引擎）
 ```
