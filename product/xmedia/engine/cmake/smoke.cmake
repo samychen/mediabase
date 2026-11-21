@@ -23,6 +23,10 @@ file(WRITE "${input}"
     "publish.start\tjob-smoke\t/tmp/in.mp4\t/tmp/out.mp4\tmp4\n"
     "publish.status\tjob-smoke\n"
     "publish.stop\tjob-smoke\n"
+    "publish.pause\tjob-smoke\n"
+    "publish.resume\tjob-smoke\n"
+    "publish.pause\tunknown-id\n"
+    "publish.list\n"
     "events\n"
     "quit\n")
 
@@ -42,8 +46,8 @@ string(STRIP "${stdout}" trimmed)
 string(REPLACE "\r" "" trimmed "${trimmed}")
 string(REPLACE "\n" ";" lines "${trimmed}")
 list(LENGTH lines count)
-if(NOT count EQUAL 10)
-  message(FATAL_ERROR "expected 10 response lines, got ${count}: ${trimmed}")
+if(NOT count EQUAL 14)
+  message(FATAL_ERROR "expected 14 response lines, got ${count}: ${trimmed}")
 endif()
 
 list(GET lines 0 hello)
@@ -54,8 +58,12 @@ list(GET lines 4 bad_format)
 list(GET lines 5 started)
 list(GET lines 6 by_id)
 list(GET lines 7 stopped)
-list(GET lines 8 events)
-list(GET lines 9 quit)
+list(GET lines 8 paused)
+list(GET lines 9 resumed)
+list(GET lines 10 pause_unknown)
+list(GET lines 11 listed)
+list(GET lines 12 events)
+list(GET lines 13 quit)
 
 if(NOT hello MATCHES "^hello\t1\t")
   message(FATAL_ERROR "hello reply must announce protocol 1: '${hello}'")
@@ -83,6 +91,22 @@ if(NOT by_id MATCHES "\"input\":\"/tmp/in.mp4\",\"output\":\"/tmp/out.mp4\"")
 endif()
 if(NOT stopped MATCHES "^ok\t\\{\"running\":")
   message(FATAL_ERROR "publish.stop <jobId> must report a status: '${stopped}'")
+endif()
+
+# Pause/resume are idempotent on a (already stopped) job: the reply is still a
+# well-formed status snapshot, never an error. An unknown id yields the idle
+# snapshot too. publish.list answers the whole pool as one JSON array.
+if(NOT paused MATCHES "^ok\t\\{\"running\":")
+  message(FATAL_ERROR "publish.pause <jobId> must report a status: '${paused}'")
+endif()
+if(NOT resumed MATCHES "\"paused\":false")
+  message(FATAL_ERROR "publish.resume must clear the paused flag: '${resumed}'")
+endif()
+if(NOT pause_unknown MATCHES "^ok\t\\{\"running\":false")
+  message(FATAL_ERROR "publish.pause on an unknown id must answer the idle snapshot: '${pause_unknown}'")
+endif()
+if(NOT listed MATCHES "^ok\t\\[\\{")
+  message(FATAL_ERROR "publish.list must answer a JSON array of job snapshots: '${listed}'")
 endif()
 if(NOT events MATCHES "^ok\t\\[")
   message(FATAL_ERROR "events reply must be ok + JSON array: '${events}'")

@@ -178,10 +178,14 @@ std::string Col(const std::vector<std::string>& parts, E idx, const std::string&
 
 // Per-job snapshot of progress/terminal state. Plain value type (no mutex); the
 // containing Job owns the lock. Defined before Job because Job embeds it.
+// Pause bookkeeping: |paused_at_ms| marks the start of the CURRENT pause window
+// and |paused_total_ms| accumulates every finished one, so elapsedMs can freeze
+// while a job is parked instead of quietly inflating.
 struct PublishSnapshot {
   bool running = false;
   bool done = false;
   bool ok = false;
+  bool paused = false;
   int progress = 0;
   std::string input;
   std::string output;
@@ -189,6 +193,8 @@ struct PublishSnapshot {
   std::string error;
   int64_t started_ms = 0;
   int64_t finished_ms = 0;
+  int64_t paused_at_ms = 0;
+  int64_t paused_total_ms = 0;
 };
 
 // Per-job state. Address is stable while held in std::map, so the TranscodeJob
@@ -333,8 +339,14 @@ std::string DirOf(const std::string& path) {
 
 // Build the status JSON blob for one job. `sandboxed` is process-level and is
 // echoed here so the host can read it even before any publish is issued.
-std::string StatusJson(const PublishSnapshot& snap, bool sandboxed) {
+// `jobId` is appended too so publish.list rows are self-describing; every other
+// reply echoes the requested id ("" for the idle pool). Both new fields are
+// APPENDED after the columns pinned by the smoke offset assertion.
+std::string StatusJson(const PublishSnapshot& snap, bool sandboxed,
+                       const std::string& jobId = "") {
   const int64_t now = snap.running ? NowMs() : snap.finished_ms;
+  int64_t paused_ms = snap.paused_total_ms;
+  if (snap.paused) paused_ms += now - snap.paused_at_ms;  // mid-pause window
   std::ostringstream os;
   os << "{\"running\":" << (snap.running ? "true" : "false")
      << ",\"done\":" << (snap.done ? "true" : "false")
@@ -344,8 +356,10 @@ std::string StatusJson(const PublishSnapshot& snap, bool sandboxed) {
      << ",\"output\":\"" << JsonEscape(snap.output) << "\""
      << ",\"format\":\"" << JsonEscape(snap.format) << "\""
      << ",\"error\":\"" << JsonEscape(snap.error) << "\""
-     << ",\"elapsedMs\":" << (snap.started_ms > 0 ? now - snap.started_ms : 0)
+     << ",\"elapsedMs\":" << (snap.started_ms > 0 ? now - snap.started_ms - paused_ms : 0)
      << ",\"sandboxed\":" << (sandboxed ? "true" : "false")
+     << ",\"paused\":" << (snap.paused ? "true" : "false")
+     << ",\"jobId\":\"" << JsonEscape(jobId) << "\""
      << "}";
   return os.str();
 }
@@ -377,6 +391,9 @@ class Bridge {
     if (verb == xmedia_protocol::kPublishStart.data()) return PublishStart(parts);
     if (verb == xmedia_protocol::kPublishStop.data()) return PublishStop(parts);
     if (verb == xmedia_protocol::kPublishStatus.data()) return PublishStatus(parts);
+    if (verb == xmedia_protocol::kPublishPause.data()) return PublishPause(parts);
+    if (verb == xmedia_protocol::kPublishResume.data()) return PublishResume(parts);
+    if (verb == xmedia_protocol::kPublishList.data()) return PublishList();
     if (verb == xmedia_protocol::kBakeStart.data()) return BakeStart(parts);
     if (verb == xmedia_protocol::kBakeStatus.data()) return BakeStatus(parts);
     if (verb == xmedia_protocol::kBakeCancel.data()) return BakeCancel(parts);
@@ -456,6 +473,7 @@ class Bridge {
       job->snap.input = input;
       job->snap.output = output;
       job->snap.format = format;
+      job->snap.started_ms = NowMs();
       jobs_.emplace(jobId, std::move(job));
     }
 
@@ -494,6 +512,12 @@ class Bridge {
             raw->snap.error = reason;
             raw->snap.finished_ms = NowMs();
             if (ok) raw->snap.progress = 100;
+            // A cancel that landed while paused ends the run here: settle the
+            // open pause window so elapsedMs no longer subtracts it.
+            if (raw->snap.paused) {
+              raw->snap.paused_total_ms += raw->snap.finished_ms - raw->snap.paused_at_ms;
+              raw->snap.paused = false;
+            }
           }
           QueueEvent(std::string("{\"type\":\"PublishDone\",\"jobId\":\"") +
                      JsonEscape(jobId) + "\",\"ok\":" + (ok ? "true" : "false") +
@@ -510,17 +534,18 @@ class Bridge {
                  input.c_str(), output.c_str(), format.empty() ? "auto" : format.c_str(),
                  realtime ? 1 : 0);
     std::lock_guard<std::mutex> l(raw->mutex);
-    return Ok({StatusJson(raw->snap, g_sandboxed)});
+    return Ok({StatusJson(raw->snap, g_sandboxed, jobId)});
   }
 
   // Status for one job, or a neutral snapshot when the id is unknown (which is
-  // also the idle-pool answer for an empty jobId). Shared so stop/status can
-  // never disagree about an unknown job's shape.
+  // also the idle-pool answer for an empty jobId). Shared so stop/pause/resume/
+  // status can never disagree about an unknown job's shape. The requested id is
+  // echoed even for the idle snapshot so every reply is self-describing.
   std::string StatusOf(const std::string& jobId) {
     Job* raw = Find(jobId);
-    if (raw == nullptr) return Ok({StatusJson(PublishSnapshot{}, g_sandboxed)});
+    if (raw == nullptr) return Ok({StatusJson(PublishSnapshot{}, g_sandboxed, jobId)});
     std::lock_guard<std::mutex> l(raw->mutex);
-    return Ok({StatusJson(raw->snap, g_sandboxed)});
+    return Ok({StatusJson(raw->snap, g_sandboxed, jobId)});
   }
 
   std::string PublishStop(const std::vector<std::string>& parts) {
@@ -533,6 +558,70 @@ class Bridge {
 
   std::string PublishStatus(const std::vector<std::string>& parts) {
     return StatusOf(Col(parts, xmedia_protocol::PublishStatusReq::kJobId, ""));
+  }
+
+  // `publish.pause <jobId>` / `publish.resume <jobId>` — cooperative per-job
+  // pause. The kit token only flips a flag: the worker parks at the NEXT packet
+  // boundary (a blocking read still finishes first), so the immediate reply may
+  // predate the actual park — same contract as the cooperative stop. Both verbs
+  // are idempotent: pausing a paused / finished / unknown job just returns the
+  // snapshot. Cancel still wins while paused (the token wakes the worker).
+  std::string PublishPause(const std::vector<std::string>& parts) {
+    const std::string jobId = Col(parts, xmedia_protocol::PublishPauseReq::kJobId, "");
+    if (Job* raw = Find(jobId); raw != nullptr) {
+      raw->job->Pause();
+      bool first = false;
+      {
+        std::lock_guard<std::mutex> l(raw->mutex);
+        if (raw->snap.running && !raw->snap.done && !raw->snap.paused) {
+          raw->snap.paused = true;
+          raw->snap.paused_at_ms = NowMs();
+          first = true;
+        }
+      }
+      if (first) {
+        QueueEvent(std::string("{\"type\":\"PublishPaused\",\"jobId\":\"") +
+                   JsonEscape(jobId) + "\"}");
+      }
+    }
+    return StatusOf(jobId);
+  }
+
+  std::string PublishResume(const std::vector<std::string>& parts) {
+    const std::string jobId = Col(parts, xmedia_protocol::PublishResumeReq::kJobId, "");
+    if (Job* raw = Find(jobId); raw != nullptr) {
+      raw->job->Resume();
+      bool first = false;
+      {
+        std::lock_guard<std::mutex> l(raw->mutex);
+        if (raw->snap.running && !raw->snap.done && raw->snap.paused) {
+          raw->snap.paused_total_ms += NowMs() - raw->snap.paused_at_ms;
+          raw->snap.paused = false;
+          first = true;
+        }
+      }
+      if (first) {
+        QueueEvent(std::string("{\"type\":\"PublishResumed\",\"jobId\":\"") +
+                   JsonEscape(jobId) + "\"}");
+      }
+    }
+    return StatusOf(jobId);
+  }
+
+  // `publish.list` — the whole pool in one snapshot. Done jobs stay in the map
+  // until the next publish.start cleans them, so the monitor keeps its history.
+  std::string PublishList() {
+    std::lock_guard<std::mutex> lk(jobs_mutex_);
+    std::string out = "[";
+    bool first = true;
+    for (const auto& [id, job] : jobs_) {
+      std::lock_guard<std::mutex> jlk(job->mutex);
+      if (!first) out += ',';
+      out += StatusJson(job->snap, g_sandboxed, id);
+      first = false;
+    }
+    out += ']';
+    return Ok({out});
   }
 
   // Locate a job under the map lock; returns nullptr if absent (caller must not

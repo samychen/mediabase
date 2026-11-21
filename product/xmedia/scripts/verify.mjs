@@ -255,6 +255,23 @@ try {
     checks.expect('publish.status 按 jobId 报告运行中', running?.running === true,
       JSON.stringify(running))
 
+    // Transcode monitor verbs against the fake engine (the REAL engine's
+    // pause is exercised end to end by the gated offline block below —
+    // a live RTMP job is left untouched here to keep its timing intact).
+    if (!realEngine) {
+      const paused = await rpc.call('xmedia.publish.pause', { jobId })
+      checks.expect('publish.pause 置起暂停标志且任务仍在池中',
+        paused?.running === true && paused?.paused === true, JSON.stringify(paused))
+      const rows = await rpc.call('xmedia.publish.jobs')
+      const mine = Array.isArray(rows) ? rows.find((r) => r?.jobId === jobId) : null
+      checks.expect('publish.list 返回含 jobId 的全池快照',
+        Array.isArray(rows) && mine?.running === true && mine?.paused === true,
+        JSON.stringify(rows))
+      const resumed = await rpc.call('xmedia.publish.resume', { jobId })
+      checks.expect('publish.resume 清除暂停标志', resumed?.paused === false,
+        JSON.stringify(resumed))
+    }
+
     // With a real engine + a live MediaMTX, prove the bytes actually arrived:
     // MediaMTX's v3 API lists a path as ready only when a publisher is feeding it.
     if (realEngine && publishOutput !== undefined && mtxApi !== undefined) {
@@ -320,6 +337,67 @@ try {
       JSON.stringify(m?.jobsStarted))
   } else {
     console.log('· 真实引擎但未设置 XMEDIA_PUBLISH_OUTPUT,跳过实时推流(避免启动注定失败的 job)')
+  }
+
+  // ---- real-engine offline pause end to end (XMEDIA_MEDIA gate) --------------
+  // Proves the KIT-level cooperative pause with a real TranscodeJob: start a
+  // file→file job, park it mid-run, watch progress FREEZE, resume it to a real
+  // completion. This is the monitoring feature's load-bearing path; the fake
+  // engine above only mirrors the wire shape.
+  if (realEngine && mediaUri !== undefined) {
+    const offlineOut = join(tmpdir(), `xmedia-verify-offline-${Date.now()}.mp4`)
+    try {
+      // A real RE-ENCODE, not copy: stream copy runs at memcpy speed and the
+      // job would finish before any pause could land. libx264 keeps the run
+      // in the seconds — wide enough to park it mid-flight. (The pinned kit
+      // FFmpeg carries libx264; a build without it surfaces as a coded
+      // publish.start failure here, which is also honest.)
+      const started = await rpc.call('xmedia.publish.start', {
+        input: mediaUri, output: offlineOut, realtime: false, videoCodec: 'libx264',
+      })
+      const jobId = started?.jobId
+      checks.expect('离线转码启动(file→file)', started?.running === true, JSON.stringify(started))
+
+      // Catch the job mid-run: progress must be past the first packet but the
+      // job must NOT be done yet, or the pause below would be a no-op on a
+      // finished pool entry.
+      let progressAtPause = -1
+      for (let i = 0; i < 600; i += 1) {
+        const s = await rpc.call('xmedia.publish.status', { jobId })
+        if (s?.done === true) { progressAtPause = -2; break }
+        if ((s?.progress ?? 0) >= 1) { progressAtPause = s?.progress; break }
+        await new Promise((r) => setTimeout(r, 100))
+      }
+      checks.expect('离线转码进入实际运行(progress>=1 且未完成)', progressAtPause >= 1,
+        `progressAtPause=${progressAtPause}`)
+
+      const paused = await rpc.call('xmedia.publish.pause', { jobId })
+      checks.expect('离线转码暂停置起 paused 标志', paused?.paused === true, JSON.stringify(paused))
+      await new Promise((r) => setTimeout(r, 600))  // let the park actually land
+      const frozenA = await rpc.call('xmedia.publish.status', { jobId })
+      await new Promise((r) => setTimeout(r, 600))
+      const frozenB = await rpc.call('xmedia.publish.status', { jobId })
+      checks.expect('暂停期间进度冻结',
+        frozenA?.paused === true && frozenA?.progress === frozenB?.progress,
+        `A=${JSON.stringify(frozenA)}\nB=${JSON.stringify(frozenB)}`)
+
+      const resumed = await rpc.call('xmedia.publish.resume', { jobId })
+      checks.expect('恢复清除暂停标志', resumed?.paused === false, JSON.stringify(resumed))
+
+      let final = null
+      for (let i = 0; i < 240 && !(final?.done); i += 1) {
+        await new Promise((r) => setTimeout(r, 500))
+        final = await rpc.call('xmedia.publish.status', { jobId })
+      }
+      checks.expect('恢复后离线转码跑完且成功',
+        final?.done === true && final?.ok === true && final?.paused === false,
+        JSON.stringify(final))
+      checks.expect('离线转码输出文件真实存在', existsSync(offlineOut))
+    } finally {
+      rmSync(offlineOut, { force: true })
+    }
+  } else if (realEngine) {
+    console.log('· 真实引擎但未设置 XMEDIA_MEDIA,跳过离线暂停端到端')
   }
 
   // ---- bake control plane (offline HTML→MP4) ---------------------------------
@@ -438,10 +516,19 @@ try {
     const pyOk = spawnSync('python3', ['--version'], { stdio: 'ignore' }).status === 0
     const studioState = await rpc.call('xmedia.studio.state')
     if (pyOk) {
-      const projects = await fetch(`${studioUrl}api/projects`)
+      // The studio server is its own python process: it may still be binding
+      // its port when state flips to running. A cold-start connection refused
+      // is a race, not a broken boundary — poll briefly instead.
+      let projects = null
+      let lastErr = null
+      for (let i = 0; i < 32 && (projects === null || projects.status !== 200); i += 1) {
+        try { projects = await fetch(`${studioUrl}api/projects`) }
+        catch (e) { lastErr = e }
+        if (projects?.status !== 200) await new Promise((r) => setTimeout(r, 250))
+      }
       checks.expect('HF Studio /api/projects 可达(浏览器直连边界)',
-        projects.status === 200,
-        `HTTP ${projects.status} at ${studioUrl}api/projects`)
+        projects?.status === 200,
+        projects === null ? `fetch failed: ${lastErr?.message}` : `HTTP ${projects.status} at ${studioUrl}api/projects`)
     } else {
       checks.expect('无 python3 时 Studio 如实报告未运行',
         studioState?.running === false, JSON.stringify(studioState))
@@ -491,6 +578,9 @@ try {
   checks.expect('页面不含 C++ 引擎自检区块与 snapshot 抓帧',
     !html.includes('引擎自检') && !html.includes('xmedia.snapshot'))
   checks.expect('页面含 HF Studio 入口区', html.includes('HF Studio 编辑器'))
+  checks.expect('页面含转码任务监控区(任务池快照 + 暂停/继续操作)',
+    html.includes('转码任务监控') && html.includes('xmedia.publish.jobs') &&
+    html.includes('新建转码') && html.includes("data-act=\"pause\""))
   rpc.close()
 } catch (e) {
   checks.fail('冒烟执行', e instanceof Error ? e.stack ?? e.message : String(e))

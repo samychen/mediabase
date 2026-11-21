@@ -73,6 +73,8 @@ export interface XmediaPublishStatus {
   running: boolean
   done: boolean
   ok: boolean
+  /** Cooperative pause: the worker parks at the next packet boundary. */
+  paused: boolean
   progress: number
   input: string
   output: string
@@ -80,7 +82,12 @@ export interface XmediaPublishStatus {
   error: string
   elapsedMs: number
   sandboxed: boolean
+  /** Echoed by the bridge on every reply; publish.list rows carry it per row. */
+  jobId?: string | undefined
 }
+
+/** One row of `xmedia.publish.jobs` — the whole task pool in one snapshot. */
+export type XmediaJobRow = XmediaPublishStatus & { jobId: string }
 
 /** Where the operator publishes to and where a browser plays from. */
 export interface XmediaViewers {
@@ -157,6 +164,9 @@ export interface XmediaService {
   publishStart(input: string, options?: XmediaPublishOptions): Promise<XmediaPublishResult>
   publishStop(options?: { jobId?: string | undefined }): Promise<XmediaPublishResult>
   publishStatus(options?: { jobId?: string | undefined }): Promise<XmediaPublishResult>
+  publishPause(options?: { jobId?: string | undefined }): Promise<XmediaPublishResult>
+  publishResume(options?: { jobId?: string | undefined }): Promise<XmediaPublishResult>
+  publishJobs(): Promise<XmediaJobRow[]>
   bakeStart(htmlPath: string, output: string, options?: XmediaBakeOptions): Promise<XmediaBakeResult>
   bakeStatus(options?: { jobId?: string | undefined }): Promise<XmediaBakeResult>
   bakeCancel(options?: { jobId?: string | undefined }): Promise<XmediaBakeResult>
@@ -247,6 +257,9 @@ export const API_NAMES = [
   'xmedia.publish.start',
   'xmedia.publish.stop',
   'xmedia.publish.status',
+  'xmedia.publish.pause',
+  'xmedia.publish.resume',
+  'xmedia.publish.jobs',
   'xmedia.publish.viewers',
   'xmedia.bake.start',
   'xmedia.bake.status',
@@ -259,6 +272,9 @@ export const TOOL_NAMES = [
   'xmedia.publish.start',
   'xmedia.publish.stop',
   'xmedia.publish.status',
+  'xmedia.publish.pause',
+  'xmedia.publish.resume',
+  'xmedia.publish.jobs',
   'xmedia.publish.viewers',
   'xmedia.bake.start',
   'xmedia.bake.status',
@@ -402,15 +418,15 @@ export function apply(ctx: Context, rawConfig: XmediaEngineConfig): void {
     return output.split('/').pop() || config.publishPath
   }
 
-  /** Normalise the C++ bridge's publish JSON into a typed status. */
-  function asPublishStatus(parts: string[], verb: string): XmediaPublishStatus {
-    const raw = asRecord(jsonColumn(parts, verb), verb)
+  /** Normalise one parsed publish JSON record into a typed status. */
+  function asPublishStatusRaw(raw: Record<string, unknown>): XmediaPublishStatus {
     const str = (key: string): string => typeof raw[key] === 'string' ? raw[key] as string : ''
     const num = (key: string): number => typeof raw[key] === 'number' ? raw[key] as number : 0
     return {
       running: raw.running === true,
       done: raw.done === true,
       ok: raw.ok === true,
+      paused: raw.paused === true,
       progress: num('progress'),
       input: str('input'),
       output: str('output'),
@@ -418,7 +434,12 @@ export function apply(ctx: Context, rawConfig: XmediaEngineConfig): void {
       error: str('error'),
       elapsedMs: num('elapsedMs'),
       sandboxed: raw.sandboxed === true,
+      jobId: str('jobId') || undefined,
     }
+  }
+
+  function asPublishStatus(parts: string[], verb: string): XmediaPublishStatus {
+    return asPublishStatusRaw(asRecord(jsonColumn(parts, verb), verb))
   }
 
   /** Record a terminal observation once (idempotent) so metrics stay correct. */
@@ -521,6 +542,14 @@ export function apply(ctx: Context, rawConfig: XmediaEngineConfig): void {
       if (event.type === 'BakeProgress') {
         ctx.events.emit('xmedia.bake', { phase: 'progress', ...event })
       }
+      // Pause transitions reach subscribers the same way stop does; the monitor
+      // UI mostly polls publish.jobs, these serve event-driven consumers.
+      if (event.type === 'PublishPaused') {
+        ctx.events.emit('xmedia.publish', { phase: 'paused', ...event })
+      }
+      if (event.type === 'PublishResumed') {
+        ctx.events.emit('xmedia.publish', { phase: 'resumed', ...event })
+      }
       if (event.type === 'BakeDone') {
         const jobId = typeof event.jobId === 'string' ? event.jobId : ''
         const ok = event.ok === true
@@ -581,7 +610,7 @@ export function apply(ctx: Context, rawConfig: XmediaEngineConfig): void {
   async function publishControl(
     verb: string,
     options: { jobId?: string | undefined },
-    phase?: 'stop',
+    phase?: 'stop' | 'paused' | 'resumed',
   ): Promise<XmediaPublishResult> {
     const jobId = options.jobId ?? lastJobId ?? ''
     const status = asPublishStatus(await call([verb, jobId]), verb)
@@ -601,6 +630,30 @@ export function apply(ctx: Context, rawConfig: XmediaEngineConfig): void {
 
   const publishStatus = (options: { jobId?: string | undefined } = {}): Promise<XmediaPublishResult> =>
     publishControl(VERB.PUBLISH_STATUS, options)
+
+  // Pause/resume share publishControl: same id resolution, same status parse,
+  // same viewers re-attach — only the verb and the phase event differ. Both are
+  // idempotent at the bridge (a paused/finished/unknown id just answers its
+  // snapshot), so the host adds no extra state of its own.
+  const publishPause = (options: { jobId?: string | undefined } = {}): Promise<XmediaPublishResult> =>
+    publishControl(VERB.PUBLISH_PAUSE, options, 'paused')
+
+  const publishResume = (options: { jobId?: string | undefined } = {}): Promise<XmediaPublishResult> =>
+    publishControl(VERB.PUBLISH_RESUME, options, 'resumed')
+
+  /** The whole task pool as one snapshot — the monitor UI's data source. */
+  async function publishJobs(): Promise<XmediaJobRow[]> {
+    const parsed = jsonColumn(await call([VERB.PUBLISH_LIST]), VERB.PUBLISH_LIST)
+    if (!Array.isArray(parsed)) {
+      throw new RpcError(RpcCode.ENGINE, 'xmedia: publish.list 返回不是数组')
+    }
+    return parsed.filter(isRecord).map((raw, i) => {
+      if (typeof raw.jobId !== 'string' || raw.jobId === '') {
+        throw new RpcError(RpcCode.ENGINE, `xmedia: publish.list[${i}] 缺少 jobId`)
+      }
+      return { ...asPublishStatusRaw(raw), jobId: raw.jobId }
+    })
+  }
 
   // ---- bake: offline HTML→MP4 (the ONE pull-route exception this product
   // makes — see the file header). The bridge spawns a one-shot xmedia-bake
@@ -769,6 +822,9 @@ export function apply(ctx: Context, rawConfig: XmediaEngineConfig): void {
     publishStart,
     publishStop,
     publishStatus,
+    publishPause,
+    publishResume,
+    publishJobs,
     bakeStart,
     bakeStatus: bakeStatusFn,
     bakeCancel: bakeCancelFn,
@@ -843,6 +899,25 @@ export function apply(ctx: Context, rawConfig: XmediaEngineConfig): void {
     params: JobIdParamsS,
     handler: (p) => publishStatus({ jobId: p.jobId }),
   }))
+  disposers.push(ctx.api.register({
+    name: 'xmedia.publish.pause',
+    description: '暂停指定转码任务(协作式:worker 在下一个包边界挂起;幂等)',
+    mutates: true,
+    params: JobIdParamsS,
+    handler: (p) => publishPause({ jobId: p.jobId }),
+  }))
+  disposers.push(ctx.api.register({
+    name: 'xmedia.publish.resume',
+    description: '恢复已暂停的转码任务(幂等)',
+    mutates: true,
+    params: JobIdParamsS,
+    handler: (p) => publishResume({ jobId: p.jobId }),
+  }))
+  disposers.push(ctx.api.register({
+    name: 'xmedia.publish.jobs',
+    description: '整个任务池的快照(每个任务的进度/状态/暂停标志/耗时;监控 UI 的数据源)',
+    handler: () => publishJobs(),
+  }))
 
   // ---- control plane: offline bake (HTML → MP4) -------------------------------
   disposers.push(ctx.api.register({
@@ -912,6 +987,21 @@ export function apply(ctx: Context, rawConfig: XmediaEngineConfig): void {
     name: 'xmedia.publish.status', description: '查询指定编码推流任务状态与观看地址',
     params: JobIdParamsS,
     execute: (a) => publishStatus({ jobId: a.jobId === undefined ? undefined : String(a.jobId) }),
+  })
+  tool({
+    name: 'xmedia.publish.pause', description: '暂停指定转码任务(协作式包边界挂起)', mutates: true,
+    params: JobIdParamsS,
+    execute: (a) => publishPause({ jobId: a.jobId === undefined ? undefined : String(a.jobId) }),
+  })
+  tool({
+    name: 'xmedia.publish.resume', description: '恢复已暂停的转码任务', mutates: true,
+    params: JobIdParamsS,
+    execute: (a) => publishResume({ jobId: a.jobId === undefined ? undefined : String(a.jobId) }),
+  })
+  tool({
+    name: 'xmedia.publish.jobs', description: '任务池快照:全部并发转码任务的进度/状态/暂停标志/耗时',
+    params: z.object({}),
+    execute: () => publishJobs(),
   })
   tool({
     name: 'xmedia.bake.start',

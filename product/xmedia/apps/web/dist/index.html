@@ -3,130 +3,407 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>xmedia · 编码产物实时验收</title>
+<title>xmedia · 转码控制台</title>
 <style>
-  :root { color-scheme: light; font-family: ui-monospace, SFMono-Regular, Menlo, monospace; }
-  body { margin: 0; padding: 32px; background: #f7f8fa; color: #1f2328; }
-  main { max-width: 980px; margin: 0 auto; }
-  h1 { font-size: 18px; font-weight: 600; margin: 0 0 4px; }
-  p.sub { color: #57606a; font-size: 13px; margin: 0 0 24px; line-height: 1.7; }
-  section { background: #fff; border: 1px solid #d8dee4; border-radius: 10px; padding: 16px; margin-bottom: 16px; }
-  h2 { font-size: 13px; font-weight: 600; margin: 0 0 12px; color: #57606a; }
-  input { font: inherit; padding: 6px 8px; border: 1px solid #d0d7de; border-radius: 6px; background: #fff; }
-  button { font: inherit; padding: 6px 12px; border: 1px solid #d0d7de; border-radius: 6px; background: #f6f8fa; cursor: pointer; }
-  button:hover { background: #eef1f4; }
-  button.primary { background: #1f6feb; border-color: #1f6feb; color: #fff; }
-  button.primary:hover { background: #1a5fd0; }
-  pre { margin: 0; white-space: pre-wrap; word-break: break-all; font-size: 12px; line-height: 1.6; }
+  /* ---- 主题 token（全部收敛在 :root，方便设计模式直接改） ---- */
+  :root {
+    --xm-bg: #f5f6f8;
+    --xm-panel: #ffffff;
+    --xm-panel-soft: #fbfcfe;
+    --xm-border: #e4e8ee;
+    --xm-text: #283142;
+    --xm-muted: #788292;
+    --xm-faint: #98a1b0;
+    --xm-accent: #5686fe;
+    --xm-accent-strong: #4176e6;
+    --xm-accent-soft: #edf3fe;
+    --xm-ok: #1a7f37;
+    --xm-ok-soft: #dafbe1;
+    --xm-warn: #9a6700;
+    --xm-warn-soft: #fff8c5;
+    --xm-danger: #cf222e;
+    --xm-danger-soft: #ffebe9;
+    --xm-side-w: 232px;
+    --xm-radius: 12px;
+    --xm-shadow: 0 1px 2px rgba(20, 30, 50, 0.05);
+    --xm-font: -apple-system, BlinkMacSystemFont, "Segoe UI", "PingFang SC",
+      "Hiragino Sans GB", "Microsoft YaHei", sans-serif;
+    --xm-mono: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+    color-scheme: light;
+  }
+
+  * { box-sizing: border-box; }
+  body {
+    margin: 0; background: var(--xm-bg); color: var(--xm-text);
+    font: 14px/1.6 var(--xm-font);
+  }
+
+  /* ---- 左侧导航 ---- */
+  .sidebar {
+    position: fixed; inset: 0 auto 0 0; width: var(--xm-side-w);
+    background: var(--xm-panel-soft); border-right: 1px solid var(--xm-border);
+    display: flex; flex-direction: column; z-index: 10;
+  }
+  .brand { display: flex; align-items: center; gap: 10px; padding: 18px 18px 14px; }
+  .brand-mark {
+    width: 30px; height: 30px; border-radius: 9px; flex: none;
+    background: linear-gradient(135deg, var(--xm-accent) 0%, var(--xm-accent-strong) 100%);
+    color: #fff; display: grid; place-items: center; font-weight: 700; font-size: 13px;
+  }
+  .brand b { font-size: 15px; letter-spacing: 0.2px; }
+  .brand small { display: block; color: var(--xm-muted); font-size: 11px; line-height: 1.3; }
+  .nav { flex: 1; padding: 4px 10px 10px; overflow-y: auto; }
+  .nav-group {
+    margin: 14px 8px 4px; font-size: 11px; color: var(--xm-faint);
+    letter-spacing: 0.6px; font-weight: 600;
+  }
+  .nav-item {
+    display: flex; align-items: center; gap: 10px; width: 100%;
+    padding: 8px 10px; margin: 1px 0; border: 0; border-radius: 8px;
+    background: none; color: var(--xm-text); font: inherit; cursor: pointer;
+    text-align: left;
+  }
+  .nav-item:hover { background: #eef1f6; }
+  .nav-item.active { background: var(--xm-accent-soft); color: var(--xm-accent-strong); font-weight: 600; }
+  .nav-item svg { width: 16px; height: 16px; flex: none; }
+  .side-foot {
+    margin: 10px; padding: 10px 12px; border: 1px solid var(--xm-border);
+    border-radius: 10px; background: var(--xm-panel); font-size: 12px; color: var(--xm-muted);
+  }
+  .dot { display: inline-block; width: 8px; height: 8px; border-radius: 50%; background: var(--xm-faint); margin-right: 6px; vertical-align: 1px; }
+  .dot.ok { background: #2da44e; box-shadow: 0 0 0 3px rgba(45, 164, 78, 0.15); }
+  .dot.bad { background: var(--xm-danger); }
+
+  /* ---- 主内容区 ---- */
+  main { margin-left: var(--xm-side-w); padding: 26px 34px 120px; max-width: 1060px; }
+  .view { display: none; }
+  .view.active { display: block; animation: fade 160ms ease; }
+  @keyframes fade { from { opacity: 0; transform: translateY(4px); } to { opacity: 1; transform: none; } }
+  .view-head { margin: 0 0 16px; }
+  .view-head h1 { font-size: 20px; font-weight: 700; margin: 0 0 4px; }
+  .view-head p { margin: 0; color: var(--xm-muted); font-size: 13px; line-height: 1.7; }
+
+  .panel {
+    background: var(--xm-panel); border: 1px solid var(--xm-border);
+    border-radius: var(--xm-radius); padding: 18px 20px; margin-bottom: 16px;
+    box-shadow: var(--xm-shadow);
+  }
+  .panel h2 { font-size: 13px; font-weight: 700; margin: 0 0 12px; color: var(--xm-text); }
+  .hint { font-size: 12px; color: var(--xm-muted); line-height: 1.7; margin: 10px 0 0; }
+  .hint strong { color: var(--xm-text); }
+
+  input, button { font: inherit; }
+  input {
+    padding: 7px 10px; border: 1px solid var(--xm-border); border-radius: 8px;
+    background: #fff; color: var(--xm-text); font-family: var(--xm-mono); font-size: 12.5px;
+  }
+  input:focus { outline: 2px solid var(--xm-accent-soft); border-color: var(--xm-accent); }
+  input::placeholder { color: var(--xm-faint); }
+  .btn {
+    padding: 7px 14px; border: 1px solid var(--xm-border); border-radius: 8px;
+    background: #fff; cursor: pointer; font-size: 13px;
+  }
+  .btn:hover { background: var(--xm-panel-soft); border-color: #d0d7de; }
+  .btn.primary {
+    background: var(--xm-accent); border-color: var(--xm-accent); color: #fff; font-weight: 600;
+  }
+  .btn.primary:hover { background: var(--xm-accent-strong); }
+  pre {
+    margin: 0; white-space: pre-wrap; word-break: break-all;
+    font: 12px/1.6 var(--xm-mono); color: var(--xm-muted);
+  }
   .row { display: flex; gap: 8px; flex-wrap: wrap; align-items: center; }
-  .muted { color: #8c959f; }
   .grow { flex: 1 1 320px; }
-  #video { display: block; width: 100%; aspect-ratio: 16 / 9; background: #000; border-radius: 6px; }
-  #player-state { margin-top: 10px; font-size: 12px; color: #57606a; }
-  #urls { margin-top: 8px; font-size: 11px; color: #57606a; word-break: break-all; }
-  .label { font-size: 12px; color: #57606a; }
+  .label { font-size: 12px; color: var(--xm-muted); white-space: nowrap; }
+  #video, #bake-video {
+    display: block; width: 100%; aspect-ratio: 16 / 9; background: #000;
+    border-radius: 10px;
+  }
+  #player-state { margin-top: 10px; font-size: 12px; color: var(--xm-muted); }
+  #urls { margin-top: 8px; font-size: 11.5px; color: var(--xm-muted); word-break: break-all; font-family: var(--xm-mono); }
+
+  /* ---- 任务表格 ---- */
+  table.jobs { width: 100%; border-collapse: collapse; font-size: 12.5px; margin-top: 4px; }
+  table.jobs th {
+    text-align: left; padding: 6px 8px; color: var(--xm-faint); font-weight: 600;
+    font-size: 11px; border-bottom: 1px solid var(--xm-border); white-space: nowrap;
+  }
+  table.jobs td { padding: 8px; border-bottom: 1px solid #eef1f5; vertical-align: middle; }
+  table.jobs tbody tr:hover { background: var(--xm-panel-soft); }
+  table.jobs td.path { word-break: break-all; color: var(--xm-muted); font-family: var(--xm-mono); font-size: 11.5px; }
+  .bar {
+    position: relative; background: #e9edf3; border-radius: 99px; height: 8px;
+    width: 130px; overflow: hidden; display: inline-block; vertical-align: middle; margin-right: 8px;
+  }
+  .bar > i {
+    position: absolute; inset: 0 auto 0 0; width: 0%; background: var(--xm-accent);
+    border-radius: 99px; transition: width 400ms ease;
+  }
+  .bar.paused > i { background: #d4a72c; }
+  .badge {
+    display: inline-flex; align-items: center; padding: 2px 9px; border-radius: 99px;
+    font-size: 11px; white-space: nowrap;
+  }
+  .badge::before { content: ""; width: 6px; height: 6px; border-radius: 50%; background: currentColor; margin-right: 5px; }
+  .badge.run   { background: var(--xm-accent-soft); color: var(--xm-accent-strong); }
+  .badge.pause { background: var(--xm-warn-soft); color: var(--xm-warn); }
+  .badge.done  { background: var(--xm-ok-soft); color: var(--xm-ok); }
+  .badge.cancel { background: #eef1f5; color: var(--xm-muted); }
+  .badge.fail  { background: var(--xm-danger-soft); color: var(--xm-danger); }
+  td button { padding: 3px 10px; font-size: 11.5px; margin-right: 4px; border-radius: 7px; }
+
+  /* ---- 调用结果抽屉（全局底部） ---- */
+  .console {
+    position: fixed; left: var(--xm-side-w); right: 0; bottom: 0; z-index: 9;
+    border-top: 1px solid var(--xm-border); background: var(--xm-panel);
+  }
+  .console-bar {
+    display: flex; align-items: center; gap: 8px; padding: 8px 18px; cursor: pointer;
+    font-size: 12px; color: var(--xm-muted); user-select: none;
+  }
+  .console-bar:hover { background: var(--xm-panel-soft); }
+  .console-bar .chev { transition: transform 150ms ease; }
+  .console.open .chev { transform: rotate(180deg); }
+  .console-chip { margin-left: auto; font-family: var(--xm-mono); font-size: 11px; color: var(--xm-faint); }
+  #out {
+    max-height: 0; overflow: auto; padding: 0 18px; transition: max-height 180ms ease, padding 180ms ease;
+    border-top: 1px solid transparent;
+  }
+  .console.open #out { max-height: 200px; padding: 12px 18px 14px; border-top-color: var(--xm-border); }
+
+  /* ---- 窄屏：侧栏收成顶部图标栏 ---- */
+  @media (max-width: 960px) {
+    :root { --xm-side-w: 64px; }
+    .brand b, .brand small, .nav-item span, .nav-group, .side-foot { display: none; }
+    .brand { justify-content: center; padding: 14px 0 6px; }
+    .nav-item { justify-content: center; padding: 10px 0; }
+    main { padding: 20px 20px 120px; }
+    .console { left: var(--xm-side-w); }
+  }
 </style>
 </head>
 <body>
+
+<aside class="sidebar">
+  <div class="brand">
+    <div class="brand-mark">xm</div>
+    <div><b>xmedia</b><small>xmedia-kit 转码服务</small></div>
+  </div>
+  <nav class="nav">
+    <div class="nav-group">媒体面</div>
+    <button class="nav-item" data-view="live" title="实时预览">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="2" y="4" width="20" height="14" rx="2"/><path d="M8 21h8M12 18v3"/></svg>
+      <span>实时预览</span>
+    </button>
+    <button class="nav-item" data-view="monitor" title="转码监控">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 3v18h18"/><path d="M7 14l4-4 3 3 5-6"/></svg>
+      <span>转码监控</span>
+    </button>
+    <button class="nav-item" data-view="bake" title="HTML 烘焙">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="5" width="18" height="14" rx="2"/><path d="M3 10h18M8 5v5"/></svg>
+      <span>HTML 烘焙</span>
+    </button>
+    <div class="nav-group">工具</div>
+    <button class="nav-item" data-view="studio" title="HF Studio">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3l1.9 5.1L19 10l-5.1 1.9L12 17l-1.9-5.1L5 10l5.1-1.9z"/></svg>
+      <span>HF Studio</span>
+    </button>
+    <div class="nav-group">系统</div>
+    <button class="nav-item" data-view="engine" title="引擎与指标">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="5" y="5" width="14" height="14" rx="2"/><path d="M9 2v3M15 2v3M9 19v3M15 19v3M2 9h3M2 15h3M19 9h3M19 15h3"/></svg>
+      <span>引擎与指标</span>
+    </button>
+  </nav>
+  <div class="side-foot"><span class="dot" id="side-dot"></span><span id="side-engine">引擎状态读取中…</span></div>
+</aside>
+
 <main>
-  <h1>xmedia · 编码产物实时验收</h1>
-  <p class="sub">
-    xmedia-kit 编码/转码 → RTMP 实时推流 → MediaMTX → 浏览器 &lt;video&gt; 直连 WHEP/HLS。<br>
-    mediabase Host 只跑控制面命令并返回观看地址，<strong>媒体字节不经过 Host</strong>；没有 MJPEG、没有帧轮询、没有每帧文件 I/O，也没有 C++ 播放自检管线。
-  </p>
+  <!-- ======================= 实时预览 + 发布 ======================= -->
+  <section class="view" id="view-live">
+    <header class="view-head">
+      <h1>实时预览</h1>
+      <p>xmedia-kit 编码/转码 → RTMP 实时推流 → MediaMTX → 浏览器 &lt;video&gt; 直连 WHEP/HLS。
+        <strong>媒体字节不经过 Host</strong>：没有 MJPEG、没有帧轮询、没有每帧文件 I/O，也没有 C++ 播放自检管线。</p>
+    </header>
 
-  <section>
-    <h2>实时画面（浏览器原生播放）</h2>
-    <video id="video" controls autoplay playsinline muted></video>
-    <div id="player-state" class="muted">未播放 · 先启动编码发布，再点「观看」</div>
-    <div id="urls" class="muted">观看地址读取中…</div>
-    <div class="row" style="margin-top: 12px">
-      <button id="watch" class="primary">观看（WHEP）</button>
-      <button id="unwatch">停止观看</button>
-      <button id="hls">HLS 回退</button>
+    <div class="panel">
+      <h2>实时画面（浏览器原生播放）</h2>
+      <video id="video" controls autoplay playsinline muted></video>
+      <div id="player-state" class="muted">未播放 · 先启动编码发布，再点「观看」</div>
+      <div id="urls" class="muted">观看地址读取中…</div>
+      <div class="row" style="margin-top: 12px">
+        <button id="watch" class="btn primary">观看（WHEP）</button>
+        <button id="unwatch" class="btn">停止观看</button>
+        <button id="hls" class="btn">HLS 回退</button>
+      </div>
+    </div>
+
+    <div class="panel">
+      <h2>编码 / 发布任务</h2>
+      <div class="row">
+        <span class="label">输入源</span>
+        <input id="input" class="grow" size="46" placeholder="/path/to/video.mp4、https://… 或 FFmpeg 设备 URI">
+      </div>
+      <div class="row" style="margin-top: 8px">
+        <span class="label">流路径</span>
+        <input id="path" size="18" placeholder="xmedia">
+        <button id="publish" class="btn primary">开始发布</button>
+        <button id="cancel" class="btn">停止发布</button>
+        <button id="refresh" class="btn">刷新状态</button>
+      </div>
+      <pre id="publish-state" style="margin-top: 12px">任务状态读取中…</pre>
+      <p class="hint">
+        实时推流<strong>默认重新编码</strong>（macOS 用 h264_videotoolbox），保证规律关键帧——
+        直接 stream copy 长 GOP 片源时 WebRTC 等不到 IDR，画面会一直黑。
+        同时只保留视频：MediaMTX 的 WHEP 不支持 AAC 音轨，带音频会让整路会话被拒。
+        离线转码到本地文件时两轨都保留（那才是本产品的主业）。<br>
+        有限时长的文件片源按实时配速推完就会<strong>断开推流</strong>，MediaMTX 随即移除该 path；观看中会自动重新发布并重连，点「停止观看」或「停止发布」结束。若需真正不间断的画面，请用屏幕采集等持续输入源。
+      </p>
     </div>
   </section>
 
-  <section>
-    <h2>编码 / 发布任务</h2>
-    <div class="row">
-      <span class="label">输入源</span>
-      <input id="input" class="grow" size="46" placeholder="/path/to/video.mp4、https://… 或 FFmpeg 设备 URI">
+  <!-- ======================= 转码任务监控 ======================= -->
+  <section class="view" id="view-monitor">
+    <header class="view-head">
+      <h1>转码任务监控</h1>
+      <p>离线转码 · 并发任务池。多个任务在引擎进程内并发执行，每 1s 刷新一次全池快照。</p>
+    </header>
+
+    <div class="panel">
+      <h2>新建离线转码</h2>
+      <div class="row">
+        <span class="label">输入</span>
+        <input id="job-input" class="grow" size="40" placeholder="/path/to/source.mp4">
+        <span class="label">输出</span>
+        <input id="job-output" class="grow" size="40" placeholder="/path/to/out.mp4（绝对路径，容器随扩展名）">
+      </div>
+      <div class="row" style="margin-top: 8px">
+        <span class="label">视频编码</span>
+        <input id="job-vcodec" size="22" placeholder="留空 = copy；或 libx264 / h264_videotoolbox…">
+        <span class="label">音频编码</span>
+        <input id="job-acodec" size="22" placeholder="留空 = copy；显式空串 = 丢轨">
+        <button id="job-submit" class="btn primary">新建转码</button>
+      </div>
     </div>
-    <div class="row" style="margin-top: 8px">
-      <span class="label">流路径</span>
-      <input id="path" size="18" placeholder="xmedia">
-      <button id="publish" class="primary">开始发布</button>
-      <button id="cancel">停止发布</button>
-      <button id="refresh">刷新状态</button>
+
+    <div class="panel">
+      <h2>任务池快照</h2>
+      <table class="jobs" id="jobs-table">
+        <thead>
+          <tr><th>任务</th><th>输入 → 输出</th><th>进度</th><th>状态</th><th>耗时</th><th>操作</th></tr>
+        </thead>
+        <tbody id="jobs-body"><tr><td colspan="6" class="muted">任务池快照读取中…</td></tr></tbody>
+      </table>
+      <p class="hint">
+        「暂停/继续」是协作式的：worker 在下一个包边界挂起/恢复（阻塞中的网络读会先读完当前包），
+        暂停期间耗时不再累计；「停止」为协作式取消，文件输出仍会收尾出可播放容器。
+        已完成的任务保留在列表里，直到下一次新建转码触发清理。
+      </p>
     </div>
-    <pre id="publish-state" class="muted" style="margin-top: 12px">任务状态读取中…</pre>
-    <p class="label" style="margin: 8px 0 0; line-height: 1.6">
-      实时推流<strong>默认重新编码</strong>（macOS 用 h264_videotoolbox），保证规律关键帧——
-      直接 stream copy 长 GOP 片源时 WebRTC 等不到 IDR，画面会一直黑。
-      同时只保留视频：MediaMTX 的 WHEP 不支持 AAC 音轨，带音频会让整路会话被拒。
-      离线转码到本地文件时两轨都保留（那才是本产品的主业）。<br>
-      有限时长的文件片源按实时配速推完就会<strong>断开推流</strong>，MediaMTX 随即移除该 path；观看中会自动重新发布并重连，点「停止观看」或「停止发布」结束。若需真正不间断的画面，请用屏幕采集等持续输入源。
-    </p>
   </section>
 
-  <section>
-    <h2>HF Studio 编辑器（HyperFrames 对齐创作工作台）</h2>
-    <div class="row">
-      <button id="studio-open" class="primary">打开 Studio（新标签）</button>
-      <a id="studio-link" class="label" href="#" target="_blank" rel="noopener" style="display:none"></a>
+  <!-- ======================= HTML 烘焙 ======================= -->
+  <section class="view" id="view-bake">
+    <header class="view-head">
+      <h1>HTML 烘焙</h1>
+      <p>离线出片 · HyperFrames 对齐。页面经 CEF 离屏渲染 + GL 元素合成为 MP4，确定性 VirtualTime 时钟逐帧烘焙，输出可复现。
+        需要 <strong>xmedia-bake</strong> 工具链（XMEDIA_BUILD_CEF=1 构建）；未构建时本区调用会得到明确的拒绝说明。
+        成片经 <code>/api/xmedia.bake.&lt;jobId&gt;</code> 拉取路由回放。</p>
+    </header>
+
+    <div class="panel">
+      <h2>烘焙任务</h2>
+      <div class="row">
+        <span class="label">页面</span>
+        <input id="bake-html" class="grow" size="44" placeholder="/path/to/page.html 或 file:///…（file:// 页面需内联脚本）">
+      </div>
+      <div class="row" style="margin-top: 8px">
+        <span class="label">输出</span>
+        <input id="bake-out" class="grow" size="44" placeholder="/path/to/out.mp4（绝对路径）">
+        <button id="bake-start" class="btn primary">开始烘焙</button>
+        <button id="bake-cancel" class="btn">取消</button>
+      </div>
+      <div class="row" style="margin-top: 8px">
+        <span class="label">时长(s)</span><input id="bake-seconds" size="6" value="2">
+        <span class="label">fps</span><input id="bake-fps" size="4" value="24">
+        <span class="label">宽</span><input id="bake-width" size="6" value="1280">
+        <span class="label">高</span><input id="bake-height" size="6" value="720">
+        <label class="label"><input type="checkbox" id="bake-audio" checked> 音频</label>
+        <label class="label"><input type="checkbox" id="bake-hf"> HF 秒制时序</label>
+      </div>
+      <video id="bake-video" controls style="display:none; margin-top:12px"></video>
+      <pre id="bake-state" style="margin-top: 12px">尚未启动烘焙任务</pre>
     </div>
-    <pre id="studio-state" class="muted" style="margin-top: 10px">状态读取中…</pre>
-    <p class="label" style="margin: 8px 0 0; line-height: 1.6">
-      独立 Python 进程（stdlib HTTP 服务器，仅绑 127.0.0.1）：Home 项目管理、agent 对话、
-      分镜叙事（Arc 模板）、时间线编辑与导出。浏览器直连 Studio，<strong>宿主不代理其字节</strong>；
-      导出经本产品的烘焙管线（xmedia-bake）。
-    </p>
   </section>
 
-  <section>
-    <h2>引擎监督状态</h2>
-    <pre id="state" class="muted">连接中…</pre>
+  <!-- ======================= HF Studio ======================= -->
+  <section class="view" id="view-studio">
+    <header class="view-head">
+      <h1>HF Studio 编辑器</h1>
+      <p>HyperFrames 对齐创作工作台：独立 Python 进程（stdlib HTTP 服务器，仅绑 127.0.0.1）。
+        浏览器直连 Studio，<strong>宿主不代理其字节</strong>；导出经本产品的烘焙管线（xmedia-bake）。</p>
+    </header>
+
+    <div class="panel">
+      <div class="row">
+        <button id="studio-open" class="btn primary">打开 Studio（新标签）</button>
+        <a id="studio-link" class="label" href="#" target="_blank" rel="noopener" style="display:none"></a>
+      </div>
+      <pre id="studio-state" style="margin-top: 10px">状态读取中…</pre>
+    </div>
   </section>
 
-  <section>
-    <h2>HTML 烘焙（离线出片 · HyperFrames 对齐）</h2>
-    <div class="row">
-      <span class="label">页面</span>
-      <input id="bake-html" class="grow" size="44" placeholder="/path/to/page.html 或 file:///…（file:// 页面需内联脚本）">
-    </div>
-    <div class="row" style="margin-top: 8px">
-      <span class="label">输出</span>
-      <input id="bake-out" class="grow" size="44" placeholder="/path/to/out.mp4（绝对路径）">
-      <button id="bake-start" class="primary">开始烘焙</button>
-      <button id="bake-cancel">取消</button>
-    </div>
-    <div class="row" style="margin-top: 8px">
-      <span class="label">时长(s)</span><input id="bake-seconds" size="6" value="2">
-      <span class="label">fps</span><input id="bake-fps" size="4" value="24">
-      <span class="label">宽</span><input id="bake-width" size="6" value="1280">
-      <span class="label">高</span><input id="bake-height" size="6" value="720">
-      <label class="label"><input type="checkbox" id="bake-audio" checked> 音频</label>
-      <label class="label"><input type="checkbox" id="bake-hf"> HF 秒制时序</label>
-    </div>
-    <video id="bake-video" controls style="display:none; width:100%; aspect-ratio:16/9; background:#000; border-radius:6px; margin-top:12px"></video>
-    <pre id="bake-state" class="muted" style="margin-top: 12px">尚未启动烘焙任务</pre>
-    <p class="label" style="margin: 8px 0 0; line-height: 1.6">
-      HyperFrames Studio 排版（或兼容 data-start/duration 契约）的页面经 CEF 离屏渲染
-      + GL 元素合成为 MP4；确定性 VirtualTime 时钟逐帧烘焙，输出可复现。
-      需要 <strong>xmedia-bake</strong> 工具链（XMEDIA_BUILD_CEF=1 构建）；未构建时本区调用会得到明确的拒绝说明。
-      成片经 <code>/api/xmedia.bake.&lt;jobId&gt;</code> 拉取路由回放。
-    </p>
-  </section>
+  <!-- ======================= 引擎与指标 ======================= -->
+  <section class="view" id="view-engine">
+    <header class="view-head">
+      <h1>引擎与指标</h1>
+      <p>子进程监督状态、任务指标与最近一次调用结果。引擎与宿主之间只有控制面命令，媒体字节从不经过本页。</p>
+    </header>
 
-  <section>
-    <h2>最近一次调用结果</h2>
-    <pre id="out" class="muted">—</pre>
+    <div class="panel">
+      <h2>引擎监督状态</h2>
+      <pre id="state">连接中…</pre>
+    </div>
+
+    <div class="panel">
+      <h2>最近一次调用结果</h2>
+      <pre id="out-detail">—</pre>
+    </div>
   </section>
 </main>
+
+<!-- 调用结果抽屉（全局） -->
+<div class="console" id="console">
+  <div class="console-bar" id="console-toggle">
+    <svg class="chev" viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M18 15l-6-6-6 6"/></svg>
+    <span>最近调用</span>
+    <span class="console-chip" id="console-chip">—</span>
+  </div>
+  <pre id="out">—</pre>
+</div>
+
 <script type="module">
 import { startWhep, nativeHlsSupported } from './whep.js'
+
+// ---- 视图切换（左侧导航 → hash 路由，刷新后停留在当前视图） ----------------
 const $ = (id) => document.getElementById(id)
+const VIEWS = ['live', 'monitor', 'bake', 'studio', 'engine']
+const showView = (name) => {
+  if (!VIEWS.includes(name)) name = 'live'
+  for (const v of VIEWS) {
+    $('view-' + v).classList.toggle('active', v === name)
+  }
+  document.querySelectorAll('.nav-item').forEach((btn) => {
+    btn.classList.toggle('active', btn.dataset.view === name)
+  })
+  if (location.hash.slice(1) !== name) history.replaceState(null, '', '#' + name)
+}
+document.querySelectorAll('.nav-item').forEach((btn) => {
+  btn.addEventListener('click', () => showView(btn.dataset.view))
+})
+window.addEventListener('hashchange', () => showView(location.hash.slice(1)))
+
+// ---- WS RPC（控制面；媒体字节从不走这里） ---------------------------------
 const wsProtocol = location.protocol === 'https:' ? 'wss' : 'ws'
 const token = new URLSearchParams(location.search).get('token')
 const query = token ? `?token=${encodeURIComponent(token)}` : ''
@@ -146,11 +423,24 @@ const call = (method, params = {}) => new Promise((resolve) => {
   pending.set(id, resolve)
   ws.send(JSON.stringify({ jsonrpc: '2.0', id, method, params }))
 })
-const show = (value) => { $('out').textContent = JSON.stringify(value, null, 2) }
+const show = (value) => {
+  $('out').textContent = JSON.stringify(value, null, 2)
+  $('out-detail').textContent = JSON.stringify(value, null, 2)
+  const chip = $('console-chip')
+  if (value && value.error) {
+    chip.textContent = '✗ ' + (value.error.message ?? JSON.stringify(value.error)).slice(0, 80)
+    chip.style.color = 'var(--xm-danger)'
+  } else {
+    chip.textContent = '✓ ' + JSON.stringify(value).slice(0, 80)
+    chip.style.color = 'var(--xm-faint)'
+  }
+}
+$('console-toggle').addEventListener('click', () => {
+  $('console').classList.toggle('open')
+})
 const note = (text, isError) => {
   $('player-state').textContent = text
-  $('player-state').classList.toggle('muted', !isError)
-  $('player-state').style.color = isError ? '#cf222e' : ''
+  $('player-state').style.color = isError ? 'var(--xm-danger)' : ''
 }
 
 let viewers = null
@@ -176,7 +466,6 @@ const renderPublishState = (value) => {
     (value.videoCodec ? `编码  ${value.videoCodec}${value.videoCodec === 'copy' && /^[a-z][a-z0-9+.-]*:\/\//i.test(value.output || '') ? '（长 GOP 片源的 WHEP 可能黑屏）' : ''}\n` : '') +
     (value.error ? `错误  ${value.error}\n` : '') +
     `观看  ${value.viewers?.whep ?? viewers?.whep ?? '—'}`
-  $('publish-state').classList.remove('muted')
 }
 
 // WHEP client: imported from ./whep.js (the shared, dependency-free module also
@@ -300,9 +589,20 @@ const refreshHealth = async () => {
     const res = await fetch(`/api/health${query}`)
     const health = await res.json()
     $('state').textContent = JSON.stringify(health.xmedia ?? { offline: true }, null, 2)
-    $('state').classList.remove('muted')
+    const engine = health.xmedia
+    const dot = $('side-dot')
+    const label = $('side-engine')
+    if (engine?.running) {
+      dot.className = 'dot ok'
+      label.textContent = `引擎运行中 · pid ${engine.pid}`
+    } else {
+      dot.className = 'dot bad'
+      label.textContent = '引擎未运行'
+    }
   } catch (e) {
     $('state').textContent = `health 不可用: ${e.message}`
+    $('side-dot').className = 'dot bad'
+    $('side-engine').textContent = '宿主不可达'
   }
 }
 
@@ -311,7 +611,6 @@ const refreshStudio = async () => {
   const value = await call('xmedia.studio.state')
   if (value && !value.error) {
     $('studio-state').textContent = JSON.stringify(value, null, 2)
-    $('studio-state').classList.remove('muted')
     if (value.running) {
       const link = $('studio-link')
       link.href = value.url + query
@@ -334,10 +633,13 @@ $('studio-open').onclick = async () => {
 }
 
 ws.addEventListener('open', () => {
+  showView(location.hash.slice(1))
   void refreshViewers()
   void refreshPublish()
   void refreshStudio()
   void refreshHealth()
+  void refreshJobs()
+  setInterval(() => { void refreshJobs() }, 1000)
 })
 
 $('watch').onclick = watch
@@ -385,7 +687,6 @@ const renderBakeState = (value) => {
     `页面  ${value.html || '—'}\n输出  ${value.output || '—'}\n` +
     (value.error ? `错误  ${value.error}\n` : '') +
     (value.ok && bakeJobId ? `回放  /api/xmedia.bake.${bakeJobId}` : '')
-  el.classList.remove('muted')
 }
 
 const attachBakeVideo = (url) => {
@@ -435,6 +736,79 @@ $('bake-cancel').onclick = async () => {
   show(result)
   void refreshBake()
 }
+
+// ---- 转码任务监控（离线转码 · 并发任务池）---------------------------------
+// The pool snapshot is ONE call per second for ALL jobs — the monitor never
+// polls per-job, and the row buttons reuse the same control-plane methods the
+// publish section uses (stop/pause/resume are shared task-pool verbs).
+
+const jobPhase = (job) => job.running
+  ? (job.paused ? 'pause' : 'run')
+  : (job.done
+    ? (job.ok ? 'done' : (/cancel/i.test(job.error || '') ? 'cancel' : 'fail'))
+    : 'run')
+const JOB_BADGES = { run: '运行中', pause: '已暂停', done: '已完成', cancel: '已取消', fail: '失败' }
+
+const fmtJob = (job) => {
+  const phase = jobPhase(job)
+  const badge = JOB_BADGES[phase] ?? '未知'
+  const action = phase === 'pause' ? '继续' : '暂停'
+  const short = (p) => (p.length > 34 ? '…' + p.slice(-33) : p)
+  const stopBtn = (phase === 'run' || phase === 'pause')
+    ? `<button class="btn" data-act="stop" data-id="${job.jobId}">停止</button>` : ''
+  return `<tr>
+    <td title="${job.jobId}">${job.jobId.slice(0, 8)}</td>
+    <td class="path">${short(job.input || '—')} → ${short(job.output || '—')}</td>
+    <td><div class="bar ${phase === 'pause' ? 'paused' : ''}"><i style="width:${job.progress}%"></i></div> ${job.progress}%</td>
+    <td><span class="badge ${phase}">${badge}</span></td>
+    <td>${(job.elapsedMs / 1000).toFixed(1)}s</td>
+    <td>${stopBtn}${phase === 'run' || phase === 'pause' ? `<button class="btn" data-act="pause" data-id="${job.jobId}">${action}</button>` : ''}</td>
+  </tr>`
+}
+
+const renderJobs = (jobs) => {
+  const body = $('jobs-body')
+  if (!jobs || jobs.error) {
+    body.innerHTML = `<tr><td colspan="6">任务池快照读取失败: ${JSON.stringify(jobs?.error ?? jobs)}</td></tr>`
+    return
+  }
+  if (jobs.length === 0) {
+    body.innerHTML = '<tr><td colspan="6">任务池为空 —— 填上方表单新建离线转码，或经 agent 工具/API 创建</td></tr>'
+    return
+  }
+  body.innerHTML = jobs.map(fmtJob).join('')
+}
+
+const refreshJobs = async () => {
+  renderJobs(await call('xmedia.publish.jobs'))
+}
+
+$('jobs-table').addEventListener('click', async (event) => {
+  const btn = event.target.closest('button[data-act]')
+  if (!btn) return
+  const jobId = btn.dataset.id
+  const act = btn.dataset.act
+  const verb = act === 'stop' ? 'xmedia.publish.stop'
+    : (btn.textContent === '继续' ? 'xmedia.publish.resume' : 'xmedia.publish.pause')
+  show(await call(verb, { jobId }))
+  void refreshJobs()
+})
+
+$('job-submit').onclick = async () => {
+  const input = $('job-input').value.trim()
+  const output = $('job-output').value.trim()
+  if (!input || !output) { show({ error: '离线转码需要输入与输出绝对路径' }); return }
+  // Empty codec fields must stay ABSENT: an explicit empty column on the wire
+  // means "drop this stream" (-vn/-an), not "copy".
+  const params = { input, output, realtime: false }
+  if ($('job-vcodec').value.trim()) params.videoCodec = $('job-vcodec').value.trim()
+  if ($('job-acodec').value.trim()) params.audioCodec = $('job-acodec').value.trim()
+  const result = await call('xmedia.publish.start', params)
+  show(result)
+  if (result && !result.error) void refreshJobs()
+}
+
+showView(location.hash.slice(1))
 </script>
 </body>
 </html>

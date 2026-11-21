@@ -49,7 +49,8 @@ status/info/diagnostics/snapshot`）、JPEG 抓帧、`--scratch` 字节交换、
   xmedia-bridge (C++ 子进程)                mediabase Host
    ┌────────────────────────────┐         ┌──────────────────────────┐
    │ media::TranscodeJob        │◄────────┤ WS /rpc：publish.start /  │
-   │ demux → (encode/copy) → mux│  tab 行 │ stop / status + viewer URL│
+   │ demux → (encode/copy) → mux│  tab 行 │ stop/pause/resume/list    │
+   │ （任务池：多 jobId 并发）     │         │ + viewer URL              │
    └────────────┬───────────────┘         └──────────────────────────┘
                 │ RTMP/FLV（realtime 配速）          │ 只传地址
                 ▼                                    │
@@ -80,6 +81,9 @@ status/info/diagnostics/snapshot`）、JPEG 抓帧、`--scratch` 字节交换、
 | `publish.start` | `jobId, input, output, format, vcodec, acodec, realtime` | `ok\t<任务 JSON>` |
 | `publish.stop` | `jobId` | `ok\t<任务 JSON>` |
 | `publish.status` | `jobId`（**空=空闲快照**） | `ok\t<任务 JSON>` |
+| `publish.pause` | `jobId` | `ok\t<任务 JSON>`（协作式暂停，幂等） |
+| `publish.resume` | `jobId` | `ok\t<任务 JSON>`（恢复，幂等） |
+| `publish.list` | — | `ok\t<[任务 JSON 数组]>`（全池快照，每行带 `jobId`） |
 | `bake.start` | `jobId, htmlPath, outPath, optionsJson` | `ok\t<烘焙 JSON>` |
 | `bake.status` | `jobId`（**空=空闲快照**） | `ok\t<烘焙 JSON>` |
 | `bake.cancel` | `jobId` | `ok\t<烘焙 JSON>` |
@@ -87,7 +91,10 @@ status/info/diagnostics/snapshot`）、JPEG 抓帧、`--scratch` 字节交换、
 | `quit` | — | `ok` |
 
 **任务 JSON**（`publish.*`）：
-`{running, done, ok, progress, input, output, format, error, elapsedMs, sandboxed}`。
+`{running, done, ok, progress, input, output, format, error, elapsedMs, sandboxed,
+paused, jobId}`。`paused` 是协作式暂停标志（worker 在下一个包边界挂起，阻塞中的
+网络读会先读完当前包）；暂停期间 `elapsedMs` 不再累计。`jobId` 追加在尾部，使
+`publish.list` 的每行快照自描述（其余回复回显请求的 id，空闲快照回空串）。
 `publish.*` 三命令的**首列都是 `jobId`**（任务池键，由宿主生成，默认 `randomUUID`）；
 `publish.status` 的 `jobId` 留空时引擎回**空闲快照**（`running:false`），宿主据此在没有任何任务时也返回结构化状态，
 不再抛 "无可用任务"。`hello` 的第四列 `sandboxed` 表示引擎是否**真正进入**沙箱（见 3.1 节）。
@@ -191,6 +198,30 @@ macOS 的废弃 `sandbox_init` API 不接受内联档案（报 `profile not foun
 `publish.start` 返回 `jobId`，`publish.status` / `publish.stop` 按 `jobId` 路由，互不干扰。
 `Job*` 地址在 `std::map` 中稳定，worker 回调可安全捕获。空闲（无 `jobId`）的 `publish.status`
 返回中性快照（`running:false`）而非报错。
+
+### 3.4 转码任务监控（暂停 / 继续 / 全池快照）
+
+在任务池之上补齐了"看得见、按得住"的监控面，三层各加一件东西：
+
+- **kit（`TranscodeCancelToken`，协作式）**：新增 `Pause() / Resume() / IsPaused() /
+  WaitWhilePaused()`。暂停与取消同构——worker 在**下一个包边界**挂起（条件变量门闩，
+  `Cancel()` 会唤醒已挂起的 worker，所以"暂停中取消"不需要先恢复）；与 `Cancel()` 不同，
+  暂停**不中断阻塞中的 AVIO 读**（直播输入的读会先读完当前包）。`Transcode()` 主循环在
+  读包前过一次门闩，`cancel == nullptr` 的同步调用方零变化。kit 单测 +2：暂停后进度冻结、
+  恢复后跑完且输出可解码；暂停中取消得到 `kCancelled`。该改动已提交并合入
+  **kit 上游 main（`04d6291`，2026-11-21）**。
+- **bridge（协议动词）**：`publish.pause` / `publish.resume` 幂等（未知/已完成任务直接回
+  快照）；`publish.list` 一次回全池快照（每行带 `jobId`）；`PublishSnapshot` 记
+  `paused_at_ms / paused_total_ms`，`elapsedMs` 扣除暂停时长（挂起期间耗时不再虚涨）。
+  `PublishPaused / PublishResumed` 进 `events` 队列。
+- **TS + UI**：`xmedia.publish.pause/resume`（mutates）与 `xmedia.publish.jobs`（只读）
+  注册进 API 与 agent 工具表；页面新增「转码任务监控」section——新建离线转码表单
+  （输入/输出/编码器，空编码器字段**不发列**：显式空列 = 丢轨）+ 全池表格
+  （进度条/状态徽章/耗时，每行 暂停/继续/停止），1s 轮询 `xmedia.publish.jobs`。
+
+`verify:xmedia` 新增两类断言：fake 引擎的 pause→list→resume 形状链，以及**真实引擎的
+离线暂停端到端**（`XMEDIA_MEDIA` 存在时：file→file 启动 → progress≥1 → 暂停 →
+进度冻结 → 恢复 → 跑完且输出存在）。
 
 ---
 
@@ -310,7 +341,8 @@ product/xmedia/
 └─ README.zh.md
 ```
 
-能力包注册：**8 个 `xmedia.*` 控制面方法（含 `xmedia.metrics`）、4 个 agent 工具、0 条数据面路由、
+能力包注册：**14 个 `xmedia.*` 控制面方法（含 `xmedia.metrics` 与监控三动词
+`publish.pause/resume/jobs`）、10 个 agent 工具、1 条数据面路由（烘焙成片拉取）、
 3 类事件、health、capabilities manifest**。没有 `ws /stream` 通道。
 `server` 与 `ui-web` 一行未改。
 
@@ -455,10 +487,12 @@ XMEDIA_TEST_SANDBOX=1 XMEDIA_ENGINE_BIN=$PWD/product/xmedia/engine/build/xmedia-
 `verify:xmedia` 覆盖：health → strict `capabilities.verify` → `api.list` / `tools.list` /
 `api.streams`（断言 **`xmedia.frames` 与整条引擎自检面已不存在**）→ 协议契约检查（头文件覆盖全部动词、版本=1）
 → `hello` → viewer URL → `publish.start/status/stop`（含空闲 `status` 与 `jobId` 路由）
+→ **监控动词链**（fake：`publish.pause` → `publish.list` 全池快照 → `publish.resume`）→
+**真实引擎离线暂停端到端**（`XMEDIA_MEDIA` 存在时：file→file → 暂停 → 进度冻结 → 恢复 → 跑完）
 → `xmedia.metrics` 结构化指标 → **bake 全链**（fake 引擎跑通；真实引擎烘真实页面后
 ffprobe 解码断言；无工具链时断言诚实拒绝）→ （有 MediaMTX 时）v3 API 确认 `path.ready` 与轨列表、
 **默认无 AAC**、**WHEP 真实 SDP 握手返回 201 + answer** → `events` → 监督状态（含 `sandboxed`）
-→ 页面含 `<video>`、不含帧订阅与自检区块。
+→ 页面含 `<video>`、不含帧订阅与自检区块、含转码任务监控区。
 
 ### 本机实测（2026-11-07，macOS / x86_64）
 
@@ -481,6 +515,16 @@ ffprobe 解码断言；无工具链时断言诚实拒绝）→ （有 MediaMTX �
 | `test:xmedia` | ✅ 19/19（7 世界：正常 / **烘焙控制面** / 无引擎 / 崩溃监督 / 只读 / 沙箱 / 协议契约；含"任务池并发 / 指标幂等 / 空闲 status / 沙箱状态 / 成片路由 200+206 / 取消不留半成品 / 失败注入"） |
 | `verify:xmedia` fake + 真实 C++ 各一遍 | ✅ 全部检查通过（含"自检面已移除 / 协议契约一致"逐项断言） |
 
+### 转码任务监控（2026-11-21，本机 arm64，kit `26e96c8` + 协作式 Pause 补丁）
+
+| 检查 | 结果 |
+|---|---|
+| kit `TranscodeJobTest`（含 `PauseParksThenResumeCompletes` / `CancelWhilePausedReportsCancelled`） | ✅ 16/16；套件内 1 个与本改动无关的环境性失败（`AudioEncoderTest.EveryAvailableEncoderInitializes`：pinned FFmpeg 缺 19 个第三方音频编码器） |
+| 真实引擎离线暂停端到端（`XMEDIA_MEDIA`=60s 片源，libx264 重编码） | ✅ progress=9% 时暂停 → `paused:true`、进度与 `elapsedMs` 冻结（107ms 两次采样一致）→ 恢复 → `ok:true` 收口、`elapsedMs` 1854ms（暂停窗口被扣除）、输出文件存在 |
+| 真实引擎 `verify:xmedia` 全链 | ✅ XMEDIA OK（含协议 13 动词、监控动词链 fake 断言、诚实拒绝、Studio、页面标记） |
+| 浏览器验收（fake 引擎，监控页） | ✅ 新建 2 个并发任务 → 表格两行"运行中" → 暂停 A（黄色"已暂停"徽章、B 不受扰）→ 继续 → 停止（"已取消"徽章）→ 空表单被前端校验拦截；暂停期间耗时不再累计 |
+| 顺带修复 | ✅ 真实引擎 `publish.*` 的 `elapsedMs` 恒为 0 的既有 bug（PublishSnapshot 一直没写 `started_ms`，fake 引擎掩盖了它） |
+
 降级语义：引擎二进制不存在时宿主照常启动，调用返回带码
 `UNAVAILABLE (-32002)` / `engine.notRunning`。先调 `xmedia.engine.state` 看
 `running / pid / restarts / binary`，常见原因是没跑 `build:xmedia:engine` 或路径写错。
@@ -497,6 +541,8 @@ ffprobe 解码断言；无工具链时断言诚实拒绝）→ （有 MediaMTX �
    `publish.*` 是产品动词，协议版本 1 不变。
    **消费版本**：kit `main@26e96c8`（2026-11-18 pull，含 HF 对齐烘焙重构、GPU 合成修复、
    Studio 应用）——重建后 bake/bridge 无需产品侧改动即兼容，真机烘焙端到端复验通过。
+   2026-11-21 本机 kit 检出更新至 `main@04d6291`（含协作式 Pause/Resume），
+   产品引擎已重建并复验（离线暂停端到端 ✅）。
 2. **播放交给浏览器**。音频、A/V 同步、seek、硬解、色彩管理、字幕由 `<video>` 与
    MediaMTX 提供，Host 不实现任何帧传输、背压或 pacing；C++ 侧连 Player 都不实例化。
    这是"用最小复杂度换可靠性"。
@@ -545,4 +591,6 @@ ffprobe 解码断言；无工具链时断言诚实拒绝）→ （有 MediaMTX �
 | 页面能看到地址但没画面 | 等 1–2 秒让首个关键帧到达 MediaMTX；查 v3 API `/v3/paths/list` 的 `ready` 与 `tracks`；若 `ready` 为真仍黑，按上一条查关键帧 |
 | 编码器初始化失败 `video encoder init failed` | 本机 FFmpeg 不含 `libx264`。macOS 用默认 `h264_videotoolbox`，或按目标 FFmpeg build 设 `XMEDIA_LIVE_VCODEC`（如 `h264_vaapi`、`h264_nvenc`） |
 | `publish.stop` 后仍显示运行中 | 协作式取消，worker 在下一个包边界退出；轮询 `publish.status` 会收敛 |
+| `publish.pause` 后 `status` 仍 `paused:false` | 同为协作式：暂停请求已受理，worker 在下一个包边界才真正挂起；阻塞中的网络读会先读完当前包。轮询会收敛为 `paused:true` |
+| 暂停中的任务 `elapsedMs` 不涨 | 预期行为：暂停时长被扣除，耗时只计实际编码时间 |
 | 远程浏览器打不开 | WHEP/HLS 基址必须是**浏览器**可达的地址，并放行 8888/8889 端口与 CORS |

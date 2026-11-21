@@ -34,8 +34,9 @@ const json = (value) => JSON.stringify(value)
 
 function idlePublish(jobId, input = '', output = '', format = '') {
   return {
-    running: false, done: false, ok: false, progress: 0,
+    running: false, done: false, ok: false, paused: false, progress: 0,
     input, output, format, error: '', startedMs: 0, finishedMs: 0,
+    pausedAtMs: 0, pausedTotalMs: 0,
     sandboxed: SANDBOXED,
   }
 }
@@ -50,15 +51,19 @@ function idleBake() {
 
 // A single fake process can simulate several concurrent jobs; the capability
 // assigns a unique jobId per publish.start, which is exactly how the real
-// engine breaks the old single-BUSY limit.
+// engine breaks the old single-BUSY limit. `paused`/`jobId` mirror the bridge's
+// trailing status columns; elapsedMs freezes while parked (pause bookkeeping).
 function publishStatus(jobId) {
   const p = state.jobs.get(jobId) ?? idlePublish(jobId)
   const now = p.running ? Date.now() : p.finishedMs
+  let pausedMs = p.pausedTotalMs
+  if (p.paused) pausedMs += now - p.pausedAtMs
   return {
-    running: p.running, done: p.done, ok: p.ok, progress: p.progress,
+    running: p.running, done: p.done, ok: p.ok, paused: p.paused, progress: p.progress,
     input: p.input, output: p.output, format: p.format, error: p.error,
-    elapsedMs: p.startedMs > 0 ? now - p.startedMs : 0,
+    elapsedMs: p.startedMs > 0 ? now - p.startedMs - pausedMs : 0,
     sandboxed: p.sandboxed,
+    jobId,
   }
 }
 
@@ -107,6 +112,12 @@ function dispatch(parts) {
       const [jobId = ''] = parts.slice(1)
       const job = state.jobs.get(jobId)
       if (job && job.running) {
+        // Cancel lands while paused: settle the open pause window, like the
+        // bridge's done callback does.
+        if (job.paused) {
+          job.pausedTotalMs += Date.now() - job.pausedAtMs
+          job.paused = false
+        }
         job.running = false
         job.done = true
         job.ok = false
@@ -120,6 +131,36 @@ function dispatch(parts) {
     case 'publish.status': {
       const [jobId = ''] = parts.slice(1)
       say(`ok\t${json(publishStatus(jobId))}`)
+      return
+    }
+    // Cooperative per-job pause: a flag on the pool entry (the real worker
+    // parks at the next packet boundary). Idempotent on paused/finished/unknown
+    // ids — same contract as the bridge's handlers.
+    case 'publish.pause': {
+      const [jobId = ''] = parts.slice(1)
+      const job = state.jobs.get(jobId)
+      if (job && job.running && !job.paused) {
+        job.paused = true
+        job.pausedAtMs = Date.now()
+        state.events.push({ type: 'PublishPaused', jobId })
+      }
+      say(`ok\t${json(publishStatus(jobId))}`)
+      return
+    }
+    case 'publish.resume': {
+      const [jobId = ''] = parts.slice(1)
+      const job = state.jobs.get(jobId)
+      if (job && job.running && job.paused) {
+        job.pausedTotalMs += Date.now() - job.pausedAtMs
+        job.paused = false
+        state.events.push({ type: 'PublishResumed', jobId })
+      }
+      say(`ok\t${json(publishStatus(jobId))}`)
+      return
+    }
+    case 'publish.list': {
+      const rows = [...state.jobs.keys()].map((id) => publishStatus(id))
+      say(`ok\t${json(rows)}`)
       return
     }
     case 'events': {

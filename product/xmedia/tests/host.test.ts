@@ -221,6 +221,78 @@ describe('the xmedia host with a working engine', () => {
   })
 })
 
+// ---- world 1c: the transcode monitor verbs (pause / resume / pool snapshot) --
+
+describe('the transcode monitor: pause, resume and the task-pool snapshot', () => {
+  let host: BootedHost | null = null
+
+  beforeAll(async () => {
+    host = await bootXmedia({ XMEDIA_STRICT_CAPABILITIES: '1' })
+  })
+  afterAll(async () => {
+    await host?.stop()
+    host = null
+  })
+
+  it('pauses and resumes one running job without disturbing a sibling', async () => {
+    const a = await host!.rpc.call<{ jobId: string; running: boolean }>('xmedia.publish.start', {
+      input: '/tmp/pause-a.mp4', output: '/tmp/pause-a-out.mp4', realtime: false,
+    })
+    const b = await host!.rpc.call<{ jobId: string; running: boolean }>('xmedia.publish.start', {
+      input: '/tmp/pause-b.mp4', output: '/tmp/pause-b-out.mp4', realtime: false,
+    })
+    expect(a.running).toBe(true)
+    expect(b.running).toBe(true)
+
+    const paused = await host!.rpc.call<{ paused: boolean; running: boolean }>(
+      'xmedia.publish.pause', { jobId: a.jobId })
+    expect(paused).toMatchObject({ running: true, paused: true })
+
+    // Pause is a flag, not a stop: the job stays in the pool and the sibling
+    // is untouched.
+    const statusA = await host!.rpc.call<{ paused: boolean }>(
+      'xmedia.publish.status', { jobId: a.jobId })
+    expect(statusA.paused).toBe(true)
+    const statusB = await host!.rpc.call<{ running: boolean; paused: boolean }>(
+      'xmedia.publish.status', { jobId: b.jobId })
+    expect(statusB).toMatchObject({ running: true, paused: false })
+
+    const resumed = await host!.rpc.call<{ paused: boolean }>(
+      'xmedia.publish.resume', { jobId: a.jobId })
+    expect(resumed.paused).toBe(false)
+
+    const events = await host!.rpc.call<Array<{ type: string; jobId?: string }>>('xmedia.events')
+    expect(events.some((e) => e.type === 'PublishPaused' && e.jobId === a.jobId)).toBe(true)
+    expect(events.some((e) => e.type === 'PublishResumed' && e.jobId === a.jobId)).toBe(true)
+
+    await host!.rpc.call('xmedia.publish.stop', { jobId: a.jobId })
+    await host!.rpc.call('xmedia.publish.stop', { jobId: b.jobId })
+  })
+
+  it('answers the whole pool as one snapshot with per-row jobIds', async () => {
+    const a = await host!.rpc.call<{ jobId: string }>('xmedia.publish.start', {
+      input: '/tmp/jobs-a.mp4', output: '/tmp/jobs-a-out.mp4', realtime: false,
+    })
+    const rows = await host!.rpc.call<Array<{ jobId: string; running: boolean; paused: boolean }>>(
+      'xmedia.publish.jobs')
+    expect(Array.isArray(rows)).toBe(true)
+    const mine = rows.find((r) => r.jobId === a.jobId)
+    expect(mine).toMatchObject({ running: true, paused: false })
+    // Every row is self-describing: the monitor never guesses a row's identity.
+    for (const row of rows) expect(typeof row.jobId).toBe('string')
+    await host!.rpc.call('xmedia.publish.stop', { jobId: a.jobId })
+  })
+
+  it('treats pause/resume on unknown or finished ids as idempotent snapshots', async () => {
+    const idle = await host!.rpc.call<{ running: boolean; paused: boolean }>(
+      'xmedia.publish.pause', { jobId: 'no-such-job' })
+    expect(idle).toMatchObject({ running: false, paused: false })
+    const resumed = await host!.rpc.call<{ running: boolean; paused: boolean }>(
+      'xmedia.publish.resume', { jobId: 'no-such-job' })
+    expect(resumed).toMatchObject({ running: false, paused: false })
+  })
+})
+
 // ---- world 1b: the bake control plane (offline HTML→MP4) ---------------------
 
 describe('the xmedia bake control plane', () => {
@@ -459,6 +531,15 @@ describe('the xmedia host in readonly mode', () => {
     const refused = await expectError(host.rpc, 'xmedia.publish.start', { input: '/tmp/clip.mp4' })
     expect(refused.code).toBe(FORBIDDEN)
     expect(await host.rpc.call('xmedia.publish.viewers')).toMatchObject({ path: 'xmedia' })
+  })
+
+  it('also refuses the mutating monitor verbs but serves the pool snapshot', async () => {
+    host = await bootXmedia({ XMEDIA_READONLY: '1' })
+    const paused = await expectError(host.rpc, 'xmedia.publish.pause', {})
+    expect(paused.code).toBe(FORBIDDEN)
+    const resumed = await expectError(host.rpc, 'xmedia.publish.resume', {})
+    expect(resumed.code).toBe(FORBIDDEN)
+    expect(await host.rpc.call('xmedia.publish.jobs')).toEqual([])
   })
 })
 

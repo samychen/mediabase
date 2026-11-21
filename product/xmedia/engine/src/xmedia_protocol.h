@@ -18,6 +18,9 @@ inline constexpr std::string_view kQuit = "quit";
 inline constexpr std::string_view kPublishStart = "publish.start";
 inline constexpr std::string_view kPublishStop = "publish.stop";
 inline constexpr std::string_view kPublishStatus = "publish.status";
+inline constexpr std::string_view kPublishPause = "publish.pause";
+inline constexpr std::string_view kPublishResume = "publish.resume";
+inline constexpr std::string_view kPublishList = "publish.list";
 inline constexpr std::string_view kBakeStart = "bake.start";
 inline constexpr std::string_view kBakeStatus = "bake.status";
 inline constexpr std::string_view kBakeCancel = "bake.cancel";
@@ -31,6 +34,9 @@ inline constexpr Framing kFraming_Quit = Framing::kOk;
 inline constexpr Framing kFraming_PublishStart = Framing::kOk;
 inline constexpr Framing kFraming_PublishStop = Framing::kOk;
 inline constexpr Framing kFraming_PublishStatus = Framing::kOk;
+inline constexpr Framing kFraming_PublishPause = Framing::kOk;
+inline constexpr Framing kFraming_PublishResume = Framing::kOk;
+inline constexpr Framing kFraming_PublishList = Framing::kOk;
 inline constexpr Framing kFraming_BakeStart = Framing::kOk;
 inline constexpr Framing kFraming_BakeStatus = Framing::kOk;
 inline constexpr Framing kFraming_BakeCancel = Framing::kOk;
@@ -101,6 +107,30 @@ enum class PublishStatusReq : int {
 
 enum class PublishStatusRes : int {
   kStatusJson = 0,
+};
+
+enum class PublishPauseReq : int {
+  kJobId = 0,
+};
+
+enum class PublishPauseRes : int {
+  kStatusJson = 0,
+};
+
+enum class PublishResumeReq : int {
+  kJobId = 0,
+};
+
+enum class PublishResumeRes : int {
+  kStatusJson = 0,
+};
+
+enum class PublishListReq : int {
+
+};
+
+enum class PublishListRes : int {
+  kJobsJson = 0,
 };
 
 enum class BakeStartReq : int {
