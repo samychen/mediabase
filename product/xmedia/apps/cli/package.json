@@ -21,6 +21,7 @@
     "@mediabase/server": "^0.1.6",
     "@mediabase/settings": "^0.1.6",
     "@mediabase/tools": "^0.1.6",
+    "@xmedia/host-mtx-bridge": "^0.1.6",
     "@xmedia/bundle-app": "^0.1.6",
     "@xmedia/host-engine": "^0.1.6",
     "@xmedia/host-studio": "^0.1.6"

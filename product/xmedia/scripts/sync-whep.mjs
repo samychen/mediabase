@@ -2,7 +2,7 @@
 //
 // The browser can only load modules served from the host's distRoot
 // (apps/web/dist), but the real source of truth lives at libs/whep/whep.js so
-// mediamtx-console can import it too. This script copies the canonical file
+// any product can import it too. This script copies the canonical file
 // verbatim into dist/; verify.mjs asserts the two stay byte-identical.
 //
 // Run: pnpm run sync:whep   (after editing libs/whep/whep.js)

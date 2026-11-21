@@ -203,6 +203,17 @@ try {
     JSON.stringify(channels))
   checks.expect('工具注册表含 xmedia.publish.start', tools.includes('xmedia.publish.start'))
 
+  // Capability-level composition: the in-repo @xmedia/host-mtx-bridge package is
+  // mounted by the xmedia bundle, so the whole mediamtx.* control plane and
+  // agent tools exist HERE (health key `mediamtx`, no data-plane routes).
+  for (const wanted of ['mediamtx.info', 'mediamtx.paths.list', 'mediamtx.sessions.list']) {
+    checks.expect(`MediaMTX 桥已组合进控制面: ${wanted}`, methods.includes(wanted))
+  }
+  checks.expect('MediaMTX 桥已组合进工具表: mediamtx.paths.list', tools.includes('mediamtx.paths.list'))
+  const healthNow = await (await fetch(`${base}/api/health`)).json()
+  checks.expect('health 携带 MediaMTX 桥的 mediamtx 键',
+    healthNow && typeof healthNow.mediamtx === 'object', JSON.stringify(healthNow?.mediamtx))
+
   // ---- protocol contract: single source of truth ----------------------------
   // The verb/column vocabulary lives in protocol/contract.json. The C++ side
   // consumes it through the GENERATED engine/src/xmedia_protocol.h. Assert the
@@ -558,29 +569,68 @@ try {
   const state = await rpc.call('xmedia.engine.state')
   checks.expect('监督状态可读', typeof state?.running === 'boolean', JSON.stringify(state))
 
+  // The page is a SHELL + ESM plugins: index.html only carries the loader/
+  // registry chrome; every view (live/monitor/bake/studio/engine) lives in its
+  // own file under plugins/ and is registered through plugins/manifest.json.
+  // Assertions therefore check the shell once and each plugin file separately.
   const page = await fetch(`${base}/`)
   const html = await page.text()
   checks.expect('GET / 返回宿主页面', page.ok)
-  checks.expect('页面用 <video> 播放,不再有 MJPEG 帧订阅',
-    html.includes('<video') && html.includes('whep') && !html.includes('xmedia.frames'))
-  // The WHEP client is the SHARED module (single source of truth), not an inline
-  // copy. The page must import it from ./whep.js and must NOT redefine it inline.
-  checks.expect('页面从共享模块 ./whep.js 引入 WHEP 客户端',
-    html.includes("import { startWhep, nativeHlsSupported } from './whep.js'") &&
-    !html.includes('async function startWhep(') && !html.includes('function nativeHlsSupported('))
+  checks.expect('壳加载插件清单并暴露运行时 ctx（对齐基座 mediabaseCtx 惯例）',
+    html.includes('plugins/manifest.json') && html.includes('xmediaCtx') &&
+    html.includes('ui.register'))
+
+  const manifest = await (await fetch(`${base}/plugins/manifest.json`)).json()
+  const BUILTIN = ['live.js', 'monitor.js', 'stream.js', 'player.js', 'sync.js', 'bake.js', 'config.js', 'studio.js', 'engine.js']
+  checks.expect('插件清单合法且含全部内置插件',
+    Array.isArray(manifest?.plugins) && BUILTIN.every((f) => manifest.plugins.includes(f)),
+    JSON.stringify(manifest))
+
+  const pluginSrc = {}
+  for (const file of manifest.plugins) {
+    pluginSrc[file] = await (await fetch(`${base}/plugins/${file}`)).text()
+  }
+  const all = Object.values(pluginSrc).join('\n')
+
+  // live: WHEP client is the SHARED module (single source of truth), not an
+  // inline copy; self-heal markers; re-encode explanation.
+  checks.expect('live 插件从共享模块 ../whep.js 引入 WHEP 客户端',
+    pluginSrc['live.js'].includes("import { startWhep, nativeHlsSupported } from '../whep.js'") &&
+    !all.includes('async function startWhep(') && !all.includes('function nativeHlsSupported('))
   // A finite file source ends its realtime publish and MediaMTX drops the path;
   // the page must still recover (check status → republish → retry WHEP) instead
   // of dumping "no stream is available" on the user.
-  checks.expect('页面具备无活跃流自愈与首帧重试',
-    html.includes('ensurePublishing') && html.includes('/no stream/i') &&
-    html.includes('自动重新发布'))
-  checks.expect('页面注明实时预览默认重编码', html.includes('默认重新编码'))
+  checks.expect('live 插件具备无活跃流自愈与首帧重试',
+    pluginSrc['live.js'].includes('ensurePublishing') && pluginSrc['live.js'].includes('/no stream/i') &&
+    pluginSrc['live.js'].includes('自动重新发布'))
+  // 职责收敛：自有流与 stream 指来的就绪路径共用一个 watch(path)，HLS 回退只写一份。
+  checks.expect('live 只有一个观看入口 watch(path) 且 HLS 回退共用 playHls',
+    !pluginSrc['live.js'].includes('watchPath') &&
+    pluginSrc['live.js'].includes('async function watch(path)') &&
+    (pluginSrc['live.js'].match(/playHls\(/g) ?? []).length >= 3)
+  checks.expect('live 插件注明实时预览默认重编码', pluginSrc['live.js'].includes('默认重新编码'))
+  checks.expect('monitor 插件含转码任务监控区(任务池快照 + 暂停/继续操作)',
+    pluginSrc['monitor.js'].includes('转码任务监控') && pluginSrc['monitor.js'].includes('xmedia.publish.jobs') &&
+    pluginSrc['monitor.js'].includes('新建转码') && pluginSrc['monitor.js'].includes('data-act="pause"'))
+  checks.expect('stream 插件消费组合进来的 mediamtx 控制面(路径/会话/录制/回放/指标/endpoints)',
+    pluginSrc['stream.js'].includes('mediamtx.paths.list') && pluginSrc['stream.js'].includes('mediamtx.info') &&
+    pluginSrc['stream.js'].includes('mediamtx.sessions.kick') && pluginSrc['stream.js'].includes('mediamtx.recordings.list') &&
+    pluginSrc['stream.js'].includes('mediamtx.playback.list') && pluginSrc['stream.js'].includes('mediamtx.endpoints') &&
+    pluginSrc['stream.js'].includes('mediamtx.config.paths.add'))
+  checks.expect('录像回放/同步回放/config 插件接入 MSE 链/同步墙/配置编辑器',
+    pluginSrc['player.js'].includes('MsePlayer') && pluginSrc['sync.js'].includes('locateInSlot') &&
+    pluginSrc['config.js'].includes('configDiff'))
+  // 职责收敛：player 只做单路录像回放，实时 WHEP/HLS 由 live 独占；sync 引导单路去录像回放。
+  checks.expect('player 专注录像回放(无 WHEP/HLS 实时管线，标题为「录像回放」)',
+    pluginSrc['player.js'].includes("title: '录像回放'") &&
+    !pluginSrc['player.js'].includes('startWhep') && !pluginSrc['player.js'].includes('nativeHlsSupported') &&
+    !pluginSrc['player.js'].includes("value=\"whep\"") && !pluginSrc['player.js'].includes("value=\"hls\""))
+  checks.expect('sync 引导单路用「录像回放」', pluginSrc['sync.js'].includes('单路回放请用「录像回放」'))
+  checks.expect('studio 插件含 HF Studio 入口区', pluginSrc['studio.js'].includes('HF Studio 编辑器'))
+  checks.expect('页面用 <video> 播放,不再有 MJPEG 帧订阅',
+    pluginSrc['live.js'].includes('<video') && !all.includes('xmedia.frames'))
   checks.expect('页面不含 C++ 引擎自检区块与 snapshot 抓帧',
-    !html.includes('引擎自检') && !html.includes('xmedia.snapshot'))
-  checks.expect('页面含 HF Studio 入口区', html.includes('HF Studio 编辑器'))
-  checks.expect('页面含转码任务监控区(任务池快照 + 暂停/继续操作)',
-    html.includes('转码任务监控') && html.includes('xmedia.publish.jobs') &&
-    html.includes('新建转码') && html.includes("data-act=\"pause\""))
+    !all.includes('引擎自检') && !all.includes('xmedia.snapshot'))
   rpc.close()
 } catch (e) {
   checks.fail('冒烟执行', e instanceof Error ? e.stack ?? e.message : String(e))

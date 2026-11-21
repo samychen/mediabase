@@ -324,10 +324,13 @@ product/xmedia/
 │  │  ├─ index.ts               @xmedia/host-engine（能力包；含 Metrics、任务池、sandbox 状态）
 │  │  ├─ protocol.ts            (import) contract.json → TS 端 VERB / 列常量
 │  │  └─ metrics.ts             Metrics 类（幂等计数 + 最近窗口）
-│  └─ bundle/app/               @xmedia/bundle-app（cordis.patch.yml，端口 3092）
+│  └─ bundle/app/               @xmedia/bundle-app（cordis.patch.yml，端口 3092；
+│                                组合 @xmedia/host-mtx-bridge 桥）
 ├─ apps/
 │  ├─ cli/                      BootIdentity(XMEDIA_ / .xmedia) + 薄入口
-│  └─ web/dist/index.html       零依赖静态页：发布控制 + <video> + 从 ./whep.js 加载的 WHEP 客户端
+│  └─ web/dist/                 零依赖壳 + ESM 插件：index.html（壳/loader/registry）
+│                                + whep.js（共享模块镜像）+ plugins/{manifest.json, _lib.js,
+│                                  live.js, monitor.js, stream.js, bake.js, studio.js, engine.js}
 ├─ scripts/
 │  ├─ build-engine.mjs          cmake 配置/构建/ctest 转发
 │  ├─ gen-protocol.mjs          contract.json → engine/src/xmedia_protocol.h
@@ -344,12 +347,14 @@ product/xmedia/
 能力包注册：**14 个 `xmedia.*` 控制面方法（含 `xmedia.metrics` 与监控三动词
 `publish.pause/resume/jobs`）、10 个 agent 工具、1 条数据面路由（烘焙成片拉取）、
 3 类事件、health、capabilities manifest**。没有 `ws /stream` 通道。
+此外经**能力级组合**（见决策 9）挂载 `@xmedia/host-mtx-bridge` 宿主桥
+（已从原独立流服务台产品完整迁入本仓）：20 个 `mediamtx.*`
+控制面方法 + 8 个 agent 工具 + health 键 `mediamtx`，字节不过桥。
 `server` 与 `ui-web` 一行未改。
 
 WHEP 客户端是**仓库级共享模块** `libs/whep/whep.js`（纯 ESM、零依赖、带
 `whep.d.ts`）。xmedia 的 `apps/web/dist/whep.js` 是它的**字节一致镜像**（由
-`pnpm run sync:whep` 生成，`verify:xmedia` 断言一致）；`mediamtx-console` 的
-`whep.ts` 直接 re-export 同一份。三方共用，不会漂移。
+`pnpm run sync:whep` 生成，`verify:xmedia` 断言一致）。两方共用，不会漂移。
 
 ---
 
@@ -455,6 +460,9 @@ pnpm run host:xmedia                       # http://127.0.0.1:3092
 | `XMEDIA_BAKE_BIN` | 烘焙 CLI（Studio 导出/分镜帧经此接缝调用） | 空 = bake_bin() 探测 |
 | `XMEDIA_STUDIO_AUTO_START` / `_AUTO_RESTART` / `_MAX_RESTARTS` / `_RESTART_DELAY_MS` | Studio 监督策略 | 开 / 开 / 3 / 500 |
 | `XMEDIA_KIT_ROOT` | （agent 对话提示词用）kit 源码根，默认为同步副本根 | 空 |
+| `XMEDIA_MTX_SERVER_URL` | MediaMTX v3 API 基址（桥接能力；未起时 `mediamtx.*` 如实报错） | `http://127.0.0.1:9997` |
+| `XMEDIA_MTX_USERNAME` / `XMEDIA_MTX_PASSWORD` / `XMEDIA_MTX_SERVER_TOKEN` | MediaMTX API 鉴权（auth* 开启时才需要；token 优先于 basic） | 空 |
+| `XMEDIA_MTX_SERVER_NAME` / `XMEDIA_MTX_SERVERS_FILE` / `XMEDIA_MTX_TIMEOUT_MS` | 桥的多服务器注册表与超时；serversFile 默认 `<home>/xmedia-mtx-servers.json` | `default` / 空 / 8000 |
 | `XMEDIA_STRICT_CAPABILITIES=1` | manifest 不实即拒绝启动 | 关 |
 | `XMEDIA_READONLY=1` | 拒绝一切 `mutates` 方法 | 关 |
 | `XMEDIA_ENGINE_SANDBOX=1` | 启动引擎时加 `--sandbox`（POSIX 资源上限；Linux seccomp / macOS Seatbelt best-effort） | 关 |
@@ -553,10 +561,17 @@ ffprobe 解码断言；无工具链时断言诚实拒绝）→ （有 MediaMTX �
    参数用 `@mediabase/schema`，引擎 JSON 列显式解析成带码 `ENGINE` 错误。
 5. **监督策略留在产品层**。`EngineClient` 只报 `onExit`；重启/退避/秒退判定在能力包，
    `ctx.effect` 保证销毁时杀子进程、清定时器。
-6. **零依赖静态页**。`index.html` 经 `<script type="module">` 从 `./whep.js`
-   加载 WHEP 客户端——该 `whep.js` 是仓库级共享模块 `libs/whep/whep.js` 的镜像
-   （`mediamtx-console` 也复用同一份），无 hls.js / mse.js / 打包器。HLS 仅作
-   原生支持浏览器的回退。
+6. **零依赖壳 + ESM 插件**。页面是一个**壳**（布局/主题/调用抽屉/插件 loader）
+   + `plugins/` 下的原生 ESM 插件，无打包器。**插件契约刻意对齐基座 `UiPanel`**
+   （`packages/client/ui` 的 `{id,title,area,order,component}` → 本壳
+   `{id,title,area,order,icon,mount(el,ctx)}`），registry 与基座同为响应式——
+   `window.xmediaCtx.ui.register()` 运行时注册即上侧栏（对齐基座
+   `window.mediabaseCtx` 惯例）。新功能 = `plugins/` 加一个 `.js` +
+   `manifest.json` 一行，不改壳。**升级路径**：当插件需要 i18n/theme/跨产品
+   复用时迁基座 web shell（`client.yml` roster），契约一一对应，迁移是机械
+   翻译。`live.js` 经 `import … from '../whep.js'` 加载 WHEP 客户端——该
+   `whep.js` 是仓库级共享模块 `libs/whep/whep.js` 的字节一致镜像，无 hls.js / mse.js。
+   HLS 仅作原生支持浏览器的回退。
 7. **边界 / 未做**：浏览器端像素渲染已用 headless Chrome + CDP 做过**一次性**真实验收
    （`readyState=4`、`videoWidth=1920`、`readers=1`、截图有画面），但**没有纳入 CI**——
    自动化回归仍只到 WHEP `201 + SDP answer` 与 MediaMTX v3 API；实时预览无音频（见第四节）；
@@ -571,6 +586,16 @@ ffprobe 解码断言；无工具链时断言诚实拒绝）→ （有 MediaMTX �
    这些是"内部验收工具"不需要的复杂度，不做。
 8. **许可**：xmedia-kit BSD-3-Clause（`media/filters/legacy/` 内算法保留 LGPL-2.1），
    MediaMTX MIT；捆绑 FFmpeg 的链接与分发义务由**产品仓**承担。基座 MIT、不含原生二进制。
+9. **MediaMTX 能力已完整并入本产品，不再是独立产品**。原独立流服务台产品的能力包
+   与 UI 已全部迁入 xmedia：宿主桥 `@xmedia/host-mtx-bridge`（凭据留宿主侧、CORS 一次
+   解决、归一词表、纯控制面无数据路由）由 bundle 的一行 cordis row 挂载，`mediamtx.*`
+   方法与工具随宿主就绪。UI 侧四个零依赖 ESM 插件覆盖完整管理台——`stream.js`（推流状态：
+   paths/sessions/recordings/playback/metrics + 路径增删 + 踢会话）、`player.js`（录像回放：
+   单条 MSE 录制链 + 全链 scrubber，实时观看归 `live.js`）、`sync.js`（≥2 路多窗墙钟对齐回放）、
+   `config.js`（全局配置编辑器 + 多服务器注册表）。三个"看"的视图职责互斥：
+   `live.js` 实时 WHEP/HLS、`player.js` 单路录像、`sync.js` 多路录像对齐。
+   `server` 与 `ui-web` 一行未改；`serversFile` 默认落在本产品 home
+   （`.xmedia`），不与其他产品共享注册表。
 
 ---
 
