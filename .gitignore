@@ -23,6 +23,10 @@ product/highlight/engine/models/
 
 # Logs / runtime
 *.log
+# MediaMTX 运行时产物：自动生成的证书与录像段都是本地产物，不进版本库
+product/xmedia/auto.crt
+product/xmedia/auto.key
+product/xmedia/recordings/
 # runtime state a running host creates (confined plugins get a data dir here)
 .mediabase/
 .openvideo/
