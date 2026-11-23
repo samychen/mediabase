@@ -10,7 +10,8 @@
 # Verify: XMEDIA_PUBLISH_OUTPUT=rtmp://127.0.0.1:1935/verify \
 #         XMEDIA_MTX_API=http://127.0.0.1:9997 pnpm run verify:xmedia
 #
-# This is a LOCAL TEST peer: no auth, no recording, no external exposure. For a
+# This is a LOCAL TEST peer: no auth, no external exposure. Recordings are ON
+# (fMP4) with playback so the replay/sync panels have real windows. For a
 # non-loopback deployment set XMEDIA_PUBLISH_BASE / XMEDIA_WHEP_BASE /
 # XMEDIA_HLS_BASE to addresses reachable from the BROWSER (not the host) and
 # tighten MediaMTX auth/TLS yourself.
@@ -24,7 +25,14 @@ api: true
 apiAddress: 127.0.0.1:9997
 
 metrics: false
-playback: false
+
+# Playback server (v3 playback API + fMP4 segment reader) backs the 录像回放
+# and 同步回放 panels. Its HTTP listener is separate from the v3 API; :9996 is
+# MediaMTX's default and stays loopback-only here. Without this, recordings.list
+# is empty and the UI has entry points but nothing to play.
+playback: true
+playbackAddress: 127.0.0.1:9996
+
 pprof: false
 
 rtmp: true
@@ -47,7 +55,11 @@ srt: false
 moq: false
 
 pathDefaults:
-  record: no
+  # Record every path as fMP4 so published streams become replayable windows.
+  # fMP4 is required by the playback server (mpegts segments cannot be seeked).
+  # No recordDeleteAfter => segments are kept indefinitely; set e.g. 7d in prod.
+  record: yes
+  recordFormat: fmp4
 
 # An absent `paths` map allows NOTHING; `all_others` is the documented
 # catch-all, so any `xmedia.publish.start { path }` works without editing this

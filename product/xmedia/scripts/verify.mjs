@@ -58,6 +58,103 @@ const checks = checker()
   checks.expect('dist/whep.js 是 libs/whep/whep.js 的字节一致镜像',
     a !== null && b !== null && a === b,
     `lib=${libWhep}\ndist=${distWhep}`)
+  // The known-good path is a plain recvonly SDP POST + setRemoteDescription,
+  // with the Location session DELETEd on teardown. Trickle ICE / forced data
+  // channel experiments regressed real playback — do not reintroduce them.
+  checks.expect('WHEP 客户端用 SDP POST 建会话并用 DELETE 回收',
+    !!a?.includes("'content-type': 'application/sdp'") &&
+    !!a?.includes("method: 'POST'") && !!a?.includes("method: 'DELETE'") &&
+    !!a?.includes('setRemoteDescription') &&
+    !a?.includes('trickle-ice-sdpfrag'))
+
+  // MediaMTX's WHEP answer is a FIXED Baseline (profile-level-id=42e01f). A
+  // High+B-frame live stream connects ICE but never decodes a frame in the
+  // browser. The bridge MUST align libx264 live output to Baseline/no-B-frames;
+  // regressing this reintroduces the "connected but black" bug.
+  const bridgeSrc = fileURLToPath(new URL('../engine/src/mediabase_bridge.cc', import.meta.url))
+  const bridge = existsSync(bridgeSrc) ? readFileSync(bridgeSrc, 'utf8') : null
+  checks.expect('实时推流强制 libx264 Baseline/无B帧以对齐 WHEP 协商',
+    !!bridge?.includes('"profile", "baseline"') &&
+    !!bridge?.includes('"bf", "0"') &&
+    !!bridge?.includes('IsNetworkUrl(output)'))
+
+  // Kicking one RTMP publisher drops its TCP socket; librtmp's next write()
+  // raises SIGPIPE whose default action kills the WHOLE bridge process — every
+  // sibling publish dies too. The bridge MUST ignore SIGPIPE process-wide so a
+  // kicked stream fails only its own job. Regression = "kick one, all stop".
+  checks.expect('bridge 忽略 SIGPIPE(踢一路不会拖垮其他推流)',
+    !!bridge?.includes('signal(SIGPIPE, SIG_IGN)'))
+
+  // Rebuilding the bridge while a host still holds the old inode silently
+  // replays the 87s "End of file" bug. engine.state must expose mtime vs child
+  // start, and the live plugin must surface the warning before publishing.
+  const hostEngineSrc = fileURLToPath(new URL('../packages/host/engine/src/index.ts', import.meta.url))
+  const hostEngine = existsSync(hostEngineSrc) ? readFileSync(hostEngineSrc, 'utf8') : null
+  checks.expect('engine.state 报告 bridge 二进制新旧以发现未重启的旧进程',
+    !!hostEngine?.includes('binaryMtimeMs') &&
+    !!hostEngine?.includes('engineStartedAtMs') &&
+    !!hostEngine?.includes('binaryStale'))
+  const liveSrcPath = fileURLToPath(new URL('../apps/web/dist/plugins/live.js', import.meta.url))
+  const liveSrc = existsSync(liveSrcPath) ? readFileSync(liveSrcPath, 'utf8') : null
+  checks.expect('实时预览在开播前拦截未重启的旧 bridge',
+    !!liveSrc?.includes('checkEngineStale') &&
+    !!liveSrc?.includes('binaryStale') &&
+    !!liveSrc?.includes('请重启宿主服务后再开播'))
+
+  // 回放/同步回放 needs the upstream playback server AND fMP4 recording. If
+  // either is disabled the two panels render but list zero windows — which
+  // reads to the user as "no entry point". Guard the config that makes them real.
+  const mtxCfgPath = fileURLToPath(new URL('../mediamtx.yml', import.meta.url))
+  const mtxCfg = existsSync(mtxCfgPath) ? readFileSync(mtxCfgPath, 'utf8') : null
+  checks.expect('MediaMTX 开启 playback + fMP4 录制以支持回放/同步回放',
+    !!mtxCfg && /^playback:\s*true/m.test(mtxCfg) &&
+    /^pathDefaults:[\s\S]*?^\s*record:\s*yes/m.test(mtxCfg) &&
+    /^pathDefaults:[\s\S]*?^\s*recordFormat:\s*fmp4/m.test(mtxCfg))
+
+  // The FLV→librtmp reassembler lives in xmedia-kit, outside this repo. This
+  // fix is load-bearing: without it long RTMP publishes die with AVERROR_EOF
+  // at ~87s. NEVER silently skip — a green XMEDIA OK that cannot see the kit
+  // source is exactly the false assurance we must avoid. If the kit tree is
+  // not visible, fail loudly and tell the caller how to point at it.
+  const cachePath = fileURLToPath(new URL('../engine/build/CMakeCache.txt', import.meta.url))
+  let kitSource = process.env.XMEDIA_KIT_SOURCE_DIR
+  if (!kitSource && existsSync(cachePath)) {
+    const cached = readFileSync(cachePath, 'utf8')
+    const match = /^XMEDIA_KIT_SOURCE_DIR:PATH=(.+)$/m.exec(cached)
+    if (match?.[1]) kitSource = match[1].trim()
+  }
+  if (!kitSource || !existsSync(kitSource)) {
+    checks.fail('xmedia-kit 源码不可见,无法验证 FLV tag 重组补丁',
+      '设置 XMEDIA_KIT_SOURCE_DIR=<kit 路径> 后重跑;不能因看不见就默认补丁存在')
+  } else {
+    const muxerPath = join(kitSource, 'media/transcode/ffmpeg_encode_muxer.cc')
+    const headerPath = join(kitSource, 'media/transcode/flv_rtmp_reassembler.h')
+    const testPath = join(kitSource, 'tests/unit/media_transcode/flv_rtmp_reassembler_unittest.cc')
+    const muxer = existsSync(muxerPath) ? readFileSync(muxerPath, 'utf8') : null
+    const header = existsSync(headerPath) ? readFileSync(headerPath, 'utf8') : null
+    const unitTest = existsSync(testPath) ? readFileSync(testPath, 'utf8') : null
+    // Boundary logic was extracted into FlvRtmpReassembler (header-only) so it
+    // can be unit-tested; the muxer keeps only the AVIO thin wrapper. Accept
+    // the older inline form (11 + body + 4) too, so a working fix is not
+    // rejected just for living in the .cc.
+    const reassemblePresent = !!header
+      ? header.includes('FlvRtmpReassembler') &&
+        header.includes('kTagHeaderBytes') &&
+        header.includes('kMaxStashBytes') &&
+        header.includes("'F'")
+      : !!muxer && muxer.includes('11 + body + 4') && muxer.includes('16u << 20')
+    checks.expect('xmedia-kit RTMP 输出按完整 FLV tag 重组写入,避免 librtmp 缓冲边界 EOF',
+      !!muxer &&
+      muxer.includes('WriteFlvTagsToRtmp') &&
+      muxer.includes('WriteRawToUrl') &&
+      !muxer.includes('AVIO_FLAG_DIRECT') &&
+      reassemblePresent)
+    checks.expect('xmedia-kit FLV tag 边界补丁有对应单元测试(切碎 header/body 不早吐)',
+      !!unitTest &&
+      unitTest.includes('SplitTagHeaderStillYieldsOneWholeTag') &&
+      unitTest.includes('SplitBodyAcrossWrites') &&
+      unitTest.includes('RejectsOversizedStash'))
+  }
 }
 
 const freePort = () => new Promise((resolve) => {
@@ -210,6 +307,30 @@ try {
     checks.expect(`MediaMTX 桥已组合进控制面: ${wanted}`, methods.includes(wanted))
   }
   checks.expect('MediaMTX 桥已组合进工具表: mediamtx.paths.list', tools.includes('mediamtx.paths.list'))
+  // 一键清空录像：bridge 暴露聚合 RPC（confirm 字面量保护 + 按段聚合原语），
+  // stream.js 两步确认后才调用；缺任何一半都会变成"按钮点了没反应"或误删。
+  const mtxBridgePath = fileURLToPath(new URL('../packages/host/mtx-bridge/src/index.ts', import.meta.url))
+  const mtxBridgeSrc = existsSync(mtxBridgePath) ? readFileSync(mtxBridgePath, 'utf8') : null
+  checks.expect('MediaMTX 桥暴露 mediamtx.recordings.deleteAll(confirm 保护 + 按段聚合)',
+    methods.includes('mediamtx.recordings.deleteAll') &&
+    !!mtxBridgeSrc?.includes("'mediamtx.recordings.deleteAll'") &&
+    mtxBridgeSrc.includes('z.const(true).required()') &&
+    mtxBridgeSrc.includes('/v3/recordings/segments/delete'))
+  // ALL eight protocols are kickable in v1.21.1 (official openapi). The old
+  // table had rtmp:null and flat aliases that 404 for rtsp/srt/moq — so RTMP
+  // publishers never got a 踢出 button and even webRTC's button hit a legacy
+  // path. Pin every route to the canonical nested endpoint.
+  const mtxProtocolPath = fileURLToPath(new URL('../packages/host/mtx-protocol/src/index.ts', import.meta.url))
+  const mtxProtocolSrc = existsSync(mtxProtocolPath) ? readFileSync(mtxProtocolPath, 'utf8') : null
+  checks.expect('kick 路由表覆盖全部 8 协议(含 rtmp)且为官方规范路径',
+    !!mtxProtocolSrc?.includes("rtmp: '/v3/rtmp/conns/kick/'") &&
+    mtxProtocolSrc.includes("rtmps: '/v3/rtmps/conns/kick/'") &&
+    mtxProtocolSrc.includes("rtsp: '/v3/rtsp/sessions/kick/'") &&
+    mtxProtocolSrc.includes("rtsps: '/v3/rtsps/sessions/kick/'") &&
+    mtxProtocolSrc.includes("webrtc: '/v3/webrtc/sessions/kick/'") &&
+    mtxProtocolSrc.includes("srt: '/v3/srt/conns/kick/'") &&
+    mtxProtocolSrc.includes("moq: '/v3/moq/sessions/kick/'") &&
+    !/rtmps?: null/.test(mtxProtocolSrc))
   const healthNow = await (await fetch(`${base}/api/health`)).json()
   checks.expect('health 携带 MediaMTX 桥的 mediamtx 键',
     healthNow && typeof healthNow.mediamtx === 'object', JSON.stringify(healthNow?.mediamtx))
@@ -568,6 +689,14 @@ try {
   checks.expect('xmedia.events 返回数组', Array.isArray(events))
   const state = await rpc.call('xmedia.engine.state')
   checks.expect('监督状态可读', typeof state?.running === 'boolean', JSON.stringify(state))
+  checks.expect('监督状态报告 bridge 新旧与子进程启动时间',
+    typeof state?.binaryMtimeMs === 'number' || state?.binaryMtimeMs === null,
+    JSON.stringify(state))
+  checks.expect('engine.state.binaryStale 为布尔值',
+    typeof state?.binaryStale === 'boolean', JSON.stringify(state))
+  checks.expect('当前运行的 bridge 不是旧二进制',
+    state?.binaryStale !== true,
+    `binary=${state?.binary} mtime=${state?.binaryMtimeMs} started=${state?.engineStartedAtMs}`)
 
   // The page is a SHELL + ESM plugins: index.html only carries the loader/
   // registry chrome; every view (live/monitor/bake/studio/engine) lives in its
@@ -592,6 +721,23 @@ try {
   }
   const all = Object.values(pluginSrc).join('\n')
 
+  checks.expect('stream 一键清空录像: 两步确认 + confirm:true + 清掉失效链',
+    pluginSrc['stream.js'].includes('id="rec-clear"') &&
+    pluginSrc['stream.js'].includes("call('mediamtx.recordings.deleteAll', { confirm: true })") &&
+    pluginSrc['stream.js'].includes('再点一次确认清空') &&
+    pluginSrc['stream.js'].includes('录像已全部清空'))
+  // 清空必须广播到已挂载的回放插件——否则录像回放/同步墙继续持有指向已删除
+  // 段的旧链，切回页面还能看到旧片段（点了必然失败）。三个插件都要接线。
+  checks.expect('清空录像广播清台: stream emit + player/sync 订阅',
+    pluginSrc['stream.js'].includes("ctx.emit('xmedia:recordings-cleared'") &&
+    pluginSrc['player.js'].includes("ctx.on('xmedia:recordings-cleared'") &&
+    pluginSrc['sync.js'].includes("ctx.on('xmedia:recordings-cleared'"))
+  // 会话表要标出 publish/read 角色，否则"2 rtmp + 1 webrtc"被误读为异常。
+  checks.expect('会话表标注推流/观看角色(解释 rtmp+webrtc 来源)',
+    pluginSrc['stream.js'].includes('/publish/i.test(d)') &&
+    pluginSrc['stream.js'].includes('/read/i.test(d)') &&
+    pluginSrc['stream.js'].includes('两路推流 + 一个观看者'))
+
   // live: WHEP client is the SHARED module (single source of truth), not an
   // inline copy; self-heal markers; re-encode explanation.
   checks.expect('live 插件从共享模块 ../whep.js 引入 WHEP 客户端',
@@ -603,12 +749,56 @@ try {
   checks.expect('live 插件具备无活跃流自愈与首帧重试',
     pluginSrc['live.js'].includes('ensurePublishing') && pluginSrc['live.js'].includes('/no stream/i') &&
     pluginSrc['live.js'].includes('自动重新发布'))
+  // Finite-source looping is OPT-IN. Guard against the old "click 开播 ⇒ loop
+  // forever" behaviour: the checkbox is the only switch, starts unchecked, and
+  // neither 开播 nor page reload may flip loopIntent back on by itself.
+  checks.expect('live 循环推流默认关闭且由复选框控制',
+    pluginSrc['live.js'].includes('<input id="loop" type="checkbox">循环推流') &&
+    pluginSrc['live.js'].includes('默认不循环') &&
+    pluginSrc['live.js'].includes('syncLoopIntent') &&
+    !pluginSrc['live.js'].includes('loopIntent = true'))
+  checks.expect('live HLS 自动回退不吞掉用户的循环选择',
+    pluginSrc['live.js'].includes('function playHls(text, isError, keepLoop = false)') &&
+    pluginSrc['live.js'].includes(', false, true)'))
+  // The page must auto-connect an already-running publish on load. A late
+  // first frame is only surfaced as a hint — the WHEP session must NOT be
+  // torn down (that regressed playback that previously worked).
+  checks.expect('live 页面刷新自动接流且首帧异常只提示不掐断会话',
+    pluginSrc['live.js'].includes('const initialize = async () =>') &&
+    pluginSrc['live.js'].includes('status.running') &&
+    pluginSrc['live.js'].includes('waitForFrames') &&
+    pluginSrc['live.js'].includes('videoWidth > 0') &&
+    pluginSrc['live.js'].includes('迟迟未出现画面') &&
+    !pluginSrc['live.js'].includes('WHEP 已握手但未收到可解码画面'))
   // 职责收敛：自有流与 stream 指来的就绪路径共用一个 watch(path)，HLS 回退只写一份。
   checks.expect('live 只有一个观看入口 watch(path) 且 HLS 回退共用 playHls',
     !pluginSrc['live.js'].includes('watchPath') &&
     pluginSrc['live.js'].includes('async function watch(path)') &&
     (pluginSrc['live.js'].match(/playHls\(/g) ?? []).length >= 3)
+  // 多路并发：每次开播用独立 jobId，status/stop 按 jobId 路由，并提供任务池快照。
+  // 缺了这些，"推第二个流"会被 lastJobId 静默合并成第一路（已实测复现）。
+  checks.expect('live 多路推流:独立 jobId + 按 jobId 路由 + 任务池快照',
+    pluginSrc['live.js'].includes('const jobId = genJobId()') &&
+    pluginSrc['live.js'].includes('const params = { input, jobId, path }') &&
+    pluginSrc['live.js'].includes("call('xmedia.publish.status', jobParam())") &&
+    pluginSrc['live.js'].includes("call('xmedia.publish.stop', { jobId: currentJobId })") &&
+    pluginSrc['live.js'].includes("call('xmedia.publish.jobs')") &&
+    pluginSrc['live.js'].includes('const started = await startPublish()') &&
+    pluginSrc['live.js'].includes('data-pool-watch'))
+  // 多路可见性：留空 path 时每路必须用独立路径，否则 MediaMTX 把多路合并成一条，
+  // 推流状态只剩一行、录像只产生一路，"同步回放"退化为单路播放器（已实测复现）。
+  checks.expect('live 多路推流:留空 path 自动生成独立路径(避免 MediaMTX 合并)',
+    pluginSrc['live.js'].includes('const genPath = () => `live-') &&
+    pluginSrc['live.js'].includes("const path = $id('path').value.trim() || genPath()") &&
+    pluginSrc['live.js'].includes('placeholder="留空自动生成（多路必填不同）"'))
   checks.expect('live 插件注明实时预览默认重编码', pluginSrc['live.js'].includes('默认重新编码'))
+  // 一键开播（单一主行动）+ 状态徽章/进度 + 剪贴板复制 + 渐进披露，零依赖原生实现。
+  checks.expect('live 一键开播 + 状态可视化 + 地址可复制 + 渐进披露',
+    pluginSrc['live.js'].includes('▶ 开播') &&
+    pluginSrc['live.js'].includes("id=\"go\"") && !pluginSrc['live.js'].includes('id=\"publish\"') &&
+    pluginSrc['live.js'].includes('id=\"live-badge\"') && pluginSrc['live.js'].includes('id=\"live-progress\"') &&
+    pluginSrc['live.js'].includes('navigator.clipboard.writeText') &&
+    pluginSrc['live.js'].includes('<details') && pluginSrc['live.js'].includes('<datalist'))
   checks.expect('monitor 插件含转码任务监控区(任务池快照 + 暂停/继续操作)',
     pluginSrc['monitor.js'].includes('转码任务监控') && pluginSrc['monitor.js'].includes('xmedia.publish.jobs') &&
     pluginSrc['monitor.js'].includes('新建转码') && pluginSrc['monitor.js'].includes('data-act="pause"'))
@@ -617,15 +807,94 @@ try {
     pluginSrc['stream.js'].includes('mediamtx.sessions.kick') && pluginSrc['stream.js'].includes('mediamtx.recordings.list') &&
     pluginSrc['stream.js'].includes('mediamtx.playback.list') && pluginSrc['stream.js'].includes('mediamtx.endpoints') &&
     pluginSrc['stream.js'].includes('mediamtx.config.paths.add'))
+  checks.expect('live/stream 插件含本地流服务状态灯与启动入口',
+    pluginSrc['live.js'].includes('mediamtx.status') && pluginSrc['live.js'].includes('mediamtx.start') &&
+    pluginSrc['stream.js'].includes('mediamtx.status') && pluginSrc['stream.js'].includes('mediamtx.start'))
   checks.expect('录像回放/同步回放/config 插件接入 MSE 链/同步墙/配置编辑器',
     pluginSrc['player.js'].includes('MsePlayer') && pluginSrc['sync.js'].includes('locateInSlot') &&
     pluginSrc['config.js'].includes('configDiff'))
+  // 同步回放入口与单路回放的区分:动态"已接入 N 路"徽章让多路对齐状态一眼可见,
+  // 避免用户误以为它只是「录像回放」的另一个播放器。
+  checks.expect('sync 动态显示已接入路数(与单路录像回放区分)',
+    pluginSrc['sync.js'].includes('id="sy-count"') &&
+    pluginSrc['sync.js'].includes('已接入 ${active.length} 路') &&
+    pluginSrc['sync.js'].includes('active.length >= 2'))
+  // CRITICAL: renderGrid() does grid.innerHTML = '' — it recreates EVERY <video>.
+  // Detaching only identity-changed cells leaves the earlier cell's player bound
+  // to the removed element, so its brand-new <video> stays black forever.
+  checks.expect('sync 全量重建格子时拆掉所有播放器(避免旧 video 黑屏)',
+    pluginSrc['sync.js'].includes("grid.innerHTML = ''") &&
+    pluginSrc['sync.js'].includes("identities[i] = i < layout ? cellId(slots[i], i) : ''") &&
+    pluginSrc['sync.js'].includes('detachCell(i)'))
+  // The toggle is disabled in markup. reflow() must clear it when a valid
+  // timeline exists, or the wall shows a clock but cannot be played at all.
+  checks.expect('sync 算出时间线后启用播放按钮(整墙可播)',
+    pluginSrc['sync.js'].includes("$id('sy-toggle').disabled = false") &&
+    pluginSrc['sync.js'].includes("$id('sy-toggle').disabled = true"))
+  // Streams are published one after another, so their recording windows start
+  // at different wall-clock times. Wall alignment alone left every cell but the
+  // earliest black ("only first window plays"). Default sequential alignment
+  // starts every cell at its own first window; wall mode stays opt-in; and a
+  // cell outside its footage must show a note instead of a silent black tile.
+  const syncMathSrc = await (await fetch(`${base}/plugins/lib/sync-math.js`)).text()
+  checks.expect('sync 顺序对齐: 默认各路从头一起播 + 墙钟模式可选 + 无画面格显式提示',
+    syncMathSrc.includes('export function locateInChain') &&
+    pluginSrc['sync.js'].includes("locateInChain") &&
+    pluginSrc['sync.js'].includes("let align = 'chain'") &&
+    pluginSrc['sync.js'].includes('id="sy-align"') &&
+    pluginSrc['sync.js'].includes("e.target.value === 'wall' ? 'wall' : 'chain'") &&
+    pluginSrc['sync.js'].includes('align === \'wall\'\n      ? locateInSlot(globalMs, slot)') &&
+    pluginSrc['sync.js'].includes("notes[i] = '该时段无录像'") &&
+    pluginSrc['sync.js'].includes("notes[i] = align === 'chain' ? '本路已播完' : '录像间隙'") &&
+    pluginSrc['sync.js'].includes('paintBadge(i)'))
+  // sync 的外部实时流:直链交给编码引擎转推进 MediaMTX,浏览器 WHEP/HLS 直连;
+  // 实时格不参与录像时间线,移除/清空只停本面板创建的任务,清录像不牵连直播。
+  checks.expect('sync 可添加外部实时流(转推/WHEP/回收任务/实时格不参与录像时间线)',
+    pluginSrc['sync.js'].includes("import { startWhep, nativeHlsSupported } from '../whep.js'") &&
+    pluginSrc['sync.js'].includes('id="sy-ext-url"') &&
+    pluginSrc['sync.js'].includes('id="sy-ext-add"') &&
+    pluginSrc['sync.js'].includes("call('xmedia.publish.start', { input: raw, path, jobId })") &&
+    pluginSrc['sync.js'].includes("call('xmedia.publish.viewers', { path: slot.path })") &&
+    pluginSrc['sync.js'].includes('startWhep(url, video, { audio: false })') &&
+    pluginSrc['sync.js'].includes('nativeHlsSupported()') &&
+    pluginSrc['sync.js'].includes("call('xmedia.publish.stop', { jobId: old.jobId })") &&
+    pluginSrc['sync.js'].includes('slot.live === true') &&
+    pluginSrc['sync.js'].includes('liveOnly: true') &&
+    pluginSrc['sync.js'].includes('slots[i].live !== true') &&
+    pluginSrc['player.js'].includes('MsePlayer') && !pluginSrc['player.js'].includes('startWhep'))
+  // CRITICAL: 'ended' must come from the <video>'s NATIVE ended event (real
+  // playback completion), NEVER from finish()/fetch-drain. On a fast local
+  // fetch, reporting ended at drain (~90ms into a 19s clip) made the consumer
+  // clear the stage / pause the wall while the picture was still playing —
+  // the "one frame then black" / "sync all black" bug. Guard both halves:
+  // finish() only calls endOfStream(); onNativeEnded is the sole onState('ended').
+  const mseSrcPath = fileURLToPath(new URL('../apps/web/dist/plugins/lib/mse.js', import.meta.url))
+  const mseSrc = existsSync(mseSrcPath) ? readFileSync(mseSrcPath, 'utf8') : null
+  checks.expect('MsePlayer: ended 只由 video 原生事件上报(非 fetch 读完)',
+    !!mseSrc?.includes('this.onNativeEnded = () =>') &&
+    !!mseSrc?.includes("video.addEventListener('ended', this.onNativeEnded)") &&
+    !!mseSrc?.includes('this.onState(\'ended\')') &&
+    !!mseSrc?.includes('this.dataEnded = true') &&
+    !!mseSrc?.includes('if (this.dataEnded || this.disposed || streamDone === false) return') &&
+    // finish() must NOT report ended itself: after stripping comment lines,
+    // the only onState('ended') call must be the one in onNativeEnded.
+    (() => {
+      const code = (mseSrc ?? '').split('\n').filter((l) => !l.trimStart().startsWith('//')).join('\n')
+      return (code.match(/this\.onState\('ended'\)/g) ?? []).length === 1
+    })() &&
+    !!mseSrc?.includes('play\\(\\) request was interrupted'))
   // 职责收敛：player 只做单路录像回放，实时 WHEP/HLS 由 live 独占；sync 引导单路去录像回放。
   checks.expect('player 专注录像回放(无 WHEP/HLS 实时管线，标题为「录像回放」)',
     pluginSrc['player.js'].includes("title: '录像回放'") &&
     !pluginSrc['player.js'].includes('startWhep') && !pluginSrc['player.js'].includes('nativeHlsSupported') &&
     !pluginSrc['player.js'].includes("value=\"whep\"") && !pluginSrc['player.js'].includes("value=\"hls\""))
   checks.expect('sync 引导单路用「录像回放」', pluginSrc['sync.js'].includes('单路回放请用「录像回放」'))
+  // 职责收敛：stream 的写操作是「接入外部拉流源」(source 必填)，本地推流归 live。
+  checks.expect('stream 只接外部拉流源(必填 source)，本地推流引导去「实时预览」',
+    pluginSrc['stream.js'].includes('<h2>接入拉流源</h2>') &&
+    pluginSrc['stream.js'].includes("source === ''") &&
+    pluginSrc['stream.js'].includes('params = { name, record, source }') &&
+    pluginSrc['stream.js'].includes('本地推流请用「实时预览」'))
   checks.expect('studio 插件含 HF Studio 入口区', pluginSrc['studio.js'].includes('HF Studio 编辑器'))
   checks.expect('页面用 <video> 播放,不再有 MJPEG 帧订阅',
     pluginSrc['live.js'].includes('<video') && !all.includes('xmedia.frames'))

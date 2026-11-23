@@ -192,6 +192,15 @@ export default {
       applyStage()
     })
 
+    // 「清空全部录像」后，之前送来的链指向已被删除的段。清台，避免旧片段
+    // 残留（用户切回来还能看到、点了必然播放失败）。
+    ctx.on('xmedia:recordings-cleared', () => {
+      teardown()
+      chain = null
+      setState('idle')
+      renderChrome()
+    })
+
     renderChrome()
   },
 }

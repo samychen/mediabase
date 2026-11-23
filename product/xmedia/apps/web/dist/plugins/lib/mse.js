@@ -188,9 +188,12 @@ export class MsePlayer {
     this.onState = onState
     this.controller = new AbortController()
     this.disposed = false
+    this.dataEnded = false   // fetch drained, endOfStream() issued
+    this.ended = false       // video actually reached its end (native 'ended')
     this.objectUrl = null
     this.onPlaying = null
     this.onVideoError = null
+    this.onNativeEnded = null
   }
 
   async play(url) {
@@ -272,14 +275,22 @@ export class MsePlayer {
     }
 
     const finish = () => {
-      if (this.disposed || streamDone === false) return
+      // "Fetch finished" is NOT "playback finished". endOfStream() only tells
+      // MSE that no more bytes are coming; the <video> then keeps playing the
+      // buffered media in real time. The real end is the video's native `ended`
+      // event (wired below), which is the ONLY place that reports onState('ended').
+      // Previously this reported 'ended' here — on a fast local fetch that is
+      // ~90ms into a 19s clip — so the consumer cleared the stage / paused the
+      // wall while the picture was still playing: the "one frame then black"
+      // bug. The dataEnded latch only guards endOfStream() against double call.
+      if (this.dataEnded || this.disposed || streamDone === false) return
+      this.dataEnded = true
       try {
         if (ms.readyState === 'open') ms.endOfStream()
       } catch {
         // endOfStream during a pending append throws — the sourceended path
         // will not fire again; the video simply stops at the buffer end.
       }
-      this.onState('ended')
     }
 
     const evict = () => {
@@ -316,11 +327,20 @@ export class MsePlayer {
     sb.addEventListener('error', () => this.fail(new Error('source buffer error')))
 
     this.onPlaying = () => this.onState('playing')
+    // The ONLY source of a truthful "ended": the <video> fires this after all
+    // buffered media has actually played. Report it once, and let the consumer
+    // advance/clear the stage here — not when the fetch finished.
+    this.onNativeEnded = () => {
+      if (this.disposed || this.ended) return
+      this.ended = true
+      this.onState('ended')
+    }
     this.onVideoError = () => {
       const err = video.error
       this.fail(new Error(err !== null ? `media error ${err.code}${err.message ? ` (${err.message})` : ''}` : 'playback error'))
     }
     video.addEventListener('playing', this.onPlaying, { once: true })
+    video.addEventListener('ended', this.onNativeEnded)
     video.addEventListener('error', this.onVideoError)
 
     if (head.length > 0) {
@@ -359,10 +379,14 @@ export class MsePlayer {
   }
 
   fail(e) {
-    if (this.disposed) return
+    if (this.disposed || this.ended) return
     const detail = e instanceof Error ? e.message : String(e)
     // An aborted fetch is a normal teardown, not an error.
     if (this.controller.signal.aborted) return
+    // A pending video.play() rejects with AbortError when the element is torn
+    // down on a real 'ended' (the consumer clears the stage) or on stop/dispose.
+    // That is a normal interruption, not a playback error.
+    if (/play\(\) request was interrupted|AbortError/i.test(detail)) return
     this.onState('error', detail)
   }
 
@@ -372,8 +396,10 @@ export class MsePlayer {
     this.controller.abort()
     const video = this.video
     if (this.onPlaying !== null) video.removeEventListener('playing', this.onPlaying)
+    if (this.onNativeEnded !== null) video.removeEventListener('ended', this.onNativeEnded)
     if (this.onVideoError !== null) video.removeEventListener('error', this.onVideoError)
     this.onPlaying = null
+    this.onNativeEnded = null
     this.onVideoError = null
     video.removeAttribute('src')
     video.load()

@@ -112,6 +112,34 @@ export function locateInSlot(globalMs, slot) {
   return { entryIndex: last.index, rel: null }
 }
 
+/**
+ * Sequential ("chain") alignment: concatenate the chain's windows into one
+ * relative timeline and map an elapsed offset into {entryIndex, rel}. Unlike
+ * locateInSlot() this ignores REAL wall-clock gaps between windows, so every
+ * cell starts at its own first window at elapsed=0 and N cells play together.
+ *
+ * This is the default for the wall: streams are published one after another,
+ * so their recording start times differ by seconds/minutes. Wall-clock
+ * alignment would leave every cell except the earliest black for most of the
+ * timeline. Sequential alignment is what "同步回放" actually means to a user.
+ */
+export function locateInChain(slot, elapsedSec) {
+  const entries = slot?.entries
+  if (!Array.isArray(entries) || entries.length === 0) return null
+  if (!Number.isFinite(elapsedSec) || elapsedSec < 0) return null
+  let acc = 0
+  for (let i = 0; i < entries.length; i++) {
+    const e = entries[i]
+    if (e === null || typeof e !== 'object') continue
+    const dur = entryDurationMs(e) / 1000
+    if (!Number.isFinite(dur) || dur <= 0) continue
+    if (elapsedSec < acc + dur) return { entryIndex: i, rel: elapsedSec - acc }
+    acc += dur
+  }
+  // Elapsed is past the chain's last window: stand down at its final window.
+  return { entryIndex: entries.length - 1, rel: null }
+}
+
 /** Total media seconds of a chain (gaps excluded — it is what plays). */
 export function chainSeconds(slot) {
   let total = 0

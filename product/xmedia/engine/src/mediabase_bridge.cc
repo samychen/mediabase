@@ -489,6 +489,25 @@ class Bridge {
     params.video_codec.codec = vcodec;
     params.audio_codec.codec = acodec;
     params.realtime = realtime;
+    // Live (network) outputs feed MediaMTX WebRTC/WHEP. Its SDP answer is a
+    // FIXED profile-level-id=42e01f (Constrained Baseline) regardless of what
+    // we publish. If the encoded stream is High profile with B-frames, the
+    // browser configures a Baseline decoder and gets an incompatible bitstream
+    // -> DTLS connects, RTP packets arrive, but framesDecoded stays 0 (black
+    // video, measured end-to-end). Force libx264 to Baseline/no-B-frames so the
+    // stream matches what WHEP negotiated. This is the actual fix for
+    // "connected but no picture" after switching macOS from videotoolbox
+    // (which emitted a compatible profile) to libx264 defaults.
+    // Regular IDR frames matter too: libx264's 250-frame default GOP leaves a
+    // late joiner black until the next keyframe. Short GOP keeps WHEP snappy.
+    // File jobs keep encoder defaults.
+    if (IsNetworkUrl(output)) {
+      params.video_codec.gop = 25;
+      if (vcodec == "libx264") {
+        params.video_codec.options.emplace_back("profile", "baseline");
+        params.video_codec.options.emplace_back("bf", "0");
+      }
+    }
     // A cancelled FILE job should still leave a playable container; a live
     // endpoint has no trailer to write.
     params.finalize_on_cancel = !IsNetworkUrl(output);
@@ -954,6 +973,18 @@ class Bridge {
 
 int main(int argc, char** argv) {
   if (argc > 0) g_argv0 = argv[0];
+
+  // A live RTMP publish writes into a TCP socket. When MediaMTX kicks that
+  // publisher (or the peer otherwise drops the connection with RST), the next
+  // send()/write() from librtmp raises SIGPIPE. The default action TERMINATES
+  // the WHOLE process — one kicked stream would take down every other
+  // concurrent publish and force an engine restart. Ignore it process-wide so
+  // the write returns EPIPE instead: the single job then fails gracefully via
+  // its normal error path while the bridge and all sibling jobs stay alive.
+  // (Bake children reset SIGPIPE to default after fork via execv below only for
+  // SIGTERM/SIGINT; SIGPIPE stays ignored there too, which is correct.)
+  signal(SIGPIPE, SIG_IGN);
+
   bool sandbox = false;
   for (int i = 1; i < argc; ++i) {
     if (std::string_view(argv[i]) == "--sandbox") sandbox = true;

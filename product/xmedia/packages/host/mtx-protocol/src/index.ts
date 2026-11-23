@@ -198,15 +198,21 @@ export const SESSION_LIST_ROUTE: Record<SessionKind, string> = {
   moq: '/v3/moqsessions/list',
 }
 
+// MediaMTX v1.21.1 openapi: ALL eight protocols have a kick endpoint —
+// including RTMP (`/v3/rtmp/conns/kick/{id}`). The old table had rtmp:null and
+// used flat aliases that only webrtc/hls still register; real RTSP/SRT/MoQ
+// paths are nested. Probed every route with a fake UUID against v1.21.1:
+// `{"error":"connection/session not found"}` = endpoint exists, `404 page not
+// found` = wrong path. These are the nested canonical paths from the spec.
 export const SESSION_KICK_ROUTE: Record<SessionKind, string | null> = {
-  rtsp: '/v3/rtspsessions/kick/',
-  rtsps: '/v3/rtspssessions/kick/',
-  rtmp: null,
-  rtmps: null,
-  hls: '/v3/hlssessions/kick/',
-  webrtc: '/v3/webrtcsessions/kick/',
-  srt: '/v3/srtconns/kick/',
-  moq: '/v3/moqsessions/kick/',
+  rtsp: '/v3/rtsp/sessions/kick/',
+  rtsps: '/v3/rtsps/sessions/kick/',
+  rtmp: '/v3/rtmp/conns/kick/',
+  rtmps: '/v3/rtmps/conns/kick/',
+  hls: '/v3/hls/sessions/kick/',
+  webrtc: '/v3/webrtc/sessions/kick/',
+  srt: '/v3/srt/conns/kick/',
+  moq: '/v3/moq/sessions/kick/',
 }
 
 export interface SessionRow {

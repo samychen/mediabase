@@ -24,6 +24,10 @@
 // RTMP goes straight from xmedia-kit to MediaMTX.
 
 import { randomUUID } from 'node:crypto'
+import { execFile } from 'node:child_process'
+const execFileAsync = (cmd: string, args: string[], opts?: Record<string, unknown>) => new Promise<string>((resolve, reject) => {
+  execFile(cmd, args, opts as any, (err, stdout) => err ? reject(err) : resolve(String(stdout)))
+})
 import {
   closeSync,
   existsSync,
@@ -66,6 +70,15 @@ export interface XmediaEngineState {
   engine: string | null
   /** Whether the engine process engaged its sandbox (--sandbox). */
   sandboxed: boolean
+  /** mtime of the engine binary on disk (null when unreadable). */
+  binaryMtimeMs: number | null
+  /** When the CURRENT child process was spawned (not the host process). */
+  engineStartedAtMs: number
+  /**
+   * The binary was rebuilt AFTER the running child started. Publishing through
+   * it would exercise stale code (e.g. a fixed muxer that is not loaded yet).
+   */
+  binaryStale: boolean
 }
 
 /** Snapshot of one async TranscodeJob maintained by the C++ bridge. */
@@ -202,7 +215,7 @@ export interface XmediaEngineConfig {
   hlsBase: string
   /** Default stream path published by `publish.start`. */
   publishPath: string
-  /** Encoder used for LIVE (network) outputs; empty picks a platform default. */
+  /** Encoder used for LIVE (network) outputs; empty = libx264 on all platforms. */
   liveVideoCodec: string
   /** xmedia-bake executable for the offline HTML→MP4 pipeline. Empty lets the
    *  bridge probe a sibling of its own binary (macOS: the assembled .app). A
@@ -372,6 +385,7 @@ export function apply(ctx: Context, rawConfig: XmediaEngineConfig): void {
   let restarts = 0
   let fastDeaths = 0
   let disposed = false
+  let engineStartedAtMs = Date.now()
   let helloInfo: { protocol: number; engine: string } | null = null
   // Sandbox engagement, read once from the engine after handshake.
   let sandboxActive = false
@@ -480,6 +494,7 @@ export function apply(ctx: Context, rawConfig: XmediaEngineConfig): void {
         timers.delete(timer)
         if (disposed) return
         restarts += 1
+        engineStartedAtMs = Date.now()
         log.info('重启 xmedia-kit 引擎', { attempt: restarts })
         client.restart()
         void handshake()
@@ -577,8 +592,14 @@ export function apply(ctx: Context, rawConfig: XmediaEngineConfig): void {
     // stream-copied long-GOP source never gives MediaMTX an IDR to start a
     // WebRTC reader on. Offline file jobs keep `copy` — their product is the
     // encoded file, and no browser is waiting on a keyframe.
-    const defaultLiveCodec = config.liveVideoCodec ||
-      (process.platform === 'darwin' ? 'h264_videotoolbox' : 'libx264')
+    // Live default is libx264 on EVERY platform, including macOS. The old
+    // macOS default (h264_videotoolbox) writes Annex-B packets with in-band
+    // SPS/PPS that FFmpeg's FLV/RTMP muxer rejects mid-stream: a real
+    // 1080p60 file dies with "writing a re-encoded video packet failed"
+    // consistently at ~60-68s (reproduced 3x), which surfaces to the user as
+    // "推流十秒多就断了". libx264 ran the same source past that point with no
+    // error. VideoToolbox stays opt-in via XMEDIA_LIVE_VCODEC / videoCodec.
+    const defaultLiveCodec = config.liveVideoCodec || 'libx264'
     const videoCodec = options.videoCodec ?? (live ? defaultLiveCodec : 'copy')
     // MediaMTX v1.21's WHEP (WebRTC egress) cannot carry an AAC leg: with one
     // present the WHOLE session is refused ("codecs not supported by client"),
@@ -816,6 +837,32 @@ export function apply(ctx: Context, rawConfig: XmediaEngineConfig): void {
   const bakeCancelFn = (options: { jobId?: string | undefined } = {}): Promise<XmediaBakeResult> =>
     bakeControl(VERB.BAKE_CANCEL, options, 'cancel')
 
+  // 原生文件选择对话框：浏览器无法获取完整文件路径，由宿主进程代开系统对话框。
+  async function pickFile(): Promise<string> {
+    if (process.platform === 'darwin') {
+      try {
+        const result = await execFileAsync('osascript', [
+          '-e', 'POSIX path of (choose file with prompt "选择要推流的本地文件")',
+        ], { encoding: 'utf8', timeout: 60000 })
+        return String(result || '').trim()
+      } catch {
+        return ''
+      }
+    }
+    // Linux: zenity
+    if (process.platform === 'linux') {
+      try {
+        const result = await execFileAsync('zenity', ['--file-selection', '--title=选择要推流的本地文件'], {
+          encoding: 'utf8', timeout: 60000,
+        })
+        return String(result || '').trim()
+      } catch {
+        return ''
+      }
+    }
+    return ''
+  }
+
   const service: XmediaService = {
     hello: greet,
     drainEvents,
@@ -829,15 +876,28 @@ export function apply(ctx: Context, rawConfig: XmediaEngineConfig): void {
     bakeStatus: bakeStatusFn,
     bakeCancel: bakeCancelFn,
     viewers: (path) => viewerUrls(path ?? config.publishPath),
-    engineState: () => ({
-      running: client.running,
-      pid: client.pid,
-      restarts,
-      binary: config.binary,
-      protocol: helloInfo?.protocol ?? null,
-      engine: helloInfo?.engine ?? null,
-      sandboxed: sandboxActive,
-    }),
+    engineState: () => {
+      let binaryMtimeMs: number | null = null
+      try {
+        binaryMtimeMs = statSync(config.binary).mtimeMs
+      } catch {
+        // Missing/unreadable binary is reported honestly as null; never guess.
+      }
+      return {
+        running: client.running,
+        pid: client.pid,
+        restarts,
+        binary: config.binary,
+        protocol: helloInfo?.protocol ?? null,
+        engine: helloInfo?.engine ?? null,
+        sandboxed: sandboxActive,
+        binaryMtimeMs,
+        engineStartedAtMs,
+        // 1s tolerance: filesystem timestamp granularity and process startup
+        // must not produce a false "stale" warning on a fresh restart.
+        binaryStale: binaryMtimeMs !== null && binaryMtimeMs > engineStartedAtMs + 1000,
+      }
+    },
     metrics: () => ({ ...metrics.snapshot(), bake: bakeMetrics.snapshot() }),
   }
   ctx.reflect.provide('xmedia', service)
@@ -917,6 +977,13 @@ export function apply(ctx: Context, rawConfig: XmediaEngineConfig): void {
     name: 'xmedia.publish.jobs',
     description: '整个任务池的快照(每个任务的进度/状态/暂停标志/耗时;监控 UI 的数据源)',
     handler: () => publishJobs(),
+  }))
+
+  disposers.push(ctx.api.register({
+    name: 'xmedia.files.pick',
+    description: '打开系统文件选择对话框，返回选中的文件完整路径（用于本地文件推流）',
+    mutates: false,
+    handler: async () => ({ path: await pickFile() }),
   }))
 
   // ---- control plane: offline bake (HTML → MP4) -------------------------------
@@ -1002,6 +1069,11 @@ export function apply(ctx: Context, rawConfig: XmediaEngineConfig): void {
     name: 'xmedia.publish.jobs', description: '任务池快照:全部并发转码任务的进度/状态/暂停标志/耗时',
     params: z.object({}),
     execute: () => publishJobs(),
+  })
+  tool({
+    name: 'xmedia.files.pick', description: '打开系统文件选择对话框，返回选中文件的完整路径',
+    params: z.object({}),
+    execute: async () => ({ path: await pickFile() }),
   })
   tool({
     name: 'xmedia.bake.start',

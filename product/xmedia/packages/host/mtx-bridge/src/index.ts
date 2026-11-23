@@ -11,7 +11,8 @@
 // Clean-room: the API surface was derived from a running MediaMTX v1.21 (MIT)
 // and its published route table; no third-party console's code was read.
 
-import { readFileSync } from 'node:fs'
+import { existsSync, readFileSync } from 'node:fs'
+import { spawn, type ChildProcess } from 'node:child_process'
 import { mkdir, writeFile } from 'node:fs/promises'
 import { dirname, join } from 'node:path'
 import { homedir } from 'node:os'
@@ -66,6 +67,14 @@ export interface BridgeConfig {
   timeoutMs?: number
   /** Registry file; default `<appPaths.home>/xmedia-mtx-servers.json`. */
   serversFile?: string
+  /** MediaMTX binary; empty = probe PATH + the usual local install spots. */
+  binary?: string
+  /** MediaMTX config file; empty = `<appPaths.root>/mediamtx.yml`. */
+  configPath?: string
+  /** Spawn the managed MediaMTX process when the host boots (default false). */
+  autoStart?: boolean
+  /** How long `mediamtx.start` waits for the API to answer after spawn. */
+  startTimeoutMs?: number
 }
 
 export const Config: Schema<BridgeConfig, BridgeConfig> = z.object({
@@ -76,9 +85,15 @@ export const Config: Schema<BridgeConfig, BridgeConfig> = z.object({
   serverToken: z.string().description('static bearer/JWT for the API; takes precedence over basic'),
   timeoutMs: z.natural().default(8000).description('per-request timeout'),
   serversFile: z.string().description('server-registry JSON path; default <home>/xmedia-mtx-servers.json'),
+  binary: z.string().description('MediaMTX binary path; empty = probe PATH + local install spots'),
+  configPath: z.string().description('MediaMTX config file; empty = <appPaths.root>/mediamtx.yml'),
+  autoStart: z.boolean().default(false).description('spawn the managed MediaMTX process on host boot'),
+  startTimeoutMs: z.natural().default(10000).description('wait for the API after spawn (ms)'),
 })
 
 const API_METHODS = [
+  'mediamtx.status',
+  'mediamtx.start',
   'mediamtx.info',
   'mediamtx.endpoints',
   'mediamtx.paths.list',
@@ -93,6 +108,7 @@ const API_METHODS = [
   'mediamtx.metrics',
   'mediamtx.recordings.list',
   'mediamtx.recordings.get',
+  'mediamtx.recordings.deleteAll',
   'mediamtx.playback.list',
   'mediamtx.servers.list',
   'mediamtx.servers.add',
@@ -102,6 +118,7 @@ const API_METHODS = [
 ] as const
 
 const TOOL_NAMES = [
+  'mediamtx.status',
   'mediamtx.info',
   'mediamtx.endpoints',
   'mediamtx.paths.list',
@@ -127,6 +144,22 @@ const ServersListS = z.object({
   active: z.string().required(),
 })
 const ServerActiveS = z.object({ active: z.string().required() })
+const NullableStringS = z.union([z.string(), z.const(null)])
+const NullableNumberS = z.union([z.number(), z.const(null)])
+const MtxProcessStatusS = z.object({
+  /** The API answers — the only honest liveness check for a foreign process. */
+  online: z.boolean().required(),
+  /** A start() is currently waiting for the API to come up. */
+  starting: z.boolean().required(),
+  /** True when this host owns the running child (false for a manual/external one). */
+  managed: z.boolean().required(),
+  pid: NullableNumberS,
+  api: z.string().required(),
+  binary: z.string().required(),
+  config: z.string().required(),
+  error: NullableStringS,
+})
+const MtxStatusResultS = z.object({ status: MtxProcessStatusS.required() })
 
 const kindS = z.union(SESSION_KINDS.map((k) => z.const(k)) as never)
 
@@ -326,6 +359,138 @@ export function apply(ctx: Context, rawConfig: BridgeConfig): void {
     return parsed as T
   }
 
+  // ---- local MediaMTX process supervision -----------------------------------
+  // Every method above talks to WHATEVER server is active (possibly remote).
+  // These two are deliberately about the LOCAL process: the acceptance page
+  // needs one button that starts the MediaMTX this product ships, plus an
+  // honest status light. A foreign/manual MediaMTX is detected through the API
+  // probe and is never spawned again or killed by us.
+
+  interface MtxProcessStatus {
+    online: boolean
+    starting: boolean
+    managed: boolean
+    pid: number | null
+    api: string
+    binary: string
+    config: string
+    error: string | null
+  }
+
+  const processPaths = (ctx.get('appPaths') as { root?: string } | undefined) ?? {}
+  const resolveBinary = (): string => {
+    if (config.binary !== undefined && config.binary !== '') return config.binary
+    const candidates = [
+      processPaths.root === undefined ? '' : join(processPaths.root, 'mediamtx'),
+      join(homedir(), '.local', 'bin', 'mediamtx'),
+      '/usr/local/bin/mediamtx',
+      '/opt/homebrew/bin/mediamtx',
+    ].filter((c) => c !== '')
+    for (const c of candidates) if (existsSync(c)) return c
+    return 'mediamtx' // PATH fallback; a miss surfaces as a start() error
+  }
+  const mtxBinary = resolveBinary()
+  const mtxConfigFile = config.configPath !== undefined && config.configPath !== ''
+    ? config.configPath
+    : processPaths.root === undefined ? 'mediamtx.yml' : join(processPaths.root, 'mediamtx.yml')
+
+  let mtxChild: ChildProcess | null = null
+  let mtxStarting = false
+  let mtxError: string | null = null
+
+  const childAlive = (child: ChildProcess | null): boolean =>
+    child !== null && child.exitCode === null && child.signalCode === null
+
+  /** The API answering is the only honest liveness check for a foreign child. */
+  const probeOnline = async (): Promise<boolean> => {
+    try {
+      const srv = activeServer()
+      const auth = authHeaderFor(srv)
+      const res = await fetch(`${srv.url}/v3/paths/list?itemsPerPage=1`, {
+        method: 'GET',
+        signal: AbortSignal.timeout(Math.min(timeoutMs, 2000)),
+        headers: auth === null ? {} : { authorization: auth },
+      })
+      return res.ok
+    } catch {
+      return false
+    }
+  }
+
+  const readStatus = async (): Promise<MtxProcessStatus> => {
+    const online = await probeOnline()
+    if (online) mtxError = null
+    return {
+      online,
+      starting: mtxStarting,
+      managed: childAlive(mtxChild),
+      pid: childAlive(mtxChild) ? mtxChild?.pid ?? null : null,
+      api: activeServer().url,
+      binary: mtxBinary,
+      config: mtxConfigFile,
+      error: mtxError,
+    }
+  }
+
+  const sleep = (ms: number): Promise<void> => new Promise((resolve) => setTimeout(resolve, ms))
+
+  const startProcess = async (): Promise<MtxProcessStatus> => {
+    if (mtxStarting) return readStatus()
+    // Already up — possibly a manual/external server. Never spawn a second one
+    // on the same ports; that is exactly the confusion this button removes.
+    if (await probeOnline()) return readStatus()
+    if (!existsSync(mtxConfigFile)) {
+      throw new RpcError(RpcCode.NOT_FOUND, `MediaMTX config not found: ${mtxConfigFile}`, undefined, {
+        messageKey: 'mediamtx.configMissing',
+        messageParams: { path: mtxConfigFile },
+      })
+    }
+    mtxStarting = true
+    mtxError = null
+    try {
+      if (!childAlive(mtxChild)) {
+        const child = spawn(mtxBinary, [mtxConfigFile], {
+          ...(processPaths.root === undefined ? {} : { cwd: processPaths.root }),
+          stdio: ['ignore', 'pipe', 'pipe'],
+        })
+        mtxChild = child
+        const relay = (chunk: Buffer): void => {
+          const line = String(chunk).trimEnd()
+          if (line !== '') log.debug('[mediamtx]', { line })
+        }
+        child.stdout?.on('data', relay)
+        child.stderr?.on('data', relay)
+        child.on('error', (err) => {
+          mtxError = err.message
+          mtxChild = null
+          log.warn('MediaMTX 进程启动失败', { error: err.message })
+        })
+        child.on('exit', (code, signal) => {
+          if (mtxChild === child) mtxChild = null
+          log.warn('MediaMTX 进程退出', { code, signal })
+          ctx.events.emit('mediamtx.process', { phase: 'exit', code, signal })
+        })
+        log.info('MediaMTX 已启动', { binary: mtxBinary, config: mtxConfigFile, pid: child.pid ?? null })
+        ctx.events.emit('mediamtx.process', { phase: 'start', pid: child.pid ?? null })
+      }
+      // Wait for the API, not a fixed sleep: "spawned" does not mean the
+      // HTTP/RTMP listeners are accepting connections yet.
+      const waitMs = config.startTimeoutMs ?? 10000
+      const deadline = Date.now() + waitMs
+      while (Date.now() < deadline) {
+        await sleep(200)
+        if (await probeOnline()) return readStatus()
+      }
+      mtxError = `MediaMTX API 在 ${waitMs}ms 内未响应: ${activeServer().url}`
+      throw new RpcError(RpcCode.UNAVAILABLE, mtxError, undefined, {
+        messageKey: 'mediamtx.startTimeout',
+        messageParams: { url: activeServer().url },
+      })
+    } finally {
+      mtxStarting = false
+    }
+  }
+
   /** The flat global config (122 keys upstream; we pass it through as a dict). */
   const globalConfig = (): Promise<Record<string, unknown>> =>
     mtx<Record<string, unknown>>('GET', '/v3/config/global/get')
@@ -397,6 +562,23 @@ export function apply(ctx: Context, rawConfig: BridgeConfig): void {
   }
 
   // ---- control plane ----------------------------------------------------------
+
+  ctx.api.register({
+    name: 'mediamtx.status',
+    description: '本地 MediaMTX 服务状态：API 是否响应、进程 PID、二进制/配置路径与最近错误（探测活动服务器，不代理任何字节）',
+    params: z.object({}),
+    result: MtxStatusResultS,
+    handler: async () => ({ status: await readStatus() }),
+  })
+
+  ctx.api.register({
+    name: 'mediamtx.start',
+    description: '按需启动本地 MediaMTX：先探测 API，已在运行则什么都不做；否则拉起本产品自带的进程并等待 API 就绪',
+    mutates: true,
+    params: z.object({}),
+    result: MtxStatusResultS,
+    handler: async () => ({ status: await startProcess() }),
+  })
 
   ctx.api.register({
     name: 'mediamtx.info',
@@ -524,7 +706,7 @@ export function apply(ctx: Context, rawConfig: BridgeConfig): void {
 
   ctx.api.register({
     name: 'mediamtx.sessions.kick',
-    description: '踢掉一个会话(可踢的协议由上游决定;rtmp 不可踢)',
+    description: '踢掉一个会话(全部 8 种协议均可踢，含 rtmp 发布者；踢掉发布者会中断该路推流)',
     mutates: true,
     params: z.object({
       kind: kindS.required(),
@@ -590,6 +772,57 @@ export function apply(ctx: Context, rawConfig: BridgeConfig): void {
       const row = toRecordingRow(raw)
       if (row === null) throw new RpcError(RpcCode.INTERNAL, 'unexpected recording shape from MediaMTX')
       return { recording: row }
+    },
+  })
+
+  // MediaMTX exposes only per-segment deletion (DELETE
+  // /v3/recordings/segments/delete?path=&start=). "Delete everything" is an
+  // aggregation of that primitive over every recorded path/segment. The
+  // explicit `confirm` literal keeps an accidental RPC from wiping a disk;
+  // an optional `path` allows targeted cleanup. Per-segment failures are
+  // counted (not thrown) so one busy/already-gone file cannot abort the rest.
+  ctx.api.register({
+    name: 'mediamtx.recordings.deleteAll',
+    description: '一键删除所有录像段（不可恢复；按段逐个聚合 MediaMTX 原语）',
+    params: z.object({
+      confirm: z.const(true).required().description('must be true — destructive operation'),
+      path: z.string().description('仅清理指定 path 的录像（可选）'),
+    }),
+    result: z.object({
+      paths: z.number().required(),
+      segments: z.number().required(),
+      deleted: z.number().required(),
+      failed: z.number().required(),
+    }),
+    handler: async (p): Promise<{ paths: number; segments: number; deleted: number; failed: number }> => {
+      interface Page { items?: Array<{ name?: unknown }> }
+      const page = await mtx<Page>('GET', '/v3/recordings/list?itemsPerPage=500')
+      const names = (page.items ?? [])
+        .map((it) => it?.name)
+        .filter((n): n is string => typeof n === 'string' && n.length > 0 && (p.path === undefined || n === p.path))
+      let segments = 0
+      let deleted = 0
+      let failed = 0
+      for (const name of names) {
+        interface Rec { segments?: Array<{ start?: unknown }> }
+        const rec = await mtx<Rec>('GET', `/v3/recordings/get/${encodeURIComponent(name)}`)
+        const starts = (rec.segments ?? [])
+          .map((seg) => seg?.start)
+          .filter((s): s is string => typeof s === 'string' && s.length > 0)
+        segments += starts.length
+        for (const start of starts) {
+          try {
+            const query = new URLSearchParams({ path: name, start })
+            await mtx('DELETE', `/v3/recordings/segments/delete?${query.toString()}`)
+            deleted += 1
+          } catch {
+            // A segment can vanish (another cleanup) or be mid-write. Report
+            // it in `failed` instead of aborting the whole sweep.
+            failed += 1
+          }
+        }
+      }
+      return { paths: names.length, segments, deleted, failed }
     },
   })
 
@@ -815,6 +1048,20 @@ export function apply(ctx: Context, rawConfig: BridgeConfig): void {
   // ---- agent tools -------------------------------------------------------------
 
   ctx.tools.register({
+    name: 'mediamtx.status',
+    mutates: false,
+    description: 'Check the local MediaMTX service: is its API answering, is the process owned by this host, and what binary/config would be started.',
+    execute: async () => readStatus(),
+  })
+
+  ctx.tools.register({
+    name: 'mediamtx.start',
+    mutates: true,
+    description: 'Start the local MediaMTX service on demand. Idempotent: reports the current state when it is already running.',
+    execute: async () => startProcess(),
+  })
+
+  ctx.tools.register({
     name: 'mediamtx.info',
     mutates: false,
     description: 'MediaMTX server identity: version, start time, API base.',
@@ -867,9 +1114,9 @@ export function apply(ctx: Context, rawConfig: BridgeConfig): void {
   ctx.tools.register({
     name: 'mediamtx.sessions.kick',
     mutates: true,
-    description: 'Kick one viewer/publisher session by protocol kind and id (ids come from mediamtx.paths.list readers or the sessions panel).',
+    description: 'Kick one viewer/publisher session by protocol kind and id (all eight protocols including rtmp; ids come from the sessions panel).',
     params: z.object({
-      kind: z.string().description('rtsp|rtsps|hls|webrtc|srt|moq (rtmp cannot be kicked)').required(),
+      kind: z.string().description('rtsp|rtsps|rtmp|rtmps|hls|webrtc|srt|moq (all kickable; kicking rtmp stops that publish)').required(),
       id: z.string().required(),
     }),
     execute: async (args) => {
@@ -904,6 +1151,7 @@ export function apply(ctx: Context, rawConfig: BridgeConfig): void {
     description: 'MediaMTX v3 API 的宿主侧代理:路径/配置/会话/指标/录像归一化,凭据不出宿主;媒体流由浏览器直连 WHEP/HLS',
     api: [...API_METHODS],
     tools: [...TOOL_NAMES],
+    events: ['mediamtx.process'],
   })
 
   ctx.api.health(() => ({
@@ -912,8 +1160,23 @@ export function apply(ctx: Context, rawConfig: BridgeConfig): void {
       name: activeName,
       registered: servers.length,
       version: lastVersion,
+      // Synchronous facts only: health must never probe the network.
+      local: {
+        binary: mtxBinary,
+        config: mtxConfigFile,
+        managed: childAlive(mtxChild),
+        pid: childAlive(mtxChild) ? mtxChild?.pid ?? null : null,
+      },
     },
   }))
+
+  if (config.autoStart) {
+    void startProcess().catch((e: unknown) => log.warn('MediaMTX 自动启动失败', { error: e instanceof Error ? e.message : String(e) }))
+  }
+  ctx.effect(() => () => {
+    if (childAlive(mtxChild)) mtxChild?.kill('SIGTERM')
+    mtxChild = null
+  }, `${name}: mediamtx process`)
 
   log.info(`MediaMTX API 桥 → ${activeServer().url}(注册表 ${servers.length} 台,活动:${activeName};${registryFile})`)
 }

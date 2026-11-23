@@ -97,6 +97,13 @@
         # Multi-server registry JSON; default <home>/xmedia-mtx-servers.json —
         # inside THIS product's home (.xmedia).
         serversFile: !!js ctx.env.str('SERVERS_FILE')
+        # Local process supervision for the "启动流服务" button in the UI.
+        # Empty binary probes PATH + ~/.local/bin + /usr/local/bin + /opt/homebrew/bin.
+        # autoStart is opt-in so an existing manual MediaMTX is never displaced.
+        binary: !!js ctx.env.str('MTX_BIN')
+        configPath: !!js ctx.env.str('MTX_CONFIG') ?? ctx.appPaths.root + 'mediamtx.yml'
+        autoStart: !!js ctx.env.flag('MTX_AUTO_START') ?? false
+        startTimeoutMs: !!js ctx.env.num('MTX_START_TIMEOUT_MS')
 
 # A patch replaces the WHOLE config of the row it targets, so this override
 # restates every field the base `server` row carried — only the default port

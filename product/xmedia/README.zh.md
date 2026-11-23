@@ -227,17 +227,65 @@ macOS 的废弃 `sandbox_init` API 不接受内联档案（报 `profile not foun
 
 ## 四、MediaMTX 与观看地址
 
-配置文件：`product/xmedia/mediamtx.yml`（v1.21.x 键名，loopback、无鉴权、不录制）。
-只开 RTMP(:1935)、WHEP(:8889)、HLS(:8888) 和 v3 API(:9997)，其余协议全关。
+配置文件：`product/xmedia/mediamtx.yml`（v1.21.x 键名，loopback、无鉴权）。
+开 RTMP(:1935)、WHEP(:8889)、HLS(:8888)、v3 API(:9997) 和 playback(:9996)，其余协议全关。
 `paths: all_others` 是通配，任意流路径都能发布，无需改配置。
+`pathDefaults` 开启 fMP4 录制（`record: yes` + `recordFormat: fmp4`），每段推流自动落盘为可回放窗口——
+这是「录像回放 / 同步回放」有内容的前提；关掉它们，两个页面能打开但列表为空。
 
 ```sh
 mediamtx product/xmedia/mediamtx.yml          # 需要自备二进制（brew install mediamtx 或官方 release）
 pnpm run host:xmedia                          # http://127.0.0.1:3092
 ```
 
-打开页面 → 填输入源 → 「开始发布」→「观看（WHEP）」（前端会自动等待首帧；
-若当前没有活跃推流，且页面已填输入源，会自动重新发布）。
+打开页面 → 填输入源 → 点「开播」（前端自动发布并等待首帧接通）。有限片源默认只推一遍；
+播完需要反复播放时，先勾选「循环推流」再点「开播」。
+
+**多路推流与回放**：「实时预览」的每次「开播」都用独立 `jobId` 新建一路任务，可在「多流任务池」
+里同时看到多路、按各自路径观看或停播；多路并发由后端任务池承载，互不干扰。每路按 path 自动录制。
+「流路径」输入框**留空时每次开播会自动生成唯一路径**（`live-<时间>-<随机>`）——若两路都留空却共用
+后端默认 `xmedia`，MediaMTX 会把它们合并成一条：「推流状态」只剩一行、录像也只有一路，
+「同步回放」看起来就和单路回放重合。想手动指定路径就每路填不同的名字。
+要对齐回放多机位：到「推流状态 → 录制回放」选路径 → 点录像窗口的「加入同步」（或「从此播放」看单路），
+在「同步回放」多窗墙里同时播放，控制条会显示「已接入 N 路」（≥2 路变绿）。
+两种回放职责不同：**「录像回放」= 单路深度 seek（整链一条 scrubber）；「同步回放」= 多路同时播**（每格一条链）。
+
+同步回放墙有两种**对齐方式**（控制条「对齐」下拉）：
+- **顺序（默认）**：各路从自己第 1 段一起播，段首尾相接、忽略真实间隙。多路是先后推流时，
+  录像起始时刻本就错开，用墙钟对齐会只剩最早那路有画面——顺序模式才是"多路同时回放"的预期。
+- **墙钟（按录像时刻）**：按真实录像时刻对齐，只有各路**同时开播**时才有意义（多机位同拍同一事件）。
+  该模式下某格在当前时刻没有录像时，会显示「该时段无录像」而不是静默黑屏。
+
+**外部实时流**：同步回放控制条上方有「外部流」——填 `https://…flv` / `https://…m3u8` 等**流直链**
+（B 站直播请填从抓包/直播源工具拿到的真实流地址，**不是 `live.bilibili.com/<房间号>` 页面地址**），
+点「接入到墙」后由编码引擎转推到 MediaMTX，浏览器走 WHEP（少数支持原生 HLS 的浏览器走 HLS）直连观看，
+每格标 `● LIVE`。也可以只填一个**已有 MediaMTX 路径名**（如「推流状态」里接入的拉流源），直接把该实时流放上墙，
+不新建转推任务。实时流没有录像窗口、不可拖动，不参与顺序/墙钟对齐，只跟随整墙的播放/暂停；
+只有实时流时控制条显示「● 实时」、scrubber 禁用、不会自动结束。
+本面板接入的任务在格子 ✕ /「清空」时停止；对已有路径则只看不碰。`清空全部录像` 广播的
+`xmedia:recordings-cleared` 只清录像链，不会误伤实时格。
+
+任一模式下，某路内容时长较短、先播完时该格显示「本路已播完」；墙钟模式跨录像间隙显示「录像间隙」。
+「推流状态 → 录制回放」的**「清空全部录像」**会删除所有路径下的全部录像段（不可恢复），
+采用两步内联确认（第一次点击武装并给出警告，5 秒内再次点击才执行）；底层走
+`mediamtx.recordings.deleteAll`，它按 MediaMTX 单段删除原语逐个聚合，并返回
+`{paths, segments, deleted, failed}`——正在写入或已消失的段计入 `failed`，不中断整轮清理。
+清空后当前选中的回放链会被释放，避免播放器继续指向已删除的 URL；同时广播
+`xmedia:recordings-cleared` 事件，让已挂载的「录像回放」「同步回放」一并清台——
+否则它们 holds 着之前送来的旧链（URL 指向已删段），切回页面还能看到旧片段、点了必失败。
+
+**会话数怎么看**：「会话」表每个会话标出协议（rtmp/webrtc/…）与角色徽章——**推流**（publish）
+= 一路正在发布的流，每路各占一个会话；**观看**（read）= 一个播放者（如页面的 WHEP 连接）。
+所以「2 个 rtmp + 1 个 webrtc」通常是**两路推流 + 一个观看者**，属正常。
+全部 8 种协议会话均可踢出；**踢掉 rtmp 只中断那一路推流**（其已录制段保留），
+不会拖垮其他路——bridge 进程已全局忽略 SIGPIPE，避免被踢连接的写错误升级成进程级崩溃。
+
+**录像分段时长为什么不同**：MediaMTX 按关键帧边界切段（默认 `recordSegmentDuration` 未设，
+用约 10s 的段/1s 的 part），而每段实际时长取决于推流的续断与关键帧位置——中间停推的空档不落盘，
+所以同一路会出现 3~8s 不等、偶尔十几秒的段。这是 fMP4 录制的正常行为，不是丢帧或故障；
+可用 `recordSegmentDuration` 调整目标段长（例如 `10s`）。回放与同步回放都能跨段自动接续。
+
+改 `mediamtx.yml` 后需重启 MediaMTX（配置只在启动读取）。
 
 ### 四个实测踩过的坑
 
@@ -264,7 +312,8 @@ MediaMTX 只在**发布者保持连接**时持有 path。文件片源在 `realti
 `/v3/paths/list` 立刻变空。此时点观看（WHEP 或 HLS）都会得到
 `no stream is available on path 'test'`，**与路径错配无关**（坑 1 的错长一样，要按 status 区分）。
 首帧尚未到达的启动窗口也会报同一句。前端已处理：观看前检查任务状态、无活跃流时自动重新发布、
-对这句错误按 400ms 重试最多 12s；观看中片源正常播完会自动重新发布并重连 WHEP。
+对这句错误按 400ms 重试最多 12s。片源正常播完默认停止并提示「未开启循环推流」；
+只有勾选「循环推流」后才会自动重新发布并重连 WHEP。
 诊断命令：
 
 ```sh
@@ -348,8 +397,11 @@ product/xmedia/
 `publish.pause/resume/jobs`）、10 个 agent 工具、1 条数据面路由（烘焙成片拉取）、
 3 类事件、health、capabilities manifest**。没有 `ws /stream` 通道。
 此外经**能力级组合**（见决策 9）挂载 `@xmedia/host-mtx-bridge` 宿主桥
-（已从原独立流服务台产品完整迁入本仓）：20 个 `mediamtx.*`
-控制面方法 + 8 个 agent 工具 + health 键 `mediamtx`，字节不过桥。
+（已从原独立流服务台产品完整迁入本仓）：22 个 `mediamtx.*`
+控制面方法 + 10 个 agent 工具 + health 键 `mediamtx`，字节不过桥。
+其中 `mediamtx.status` / `mediamtx.start` 管的是**本地进程**：页面「实时预览」与
+「推流状态」各有一个状态灯 + 「启动流服务」按钮，API 可达才算在线（外部手工
+启动的实例也算，不重复拉起、不停掉它）；启动幂等，等 API 真正响应才返回。
 `server` 与 `ui-web` 一行未改。
 
 WHEP 客户端是**仓库级共享模块** `libs/whep/whep.js`（纯 ESM、零依赖、带
@@ -463,6 +515,8 @@ pnpm run host:xmedia                       # http://127.0.0.1:3092
 | `XMEDIA_MTX_SERVER_URL` | MediaMTX v3 API 基址（桥接能力；未起时 `mediamtx.*` 如实报错） | `http://127.0.0.1:9997` |
 | `XMEDIA_MTX_USERNAME` / `XMEDIA_MTX_PASSWORD` / `XMEDIA_MTX_SERVER_TOKEN` | MediaMTX API 鉴权（auth* 开启时才需要；token 优先于 basic） | 空 |
 | `XMEDIA_MTX_SERVER_NAME` / `XMEDIA_MTX_SERVERS_FILE` / `XMEDIA_MTX_TIMEOUT_MS` | 桥的多服务器注册表与超时；serversFile 默认 `<home>/xmedia-mtx-servers.json` | `default` / 空 / 8000 |
+| `XMEDIA_MTX_BIN` / `XMEDIA_MTX_CONFIG` | 「启动流服务」按钮用的二进制与配置；空 = 依次探测 `<产品根>/mediamtx`、`~/.local/bin/mediamtx`、`/usr/local/bin/mediamtx`、`/opt/homebrew/bin/mediamtx`（及 PATH）；配置默认 `<产品根>/mediamtx.yml` | 空 |
+| `XMEDIA_MTX_AUTO_START` / `XMEDIA_MTX_START_TIMEOUT_MS` | 宿主启动时自动拉起本地 MediaMTX（默认关，避免顶替手工实例）/ 启动后等 API 就绪的时限 | 关 / 10000 |
 | `XMEDIA_STRICT_CAPABILITIES=1` | manifest 不实即拒绝启动 | 关 |
 | `XMEDIA_READONLY=1` | 拒绝一切 `mutates` 方法 | 关 |
 | `XMEDIA_ENGINE_SANDBOX=1` | 启动引擎时加 `--sandbox`（POSIX 资源上限；Linux seccomp / macOS Seatbelt best-effort） | 关 |
@@ -608,8 +662,8 @@ ffprobe 解码断言；无工具链时断言诚实拒绝）→ （有 MediaMTX �
 | 烘焙失败报 `video encoder: "h264" not in this FFmpeg build` | 用了编解码名当编码器名。宿主默认已按平台注入（macOS `h264_videotoolbox` / 其他 `libx264`）；直跑 CLI 或显式传参时请给**编码器名**（kit 按 `avcodec_find_encoder_by_name` 查找） |
 | `bake.status` 停在 failed、`error` 为 `no first frame in 30s` | CEF 冷启动超预算或页面无法加载：先用浏览器/`curl` 确认页面可达；`file://` 页面的**脚本子资源必须内联**（OSR 对相对 file:// 脚本渲染黑屏）；第二次烘焙通常显著变快（CEF 暖缓存） |
 | 烘焙产物黑屏/上下颠倒 | 先跑 `data:text` 之外的真实页面样本；上下颠倒说明读回翻转被改动（引擎按"画面方向与浏览器一致"处理行序） |
-| 开始发布后立刻失败 | `publish.status` 的 `error`：网络输出缺 `format` 会报 `INVALID_PARAMS`；`SourceOpenFailed` 通常是 MediaMTX 没起来或端口不通 |
-| `no stream is available on path '…'` | **先看 `/v3/paths/list`**：`items` 为空说明推流已结束或还没开始（第四节坑 3），重新「开始发布」即可；`/api/health` 里 `running:false / done:true` 可确认片源播完。只有推流中仍报错才是 path 不一致（坑 1）或未等首帧。前端已自动重发与重试 |
+| 开始发布后立刻失败 | `publish.status` 的 `error`：网络输出缺 `format` 会报 `INVALID_PARAMS`；`SourceOpenFailed: cannot open output` 说明 MediaMTX 没起来或 RTMP 端口不通——在「实时预览」或「推流状态」页点「启动流服务」，状态灯变绿后再开播（也可 `mediamtx.status` / `mediamtx.start` RPC） |
+| `no stream is available on path '…'` | **先看 `/v3/paths/list`**：`items` 为空说明推流已结束或还没开始（第四节坑 3），重新「开播」即可；`/api/health` 里 `running:false / done:true` 可确认片源播完。只有推流中仍报错才是 path 不一致（坑 1）或未等首帧。前端会在无活跃流时自动重发一次；片源正常播完后仅在勾选「循环推流」时自动重发 |
 | WHEP 连接失败 | 先确认 `mediamtx.yml` 已启动、`webrtc: true`；HLS 回退同样需要活跃流，流结束点 HLS 也无效 |
 | `codecs not supported by client` | 流里带了 AAC；用默认的丢音频策略，或显式传 `audioCodec: ''` |
 | **信令 201、`readers` 有值，但画面全黑** | 十有八九是 `videoCodec=copy` 遇到长 GOP 片源（第四节坑 4）。看 `publish.status` 的 `videoCodec`；浏览器 `getStats()` 会显示 `packetsReceived>0` 但 `framesDecoded=0 / keyFramesDecoded=0`。改用默认重编码或 `XMEDIA_LIVE_VCODEC`；确认片源有规律 IDR。`ffprobe -show_frames -show_entries frame=key_frame,pict_type` 可数 I 帧 |

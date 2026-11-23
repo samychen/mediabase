@@ -123,20 +123,24 @@ export function apply(ctx: Context, rawConfig: XmediaStudioConfig): void {
     // is its documented seam for the latter (vendored xmedia.py bake_bin()).
     const env: NodeJS.ProcessEnv = { ...process.env }
     if (config.bakeBinary !== '') env.XMEDIA_BAKE_BIN = config.bakeBinary
-    child = spawn(config.pythonBin, args, {
+    const spawned = spawn(config.pythonBin, args, {
       env,
       // stdout carries nothing load-bearing; diagnostics go to stderr and are
       // routed into the scoped logger like the engine's are.
       stdio: ['ignore', 'ignore', 'pipe'],
     })
-    log.info('hf-studio 已启动', { url: service.url(), pid: child.pid ?? null })
-    ctx.events.emit('xmedia.studio', { phase: 'start', url: service.url(), pid: child.pid ?? null })
-    child.stderr?.on('data', (chunk: Buffer) => {
+    child = spawned
+    log.info('hf-studio 已启动', { url: service.url(), pid: spawned.pid ?? null })
+    ctx.events.emit('xmedia.studio', { phase: 'start', url: service.url(), pid: spawned.pid ?? null })
+    spawned.stderr?.on('data', (chunk: Buffer) => {
       const line = String(chunk).trimEnd()
       if (line !== '') log.debug('[hf-studio]', { line })
     })
-    child.on('exit', (code, signal) => {
-      child = null
+    spawned.on('exit', (code, signal) => {
+      // A restart kills the old child and immediately starts a new one. The
+      // old process's async "exit" must not clear the NEW child reference —
+      // that made health report running=false right after a successful restart.
+      if (child === spawned) child = null
       if (disposed) return
       log.warn('hf-studio 进程退出', { code, signal })
       ctx.events.emit('xmedia.studio', { phase: 'exit', code, signal })
@@ -151,8 +155,9 @@ export function apply(ctx: Context, rawConfig: XmediaStudioConfig): void {
   }
 
   function stopStudio(): void {
-    if (child !== null && isAlive(child)) child.kill('SIGTERM')
-    child = null
+    const target = child
+    if (target !== null && isAlive(target)) target.kill('SIGTERM')
+    if (child === target) child = null
   }
 
   const service: XmediaStudioService = {
