@@ -15,9 +15,15 @@
 //       XMEDIA_BAKE_BIN first, then engine/build/xmedia-bake[.app] next to
 //       the product root. Upstream probes the kit's own build tree, which
 //       does not exist in a product checkout.
-//   T2  tools/hf_studio.py agent-chat prompt — upstream hardcodes a machine
-//       path (/Users/.../avbase) as the "repo root" handed to the agent CLI;
-//       replace with {XMEDIA_KIT_ROOT env, falling back to the synced root}.
+//   T2  tools/hf_studio.py — GUARD ONLY now. Upstream used to hardcode a
+//       machine path (/Users/.../avbase) as the "repo root" handed to the
+//       agent CLI; we parameterized it via XMEDIA_KIT_ROOT. Since upstream
+//       commit e70cad6 the root is computed dynamically (ROOT_DIR = the
+//       synced studio/ root) and the machine path is gone — the transform
+//       asserts it STAYS gone, so a re-hardcoding turns the gate red.
+//       The prompt references {ROOT_DIR}/docs/HF_COMPOSE.md and
+//       {ROOT_DIR}/skills/launch/SKILL.md, hence docs/ + skills/ are
+//       vendored below to keep those references resolvable in-product.
 //
 // Usage:  node scripts/sync-studio.mjs            (sync; needs XMEDIA_KIT_SOURCE_DIR)
 //         node scripts/sync-studio.mjs --check    (drift gate: exit 1 on drift)
@@ -37,15 +43,23 @@ const SYNC_JSON = join(STUDIO_ROOT, 'SYNC.json')
 const check = process.argv.includes('--check')
 
 // ---- resolve the kit checkout ------------------------------------------------
-// Order: XMEDIA_KIT_SOURCE_DIR → the sibling checkout next to THIS repo
-// (`<repo>/../xmedia-kit`, the same convention the kit's own CEF probe uses —
-// resolved, so no machine path is ever written into a script).
+// Order: XMEDIA_KIT_SOURCE_DIR → nearest `xmedia-kit/tools/hf_studio.py`
+// walking up from the product root. A fixed `..` count is fragile: this
+// product lives in <workspace>/harness/mediabase while the kit checkout is
+// at <workspace>/xmedia-kit (measured: both 3- and 4-level counts miss it).
 
-const REPO_ROOT = fileURLToPath(new URL('../../../..', import.meta.url))
-const SIBLING_KIT = join(REPO_ROOT, 'xmedia-kit')
+function findSiblingKit() {
+  let dir = PRODUCT_ROOT
+  for (;;) {
+    const candidate = join(dir, 'xmedia-kit')
+    if (existsSync(join(candidate, 'tools', 'hf_studio.py'))) return candidate
+    const parent = dirname(dir)
+    if (parent === dir) return undefined
+    dir = parent
+  }
+}
 
-const kitSource = process.env.XMEDIA_KIT_SOURCE_DIR ??
-  (existsSync(join(SIBLING_KIT, 'tools', 'hf_studio.py')) ? SIBLING_KIT : undefined)
+const kitSource = process.env.XMEDIA_KIT_SOURCE_DIR ?? findSiblingKit()
 if (!kitSource) {
   console.error('需要 XMEDIA_KIT_SOURCE_DIR=/path/to/xmedia-kit（或把 kit 检出为本仓同级目录）')
   process.exit(2)
@@ -76,12 +90,24 @@ const FILES = [
   'tools/studio_ui.html',
   // compose inlines this into generated contract pages
   'tools/gsap.min.js',
+  // compose appends this when present (SplitText/ScrambleText — GSAP 3.13+
+  // free plugins; HF glyph-scramble 文字动效的依赖,缺失静默降级)
+  'tools/gsap-plugins.min.js',
+  // agent-chat prompt points the agent CLI at {ROOT_DIR}/docs/HF_COMPOSE.md
+  // (schema reference) — vendor it so the reference resolves in-product.
+  'docs/HF_COMPOSE.md',
 ]
 const DIRS = [
   // compose's builtin SFX / template fallbacks (root-asset whitelist covers
   // everything under the synced studio root)
   'assets/sfx',
   'templates',
+  // compose 的内置设计预设（spec.design 段预设库,_design_presets() 按目录
+  // 存在性优雅降级——vendored 后功能完整）
+  'tools/design-presets',
+  // agent prompt 的技能锚点 {ROOT_DIR}/skills/launch/SKILL.md（含 references/
+  // scripts/ 兄弟文件）——vendored 后 agent 自主重组链在产品内可用
+  'skills/launch',
 ]
 
 // ---- the two mechanical transforms -------------------------------------------
@@ -112,16 +138,16 @@ function transformXmediaPy(text) {
 }
 
 function transformHfStudioPy(text) {
-  const machinePath = '/Users/samychen/Develop/avbase'
+  // T2 (guard-only): upstream e70cad6 computes the agent "repo root"
+  // dynamically (ROOT_DIR = the synced studio/ root). A machine-specific
+  // path reappearing here means upstream regressed — fail loudly instead
+  // of vendoring it.
+  const machinePath = '/Users/samychen'
   const occurrences = countOccurrences(text, machinePath)
-  if (occurrences < 3) {
-    throw new Error(`T2 锚点出现 ${occurrences} 次（期望 ≥3）——上游 agent prompt 改动了，更新本脚本的变换`)
+  if (occurrences !== 0) {
+    throw new Error(`T2 守卫: 上游 hf_studio.py 重新出现机器路径 ${machinePath}（${occurrences} 处）——恢复 T2 参数化变换`)
   }
-  // The upstream prompt hardcodes a machine-specific checkout as the "repo
-  // root" handed to the agent CLI. Parameterize it: XMEDIA_KIT_ROOT wins,
-  // falling back to the synced studio root. NOTE: single quotes inside the
-  // replacement — the anchor lines are double-quoted f-strings.
-  return text.replaceAll(machinePath, "{os.environ.get('XMEDIA_KIT_ROOT', ROOT_DIR)}")
+  return text
 }
 
 const TRANSFORMS = {
@@ -180,7 +206,7 @@ function syncOnce() {
   }
   const commit = upstreamCommit()
   writeFileSync(SYNC_JSON, `${JSON.stringify({
-    comment: 'HF Studio 切片的同步副本——上游 kit 是唯一真源：改上游 → 重跑 sync-studio → 提交 diff。两处机械变换（T1 bake 接缝 / T2 agent prompt 参数化）见脚本头注释，--check 闸门盯漂移。',
+    comment: 'HF Studio 切片的同步副本——上游 kit 是唯一真源：改上游 → 重跑 sync-studio → 提交 diff。两处机械变换（T1 bake 接缝 / T2 机器路径守卫）见脚本头注释，--check 闸门盯漂移。',
     upstream: kitSource,
     upstreamCommit: commit,
     syncedAt: new Date().toISOString(),

@@ -135,10 +135,12 @@ def _llm_complete(message, spec, timeout=60):
     return data
 
 
-HELP = ("可用指令：导入 <目录> / 加片尾卡 / 删除第 N 个场景 / "
+HELP = ("可用指令：导入 <目录> / 扫描 <网址> 做成品牌 / 应用品牌 <名> / "
+        "加片尾卡 / 删除第 N 个场景 / "
         "第 N 个场景文字改成 X / 改成竖屏 / 背景改成 #1a1a2e / "
         "关闭字幕 / 生成旁白 / 自动字幕(ASR) / 导出 MP4 / 第 N 个场景时长 X 秒。"
-        " 配置 XMEDIA_LLM_ENDPOINT 后可直接用自由自然语言。")
+        " 自由自然语言：切到 agent 后端（顶栏 → agent，本机 CodeBuddy/"
+        "claude CLI 驱动）即可说任意表述。")
 
 
 # 单个路径段只认 ASCII 字符，避免把中文正文（「我录制的视频」）吞进路径；
@@ -196,6 +198,66 @@ def _topic_of(msg):
     """从「参考 <路径> 讲 X」之类消息里抽主题短语；抽不到返回空。"""
     m = re.search(r"(?:讲|主题|话题|内容)\s*[:：]?\s*(.{2,40})", msg)
     return m.group(1).strip() if m else ""
+
+
+def apply_brand(spec, brand):
+    """品牌套件统一注入（xmedia brand apply / agent 指令 / Home 默认
+    品牌共用这一份逻辑）。v2 结构（colors with roles / ink / fonts /
+    rules）为主，v1 扁平字段（palette/text_color）兼容读取。
+
+    返回 (spec, 摘要行列表)。"""
+    scenes = spec.get("scenes") or []
+    # 色板：v2 colors[{hex, role}] 按序循环；v1 palette 兼容
+    colors = [c["hex"] for c in brand.get("colors", []) if c.get("hex")]
+    if not colors:
+        colors = brand.get("palette", [])
+    text = brand.get("ink") or brand.get("text_color", "")
+    n = 0
+    for i, sc in enumerate(scenes):
+        if not sc.get("video"):
+            if colors:
+                sc["bg"] = colors[i % len(colors)]
+            if text:
+                sc.setdefault("color", text)
+            n += 1
+    if spec.get("background"):
+        spec["background"] = brand.get("background", spec["background"])
+    if brand.get("voice"):
+        spec.setdefault("tts", {})["voice"] = brand["voice"]
+    # 字体：v2 fonts.body.family；v1（brand save --font-family /
+    # brand scan 产物）fonts 是 font-family 字符串数组，取首个。
+    fonts = brand.get("fonts") or {}
+    if isinstance(fonts, list):
+        body_font = (fonts[0] if fonts else "") or \
+            brand.get("font_family", "")
+    else:
+        body_font = (fonts.get("body") or {}).get("family") or \
+            brand.get("font_family", "")
+    if body_font:
+        spec.setdefault("fonts", {})["body"] = body_font
+    # outro
+    for sc in scenes:
+        if sc.get("type") == "outro":
+            if brand.get("outro_text"):
+                sc["text"] = brand["outro_text"]
+            logo_text = brand.get("logo_text") or \
+                (brand.get("outro") or {}).get("logo_text", "")
+            if logo_text and "subtitle" in sc:
+                sc["subtitle"] = logo_text
+    # logo 图片（identity mark）：brand["logo_src"] 由调用方解析为
+    # 对 spec/契约页可读的 src（相对项目目录或绝对路径）。
+    logo_src = brand.get("logo_src") or brand.get("logo_image") or ""
+    mode = brand.get("logo_mode", "corner")
+    n_logo = 0
+    if logo_src:
+        for sc in scenes:
+            if not sc.get("image") and not sc.get("video"):
+                sc["image"] = {"src": logo_src, "mode": mode}
+                n_logo += 1
+    notes = [f"色板 {len(colors) or '继承'} 色 · 文字 {text or '不变'}"
+             f" · 音色 {brand.get('voice') or '不变'}"
+             f" · logo 图 {n_logo} 处"]
+    return spec, notes
 
 
 def _int(s, default=0):
@@ -279,6 +341,65 @@ def handle(message, spec, spec_dir=""):
                    f"文字 {text or '不变'}、音色 "
                    f"{brand.get('voice') or '不变'}）", base)
 
+    # 0b-2. 扫描网站 → 品牌（HF brand kits 的「输入网址生成 kit」形态）：
+    #     消息带 URL + 品牌词 → xmedia brand scan（抓页面 + 至多 3 个同源
+    #     CSS 统计色板/字体/logo，存 ~/.xmedia/brands/<名>.json）→
+    #     apply_brand 注入当前 spec。品牌名缺省取域名主体。
+    m_url = re.search(r"((?:https?|file)://[^\s\"'<>」』】]+)", msg)
+    if m_url and re.search(
+            r"扫描|做成品牌|生成品牌|品牌套件|品牌指南|识别品牌|"
+            r"brand ?kit|brand.?scan|配色|色板", msg, re.I):
+        import subprocess as _sp
+        url = m_url.group(1)
+        m_name = re.search(
+            r"品牌\s*(?:叫|名叫|名为|名字是|存成|保存成|命名为)"
+            r"\s*[为:：]?\s*([\w\-]{2,24})", msg, re.I)
+        if m_name:
+            name = m_name.group(1)
+        elif url.startswith("file://"):
+            name = os.path.splitext(os.path.basename(
+                url.split("://", 1)[-1].split("?")[0]))[0] or "scanned"
+        else:
+            host = url.split("//", 1)[-1].split("/", 1)[0]
+            host = host.split(":")[0].lower()
+            if host.startswith("www."):
+                host = host[4:]
+            name = host.split(".")[0] or "scanned"
+        bpath = os.path.expanduser(os.environ.get(
+            "XMEDIA_BRAND_DIR", "~/.xmedia/brands"))
+        fpath = os.path.join(bpath, name + ".json")
+        root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+        try:
+            r = _sp.run(
+                [sys.executable, os.path.join(root, "tools", "xmedia.py"),
+                 "brand", "scan", name, "--url", url],
+                capture_output=True, text=True, timeout=60, cwd=root)
+        except _sp.TimeoutExpired:
+            return out("扫描超时（网站响应太慢）。稍后再试，或直接说"
+                       f"「应用品牌 {name}」（若之前扫过）。", mode="help")
+        if r.returncode != 0 or not os.path.exists(fpath):
+            tail = [ln for ln in (r.stderr or r.stdout or "").strip()
+                    .splitlines() if ln.strip()]
+            return out("扫描失败：" + (tail[-1] if tail else "未知错误"),
+                       mode="help")
+        brand = json.load(open(fpath, encoding="utf-8"))
+        li = brand.get("logo_image")
+        if li and not os.path.isabs(li):
+            cand = os.path.join(bpath, li)
+            if os.path.exists(cand):
+                brand["logo_src"] = cand
+        base, notes = apply_brand(base, brand)
+        palette = brand.get("palette", [])
+        fonts = brand.get("fonts") or []
+        reply = (f"品牌「{name}」已从 {url} 扫描生成并应用到当前项目：\n"
+                 f"· 色板 {' '.join(palette)}"
+                 f"（背景 {brand.get('background')}"
+                 f" · 文字 {brand.get('text_color')}）\n"
+                 + (f"· 字体 {'、'.join(fonts)}\n" if fonts else "")
+                 + f"· {notes[0] if notes else '已注入'}\n"
+                 f"之后随时说「应用品牌 {name}」即可再套用。")
+        return out(reply, base)
+
     # 0c. 参考视频（HF reference-video 的本地弱化版指令入口）：路径 →
     #     action 分发，Studio 侧跑 hf_reference（镜头切割 → 同节奏 spec
     #     骨架 + 可选 ASR），复刻剪辑节奏与结构，不复刻特效/素材。
@@ -339,6 +460,15 @@ def handle(message, spec, spec_dir=""):
         return out(f"没有第 {idx+1} 个场景（共 {len(base['scenes'])} 个）")
 
     # 4. 改场景文字
+    # 8b. 副标题 / 单场景背景 / 单场景文字色（高频字段逐场景编辑）
+    m = re.search(r"第?\s*([一二三四五六七八九十\d]+)\s*个?场景.{0,6}副标题.{0,6}(?:改成|改为|设为|清空)\s*[:：]?\s*(.*)", msg, re.I)
+    if m:
+        idx = _int(m.group(1), 0) - 1
+        if 0 <= idx < len(base["scenes"]):
+            base["scenes"][idx]["subtitle"] = m.group(2).strip().strip("\"'“”")
+            return out(f"第 {idx+1} 个场景副标题已改为「{base['scenes'][idx]['subtitle']}」",
+                       base)
+
     m = re.search(r"第?\s*([一二三四五六七八九十\d]+)\s*个?场景.{0,8}(?:文字|文案|标题|text)\s*(?:改成|改为|设为|set to|to)\s*[:：]?\s*(.+)", msg, re.I)
     if m:
         idx = _int(m.group(1), 0) - 1
@@ -401,6 +531,78 @@ def handle(message, spec, spec_dir=""):
         if 0 <= idx < len(base["scenes"]) and 0 < dur <= 3600:
             base["scenes"][idx]["duration"] = dur
             return out(f"第 {idx+1} 个场景时长改为 {dur}s", base)
+
+    m = re.search(r"第?\s*([一二三四五六七八九十\d]+)\s*个?场景.{0,4}背景.{0,4}?(#[0-9a-fA-F]{3,8})", msg)
+    if m:
+        idx = _int(m.group(1), 0) - 1
+        if 0 <= idx < len(base["scenes"]):
+            base["scenes"][idx]["bg"] = m.group(2)
+            return out(f"第 {idx+1} 个场景背景已改为 {m.group(2)}", base)
+    m = re.search(r"第?\s*([一二三四五六七八九十\d]+)\s*个?场景.{0,4}(?:文字色|字色).{0,4}?(#[0-9a-fA-F]{3,8})", msg)
+    if m:
+        idx = _int(m.group(1), 0) - 1
+        if 0 <= idx < len(base["scenes"]):
+            base["scenes"][idx]["text_color"] = m.group(2)
+            return out(f"第 {idx+1} 个场景文字色已改为 {m.group(2)}", base)
+
+    # 8c. 转场 / 入场动画（场景级，改完即生效）
+    m = re.search(r"第?\s*([一二三四五六七八九十\d]+)\s*个?场景.{0,6}转场\s*(?:改成|改为|设为)?\s*[:：]?\s*(\S+)", msg, re.I)
+    if m:
+        idx, val = _int(m.group(1), 0) - 1, m.group(2).strip().lower()
+        if val in ("fade", "slide-left", "slide-right", "wipe", "none"):
+            if 0 <= idx < len(base["scenes"]):
+                base["scenes"][idx]["transition"] = val
+                return out(f"第 {idx+1} 个场景转场已改为 {val}", base)
+    m = re.search(r"第?\s*([一二三四五六七八九十\d]+)\s*个?场景.{0,6}(?:动画|入场动画)\s*(?:改成|改为|设为)?\s*[:：]?\s*(\S+)", msg, re.I)
+    if m:
+        idx, val = _int(m.group(1), 0) - 1, m.group(2).strip()
+        if val in ("fade_in", "fade_in_up", "fade_in_down", "scale_in",
+                   "slide_in", "none"):
+            if 0 <= idx < len(base["scenes"]):
+                base["scenes"][idx]["animation"] = val
+                return out(f"第 {idx+1} 个场景入场动画已改为 {val}", base)
+
+    # 8d. 插入场景到指定位置（第 N 位前）：text 场景占位，字段随后编辑
+    m = re.search(r"(?:在\s*)?第?\s*([一二三四五六七八九十\d]+)\s*个?场景(?:之前|前面|位置)\s*插入.{0,8}场景[，,]?\s*(?:文字|文案)?\s*[:：]?\s*(.*)", msg)
+    if m:
+        pos = _int(m.group(1), 0) - 1
+        pos = max(0, min(pos, len(base["scenes"])))
+        text = m.group(2).strip().strip("\"'“”") or "新场景"
+        base["scenes"].insert(pos, {
+            "type": "text", "text": text, "duration": 3,
+            "bg": "#16213e", "animation": "fade_in",
+        })
+        return out(f"已在第 {pos+1} 位插入场景「{text}」（共 "
+                   f"{len(base['scenes'])} 个场景）", base)
+
+    # 8e. 模板场景插入：模板名来自 templates/ 目录（热加载）
+    m = re.search(r"加一?个?\s*([\w\-]+)\s*(?:模板|template)\s*场景", msg, re.I)
+    if m:
+        import hf_compose
+        registry = hf_compose.load_custom_templates(spec_dir)
+        tname = m.group(1)
+        if tname not in registry:
+            names = "、".join(sorted(registry))
+            return out(f"模板「{tname}」不存在。可用模板：{names or '（无）'}",
+                       mode="help")
+        defn = registry[tname]
+        scene = {"type": tname, "duration": 3}
+        for slot in defn.get("slots", []):
+            scene[slot] = f"[{slot}]"
+        base.setdefault("scenes", []).append(scene)
+        return out(f"已追加「{tname}」模板场景（占位 slot："
+                   f"{'、'.join(defn.get('slots', [])) or '无'}——分镜/Inspector "
+                   "里把 [slot] 换成实际内容）", base)
+
+    # 8f. BGM 音量 / 音轨音量（audio 段全局）
+    m = re.search(r"(?:背景音乐|BGM|bgm).{0,6}音量\s*([\d.]+)", msg, re.I)
+    if m:
+        vol = max(0.0, min(1.0, float(m.group(1))))
+        audio = base.setdefault("audio", {})
+        bgm = audio.get("bgm") if isinstance(audio.get("bgm"), dict) else {}
+        bgm["volume"] = vol
+        audio["bgm"] = bgm
+        return out(f"BGM 音量已设为 {vol}", base)
 
     # 9. 管线动作
     if re.search(r"生成旁白|配音|tts|朗读", msg, re.I):

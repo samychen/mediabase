@@ -18,6 +18,7 @@ import re
 import shutil
 import subprocess
 import sys
+import time
 
 TOOLS_DIR = os.path.dirname(os.path.abspath(__file__))
 ROOT_DIR = os.path.dirname(TOOLS_DIR)
@@ -123,7 +124,7 @@ def cmd_render(args):
         sys.exit(1)
     cmd = [bake, "--url", "file://" + html, "--out", args.out,
            "--seconds", f"{seconds:.2f}", "--fps", str(fps),
-           "--width", str(w), "--height", str(h), "--clock", "seek"]
+           "--width", str(w), "--height", str(h), "--clock", "seek", "--paint-wait", "1500"]
     if args.chunks > 1:
         cmd += ["--chunks", str(args.chunks)]
     run(cmd)
@@ -649,6 +650,17 @@ def cmd_brand(args):
             "fonts": draft["fonts"],
             "logo_image_url": draft["logo_image_url"],
             "source_url": draft["source_url"],
+            # v2 capture 增量（colors with roles / text styles /
+            # backgrounds / shapes / components / logos 集合）
+            "colors": draft.get("colors", []),
+            "text_styles": draft.get("text_styles", []),
+            "backgrounds": draft.get("backgrounds", []),
+            "shapes": draft.get("shapes", {}),
+            "components": draft.get("components", []),
+            "logos": draft.get("logos", []),
+            "capture": draft.get("capture", {}),
+            "screenshot": "",
+            "context": "",
         }
         d = _brand_dir()
         os.makedirs(d, exist_ok=True)
@@ -683,27 +695,147 @@ def cmd_brand(args):
                     f.write(data)
                 logo_local = os.path.relpath(dest, _brand_dir())
                 brand["logo_image"] = logo_local
+                # logo 主色提取（ffmpeg 8×8 像素采样）：logo 是品牌色
+                # 最强载体（bilibili 粉 #fb7299 就藏在 logo 里，CSS 抓
+                # 不到）——top3 进 logo_colors（role="logo" 入 colors）。
+                try:
+                    pal = subprocess.run(
+                        ["ffmpeg", "-y", "-i", dest, "-vf", "scale=8:8",
+                         "-f", "rawvideo", "-pix_fmt", "rgb24", "-"],
+                        capture_output=True, timeout=30)
+                    px = pal.stdout
+                    freq = {}
+                    for k in range(0, len(px) - 2, 3):
+                        r, g, b = px[k], px[k + 1], px[k + 2]
+                        if r + g + b > 720 or r + g + b < 60:
+                            continue
+                        hit = next((kk for kk in freq
+                                    if max(abs(kk[0] - r), abs(kk[1] - g),
+                                           abs(kk[2] - b)) < 24), None)
+                        if hit:
+                            freq[hit] += 1
+                        else:
+                            freq[(r, g, b)] = 1
+                    logo_cols = sorted(freq.items(), key=lambda kv: -kv[1])[:3]
+                    brand["logo_colors"] = [f"#{r:02x}{g:02x}{b:02x}"
+                                            for (r, g, b), _ in logo_cols]
+                except Exception as e:
+                    print(f"  logo 主色提取失败：{e}", file=sys.stderr)
+                # 网页首屏截图（HF Screenshots 的单张视觉证据）：
+                # html_bake 烘 URL 首屏 → ffmpeg 抽帧。
+                try:
+                    shots = os.path.join(_brand_dir(), "shots")
+                    os.makedirs(shots, exist_ok=True)
+                    shot_jpg = os.path.join(shots, args.name + "-home.jpg")
+                    bake = bake_bin()
+                    if bake:
+                        bake_url = args.url if args.url.startswith(
+                            ("http://", "https://", "file://")) \
+                            else "https://" + args.url
+                        mp4 = shot_jpg + ".mp4"
+                        subprocess.run(
+                            [bake, "--url", bake_url, "--out", mp4,
+                             "--seconds", "2.5", "--fps", "2",
+                             "--width", "1280", "--height", "720",
+                             "--clock", "seek", "--paint-wait", "1500"],
+                            capture_output=True, timeout=180)
+                        subprocess.run(
+                            ["ffmpeg", "-y", "-ss", "1.5", "-i", mp4,
+                             "-frames:v", "1", shot_jpg],
+                            capture_output=True, timeout=60)
+                        if os.path.isfile(shot_jpg) and \
+                                os.path.getsize(shot_jpg) > 8000:
+                            brand["screenshot"] = os.path.relpath(
+                                shot_jpg, _brand_dir())
+                            print(f"  截图   {shot_jpg}")
+                        else:
+                            print("  截图   未产出（网站反爬或超时）",
+                                  file=sys.stderr)
+                except Exception as e:
+                    print(f"  网页截图失败：{e}", file=sys.stderr)
                 with open(path, "w", encoding="utf-8") as f:
                     json.dump(brand, f, ensure_ascii=False, indent=1)
                     f.write("\n")
             except Exception as e:
                 print(f"  logo 下载失败（保留 URL）：{e}", file=sys.stderr)
+        # Context 描述（HF 的 design system 总结行）+ colors 吃 logo
+        # 主色（role="logo" 前插——logo 是品牌色最强证据）。
+        try:
+            host = brand["source_url"].split("//")[-1].split("/")[0]
+            brand["context"] = (
+                f"Brand system scanned from {host} on "
+                f"{time.strftime('%Y-%m-%d')} — "
+                f"{len(brand.get('colors', []))} colors with roles, "
+                f"{len(brand.get('fonts', []))} font families, "
+                f"{len(brand.get('components', []))} components, "
+                f"{len(brand.get('shapes', {}).get('radii', []))} radii. "
+                f"brandkit-v2 capture.")
+            # Rules（自动生成，两色纪律 + 主色/字体/禁用——HF 的
+            # "Rules and sources" 分类的本地对应）
+            pal = brand.get("palette", [])
+            rules = [
+                "主色板按序循环使用，不引入色板外的第三色",
+                "强调只用反转/放大/密度，禁止渐变横幅与投影卡片",
+            ]
+            if pal:
+                rules.insert(0, "主色 " + pal[0] + " 用于钩子与 CTA 反白")
+            if brand.get("fonts"):
+                rules.insert(1, "标题/正文字体族用 "
+                                + (brand["fonts"][0] or "系统默认")
+                                + "，跨平台以系统回退")
+            if brand.get("text_color"):
+                rules.append("正文文字色 " + brand["text_color"]
+                             + "（与背景对比 ≥ 4.5:1）")
+            brand["rules_txt"] = rules
+            brand["sources"] = [
+                {"what": "HTML + 至多 8 个样式表（CSS 变量/颜色/字体/圆角统计）",
+                 "url": brand.get("source_url", "")},
+                {"what": "og:image / apple-touch-icon / favicon（logo 集）",
+                 "url": (brand.get("logos") or [""])[0]},
+                {"what": "theme-color meta / logo 像素采样（主色证据）",
+                 "url": brand.get("logo_image_url", "")},
+            ]
+            for c in reversed(brand.get("logo_colors", [])):
+                if not any(x.get("hex", "").lower() == c.lower()
+                           for x in brand.get("colors", [])):
+                    brand["colors"].insert(0, {"hex": c, "role": "logo",
+                                               "var": "logo 主色"})
+            with open(path, "w", encoding="utf-8") as f:
+                json.dump(brand, f, ensure_ascii=False, indent=1)
+                f.write("\n")
+        except Exception as e:
+            print(f"  context 生成失败：{e}", file=sys.stderr)
         if logo_local:
             print(f"  logo   {brand['logo_image_url']} → {logo_local}")
         print(f"  已保存 {path} —— brand apply {args.name} --spec <spec> 生效")
         return
     if args.action == "save":
         os.makedirs(d, exist_ok=True)
+        # v2 结构（对齐 HF brand kit：colors with roles / ink / fonts
+        # with weight / rules Do's-Don'ts）；v1 兼容字段（palette/
+        # text_color）同时保留给旧读取方。
+        palette = [args.palette1 or "#1a1a2e",
+                   args.palette2 or "#16213e",
+                   args.palette3 or "#0f3460"]
+        ink = args.text or "#f0f0f5"
         brand = {"name": args.name,
+                 "revision": 1,
                  "background": args.background or "#0a0a1a",
-                 "palette": [args.palette1 or "#1a1a2e",
-                             args.palette2 or "#16213e",
-                             args.palette3 or "#0f3460"],
-                 "text_color": args.text or "#f0f0f5",
+                 "colors": [{"hex": palette[0], "role": "ground"},
+                            {"hex": palette[1], "role": "surface"},
+                            {"hex": palette[2], "role": "accent"}],
+                 "palette": palette,
+                 "ink": ink,
+                 "text_color": ink,
+                 "fonts": {"body": {"family": args.font_family or "",
+                                    "weight": 400}},
+                 "font_family": args.font_family or "",
                  "voice": args.voice or "Tingting",
+                 "outro": {"text": args.outro or "",
+                           "logo_text": args.logo or ""},
                  "outro_text": args.outro or "",
                  "logo_text": args.logo or "",
-                 "font_family": args.font_family or ""}
+                 "rules": {"dos": [], "donts": []}}
         if args.logo_image:
             if not os.path.isfile(args.logo_image):
                 print(f"xmedia: logo 图片不存在 {args.logo_image}",
@@ -721,6 +853,22 @@ def cmd_brand(args):
             f.write("\n")
         print(f"xmedia: 品牌「{args.name}」已保存 {path}")
         return
+    if args.action == "default":
+        pin = os.path.join(d, ".default")
+        if args.name:
+            if not os.path.exists(os.path.join(d, args.name + ".json")):
+                print(f"xmedia: 品牌「{args.name}」不存在", file=sys.stderr)
+                sys.exit(1)
+            with open(pin, "w", encoding="utf-8") as f:
+                f.write(args.name)
+            print(f"xmedia: 默认品牌已设为「{args.name}」（新项目自动应用）")
+        else:
+            if os.path.isfile(pin):
+                print("xmedia: 默认品牌 =",
+                      open(pin, encoding="utf-8").read().strip())
+            else:
+                print("xmedia: 未设置默认品牌（brand default <名> 设置）")
+        return
     if args.action == "show":
         path = os.path.join(d, args.name + ".json")
         if not os.path.exists(path):
@@ -729,7 +877,8 @@ def cmd_brand(args):
             sys.exit(1)
         print(open(path, encoding="utf-8").read())
         return
-    # apply
+    # apply（注入逻辑统一走 hf_agent.apply_brand——与 Studio 指令/Home
+    # 默认品牌同一份逻辑）
     path = os.path.join(d, args.name + ".json")
     if not os.path.exists(path):
         print(f"xmedia: 品牌「{args.name}」不存在（brand list 查看）",
@@ -740,57 +889,40 @@ def cmd_brand(args):
         print(f"xmedia: spec 不存在 {args.spec}", file=sys.stderr)
         sys.exit(1)
     spec = json.load(open(args.spec, encoding="utf-8"))
-    palette = brand.get("palette", [])
-    text = brand.get("text_color", "")
-    n = 0
-    n_logo = 0
-    for i, sc in enumerate(spec.get("scenes", [])):
-        if not sc.get("video"):
-            if palette:
-                sc["bg"] = palette[i % len(palette)]
-            if text:
-                sc.setdefault("color", text)
-            n += 1
-    if spec.get("background"):
-        spec["background"] = brand.get("background", spec["background"])
-    if brand.get("voice"):
-        spec.setdefault("tts", {})["voice"] = brand["voice"]
-    # logo 图片入包：brand 的 logo_image（相对品牌文件，或 URL 已下载到
-    # 品牌目录）注入每个无图场景——backdrop 模式铺满置底，corner 角标
-    # 水印由 --logo-mode 控制（默认 corner，logo 常态）。
-    logo_rel = brand.get("logo_image")
-    if logo_rel:
-        mode = "corner" if not getattr(args, "logo_mode", None) or \
-            args.logo_mode == "corner" else "backdrop"
-        for sc in spec.get("scenes", []):
-            if not sc.get("image") and not sc.get("video"):
-                sc["image"] = {"src": logo_rel, "mode": mode}
-                n_logo += 1
-        if brand.get("font_family"):
-            spec.setdefault("fonts", {})["body"] = brand["font_family"]
-    out_scenes = [sc for sc in spec.get("scenes", [])
-                  if sc.get("type") == "outro"]
-    for sc in out_scenes:
-        if brand.get("outro_text"):
-            sc["text"] = brand["outro_text"]
-        if brand.get("logo_text") and "subtitle" in sc:
-            sc["subtitle"] = brand["logo_text"]
+    sys.path.insert(0, TOOLS_DIR)
+    import hf_agent
+    logo_src = ""
+    if brand.get("logo_image"):
+        # 品牌资产目录里的 logo → 绝对路径（契约页 file:// 可读）
+        cand = os.path.join(d, brand["logo_image"])
+        logo_src = os.path.abspath(cand) if os.path.isfile(cand) else \
+            brand["logo_image"]
+    brand["logo_src"] = logo_src
+    spec, notes = hf_agent.apply_brand(spec, brand)
     with open(args.spec, "w", encoding="utf-8") as f:
         json.dump(spec, f, ensure_ascii=False, indent=1)
         f.write("\n")
-    print(f"xmedia: 品牌「{args.name}」已应用 {args.spec}"
-          f"（{n} 个场景换色，logo 图 {n_logo} 处，outro 署名 "
-          f"「{brand.get('outro_text') or '未设置'}」）")
+    print(f"xmedia: 品牌「{args.name}」已应用 {args.spec}")
+    for n in notes:
+        print(f"  {n}")
 
 
 def _brand_scan(url):
-    """读网站 → 品牌草稿（色板/字体/站点名/logo 图）。
+    """读网站 → 品牌草稿 v2（brandkit-v2 capture + 证据）。
 
     纯本地解析（对齐 HF brand-kits 的"输入网站自动读品牌"）：抓页面 +
-    至多 3 个同源样式表，统计 CSS 颜色与 font-family 频次。启发式：
-    色板取饱和度优先的高频色（互相色距过近的合并），背景取最常见浅色
-    或深色，文字色取与背景对比最大的近黑/近白。读不到就用 CLI 给的
-    默认值——扫描是草稿，brand save 的参数永远可以覆盖。
+    至多 8 个样式表。v2 深度：
+    - CSS 变量表 → 语义色角色（--brand-pink → primary，…）
+    - 颜色频次全量统计 → 色板扩到 10 色（饱和优先 + 高频补充）
+    - text styles：font-size × font-weight 组合 top5
+    - backgrounds：background 声明 top2
+    - shapes：border-radius / gap 频次 top
+    - components：.btn/.card/.tag 类规则的真实样式抽取 top5
+    - logos：og:image + apple-touch-icon + favicon 集
+    返回 dict 兼容 v1 字段（palette/background/text_color/fonts/
+    logo_image_url/site_title/source_url），v2 增量字段
+    （colors/text_styles/backgrounds/shapes/components/logos）。
+    读不到就用默认值——扫描是草稿，brand save 的参数永远可以覆盖。
     """
     import urllib.request
     import urllib.parse
@@ -820,13 +952,23 @@ def _brand_scan(url):
 
     site_title = (_tag_attr(r'<meta\s+property="og:site_name"\s+content="([^"]*)"')
                   or _tag_attr(r"<title[^>]*>([^<]*)</title>"))
-    logo_url = (_tag_attr(r'<meta\s+property="og:image"\s+content="([^"]*)"')
-                or _tag_attr(r'<link\s+rel="apple-touch-icon"[^>]*href="([^"]*)"'))
 
-    # 同源样式表（至多 3 个，每个 ≤1MB）：外链 CSS 是颜色的大头
+    # logo 集合：og:image（社交卡）+ apple-touch-icon（高清）+ favicon。
+    # 去重保持优先级，下载时逐个尝试直到成功。
+    logos = []
+    for pat in (r'<meta\s+property="og:image"\s+content="([^"]*)"',
+                r'<link\s+rel="apple-touch-icon"[^>]*href="([^"]*)"',
+                r'<link\s+rel="(?:shortcut )?icon"[^>]*href="([^"]*)"'):
+        for m in re.finditer(pat, html_src, re.I):
+            u = _abs(_html.unescape(m.group(1)).strip(), base)
+            if u and u not in logos:
+                logos.append(u)
+    logo_url = logos[0] if logos else ""
+
+    # 样式表（至多 8 个，每个 ≤1MB）：外链 CSS 是颜色/字体/圆角的大头
     css_chunks = re.findall(r"<style[^>]*>(.*?)</style>", html_src, re.I | re.S)
     for href in re.findall(r'<link[^>]+rel="stylesheet"[^>]*href="([^"]*)"',
-                           html_src, re.I)[:3]:
+                           html_src, re.I)[:8]:
         absu = _abs(_html.unescape(href), base)
         if absu.startswith(("http://", "https://", "file://")):
             try:
@@ -855,6 +997,72 @@ def _brand_scan(url):
             return None  # 近全透明不算色
         return f"#{r_:02x}{g_:02x}{b_:02x}"
 
+    # ---- CSS 变量表 → 语义色角色（v2 核心：HF 的 "color roles"）----
+    css_vars = {}
+    for m in re.finditer(r"(--[\w-]+)\s*:\s*([^;{}]+)[;}]", hay):
+        css_vars.setdefault(m.group(1).lower(), m.group(2).strip())
+
+    def _role_of(varname):
+        n = varname[2:]
+        if re.search(r"brand|primary|main-color|theme", n):
+            return "primary"
+        if re.search(r"accent|highlight|active", n):
+            return "accent"
+        if re.search(r"secondary|second", n):
+            return "secondary"
+        if re.search(r"success|ok-", n):
+            return "success"
+        if re.search(r"danger|error|alert", n):
+            return "danger"
+        if re.search(r"warning|warn", n):
+            return "warning"
+        if re.search(r"(^|[^a-z])ink|text|fg|foreground", n):
+            return "ink"
+        if re.search(r"bg|background|surface|panel|card", n):
+            return "background"
+        if re.search(r"muted|dim|gray|grey|border|line|divider|placeholder", n):
+            return "muted"
+        return None
+
+    colors = []
+    seen_hex = set()
+
+    def _push_color(hx, role, var="", prio=3):
+        if not hx or not re.fullmatch(r"#[0-9a-f]{6}", hx):
+            return
+        if hx in seen_hex:
+            # 同色再次出现且证据更硬（如 palette 频次算出的角色）→ 提升
+            for c in colors:
+                if c["hex"] == hx and prio < c["_p"]:
+                    c["_p"] = prio
+                    if role and not c["role"]:
+                        c["role"] = role
+                    if var and not c["var"]:
+                        c["var"] = var
+            return
+        seen_hex.add(hx)
+        colors.append({"hex": hx, "role": role or "", "var": var,
+                       "_p": prio})
+
+    _ROLE_PRIO = {"primary": 0, "accent": 0, "secondary": 1,
+                  "danger": 1, "warning": 1, "success": 1}
+    for vname, vval in css_vars.items():
+        role = _role_of(vname)
+        hx = _css_color_to_hex(vval)
+        if hx:
+            _push_color(hx, role, vname, _ROLE_PRIO.get(role, 3))
+    for m in re.finditer(r"(--[\w-]+)\s*:\s*([^;{}]+)[;}]", html_src):
+        # 内联 style 上的变量（部分站点品牌色只在这里）——同样的角色推断
+        hx = _css_color_to_hex(m.group(2))
+        if hx:
+            role = _role_of(m.group(1).lower())
+            _push_color(hx, role, m.group(1), _ROLE_PRIO.get(role, 3))
+    # theme-color meta（浏览器地址栏染色色 = 站点自认的品牌主色）
+    theme = _tag_attr(r'<meta\s+name="theme-color"\s+content="([^"]*)"')
+    if theme:
+        _push_color(_css_color_to_hex(theme), "primary", "theme-color", 0)
+
+    # ---- 颜色频次全量统计（v1 逻辑保留 + 色板扩到 10）----
     freq = {}
     for raw in re.findall(r"#[0-9a-fA-F]{3,8}\b|rgba?\([^)]*\)", hay):
         hx = _css_color_to_hex(raw)
@@ -872,9 +1080,9 @@ def _brand_scan(url):
         ca, cb = _chan(a), _chan(b)
         return max(abs(x - y) for x, y in zip(ca, cb))
 
-    colors = sorted(freq.items(), key=lambda kv: (-_sat(kv[0]), -kv[1]))
+    ranked = sorted(freq.items(), key=lambda kv: (-_sat(kv[0]), -kv[1]))
     palette, bg, text = [], None, None
-    for hx, _n in colors:
+    for hx, _n in ranked:
         if len(palette) < 3 and _sat(hx) >= 24 and \
                 all(_dist(hx, p) > 32 for p in palette):
             palette.append(hx)
@@ -897,18 +1105,120 @@ def _brand_scan(url):
         fallback = ["#1a1a2e", "#16213e", "#0f3460"]
         palette += fallback[len(palette):]
 
+    # v2 色板梯队：品牌三色（v1 饱和度算法产物）以高优先级插入，
+    # 再补高频色；最终按梯队排序取 10（灰阶变量表 --ga0..--ga9 之类
+    # 不再把品牌色挤出清单）。
+    for i, hx in enumerate(palette):
+        _push_color(hx, ("primary", "secondary", "accent")[min(i, 2)],
+                    "", 1)
+    for hx, n in sorted(freq.items(), key=lambda kv: -kv[1]):
+        if n < 2 or _sat(hx) < 8:
+            continue  # 纯灰白黑低频跳过（角色区已有 bg/ink）
+        if all(_dist(hx, c["hex"]) > 24 for c in colors):
+            _push_color(hx, "", "", 2)
+            if len(colors) >= 24:
+                break
+
+    colors = [{"hex": c["hex"], "role": c["role"], "var": c["var"]}
+              for c in sorted(colors, key=lambda c: (c["_p"],
+                                                     -_sat(c["hex"])))[:10]]
+
+    # ---- text styles：font-size × font-weight 组合频次 top5 ----
+    ts_freq = {}
+    for m in re.finditer(r"([^{}]+)\{([^{}]*)\}", hay):
+        body = m.group(2)
+        fs = re.search(r"font-size\s*:\s*([\d.]+)px", body)
+        if not fs:
+            continue
+        fw = re.search(r"font-weight\s*:\s*(\d{3})", body)
+        key = (round(float(fs.group(1))),
+               int(fw.group(1)) if fw else 400)
+        ts_freq[key] = ts_freq.get(key, 0) + 1
+    text_styles = [{"size": s, "weight": w, "count": c}
+                   for (s, w), c in sorted(ts_freq.items(),
+                                           key=lambda kv: (-kv[0][1],
+                                                           -kv[0][0],
+                                                           -kv[1]))[:5]]
+
+    # ---- backgrounds：background 声明频次 top2（非透明）----
+    bg_freq = {}
+    for m in re.finditer(r"background(?:-color)?\s*:\s*([^;}]+)", hay, re.I):
+        hx = _css_color_to_hex(m.group(1))
+        if hx:
+            bg_freq[hx] = bg_freq.get(hx, 0) + 1
+    backgrounds = [{"hex": hx, "count": c}
+                   for hx, c in sorted(bg_freq.items(),
+                                       key=lambda kv: -kv[1])[:2]]
+
+    # ---- shapes：圆角 / 间距频次 top ----
+    rad_freq, gap_freq = {}, {}
+    for m in re.finditer(r"border-radius\s*:\s*([^;}]+)", hay, re.I):
+        v = m.group(1).strip().split()[0]
+        if re.match(r"[\d.]+px", v):
+            rad_freq[v] = rad_freq.get(v, 0) + 1
+    for m in re.finditer(r"\bgap\s*:\s*([\d.]+px)", hay, re.I):
+        gap_freq[m.group(1)] = gap_freq.get(m.group(1), 0) + 1
+    shapes = {"radii": [{"value": v, "count": c} for v, c in
+                        sorted(rad_freq.items(), key=lambda kv: -kv[1])[:3]],
+              "gaps": [{"value": v, "count": c} for v, c in
+                       sorted(gap_freq.items(), key=lambda kv: -kv[1])[:2]]}
+
+    # ---- components：.btn/.card/.tag 类规则的真实样式抽取 top5 ----
+    components = []
+    seen_comp = set()
+    for m in re.finditer(r"([^{}]*\.(?:btn|button|card|tag|badge|chip|pill)"
+                         r"[\w\-]*)\s*\{([^{}]*)\}", hay):
+        sel = m.group(1).strip().split(",")[-1].strip()
+        body = m.group(2)
+        cbg = _css_color_to_hex(
+            (re.search(r"background(?:-color)?\s*:\s*([^;]+)", body, re.I)
+             or [None, ""])[1] if re.search(
+                 r"background(?:-color)?\s*:", body, re.I) else "")
+        ccol = _css_color_to_hex(
+            (re.search(r"(?:^|;)\s*color\s*:\s*([^;]+)", body, re.I)
+             or [None, ""])[1] if re.search(r"(?:^|;)\s*color\s*:", body,
+                                            re.I) else "")
+        crad = (re.search(r"border-radius\s*:\s*([^;]+)", body, re.I)
+                or [None, ""])[1].strip().split()[0] if re.search(
+                    r"border-radius\s*:", body, re.I) else ""
+        kind = ("button" if re.search(r"btn|button|pill", sel, re.I)
+                else "card" if re.search(r"card", sel, re.I)
+                else "tag")
+        key = (kind, cbg or "", crad or "")
+        if key in seen_comp or (not cbg and not ccol and not crad):
+            continue
+        seen_comp.add(key)
+        components.append({"kind": kind, "selector": sel[:48],
+                           "bg": cbg or "", "color": ccol or "",
+                           "radius": crad or ""})
+        if len(components) >= 5:
+            break
+
+    # ---- fonts（v1 保留）----
     fonts = []
     for decl in re.findall(r"font-family\s*:\s*([^;}]+)", hay, re.I):
         for fam in decl.split(","):
             fam = fam.strip().strip("'\"").replace("!important", "").strip()
             if fam and fam.lower() not in [f.lower() for f in fonts]:
                 fonts.append(fam)
-    fonts = fonts[:4]
+    fonts = fonts[:5]
 
     return {"palette": palette, "background": bg or "#0a0a1a",
             "text_color": text or "", "fonts": fonts,
-            "logo_image_url": _abs(logo_url, base) if logo_url else "",
-            "site_title": site_title, "source_url": url}
+            "logo_image_url": logo_url, "site_title": site_title,
+            "source_url": url,
+            "colors": colors[:10], "text_styles": text_styles,
+            "backgrounds": backgrounds, "shapes": shapes,
+            "components": components, "logos": logos[:3],
+            # capture 证据（HF 的 "Read from bilibili.com · 10 colors ·
+            # 5 text styles · 54 files" 行）：抓了什么、多深、何时
+            "capture": {
+                "stylesheets": len(css_chunks),
+                "css_vars": len(css_vars),
+                "colors_seen": len(freq),
+                "bytes": len(hay),
+                "at": time.strftime("%Y-%m-%d"),
+            }}
 
 
 def cmd_reference(args):
@@ -1114,8 +1424,10 @@ def main():
                    help="用 hf_asr 把参考音频转成全局字幕段")
     p.add_argument("--name", default="", help="合成 id")
     p.set_defaults(fn=cmd_reference)
-    p = sub.add_parser("brand", help="品牌套件：save/list/show/apply/scan")
-    p.add_argument("action", choices=["save", "list", "show", "apply", "scan"])
+    p = sub.add_parser("brand", help="品牌套件：save/list/show/apply/scan/default")
+    p.add_argument("action",
+                   choices=["save", "list", "show", "apply", "scan",
+                            "default"])
     p.add_argument("name", nargs="?", help="品牌名")
     p.add_argument("--spec", help="apply 目标 spec JSON")
     p.add_argument("--logo-mode", choices=["corner", "backdrop"],

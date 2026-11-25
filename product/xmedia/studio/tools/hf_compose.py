@@ -95,7 +95,13 @@ def render_custom_template(defn, scene, idx):
     def sub(m):
         slot = m.group(1)
         val = scene.get(slot)
-        return esc(str(val)) if val is not None else ""
+        if val is None:
+            return ""
+        if isinstance(val, (list, tuple)):
+            # 列表值 = 无序列表条目（每项转义后包 <li>）——对比/清单类
+            # 模板的 items slot 约定。
+            return "".join(f"<li>{esc(str(x))}</li>" for x in val)
+        return esc(str(val))
 
     body = SLOT_RE.sub(sub, body)
     name = defn.get("name", "custom")
@@ -169,6 +175,95 @@ def _probe_audio_duration(path):
     except (ValueError, subprocess.TimeoutExpired, FileNotFoundError):
         pass
     return None
+
+
+def _design_css(spec, bg_default):
+    """spec.design 段（设计系统）→ (root CSS 变量, 场景类覆盖)。
+
+    对齐 HF frame.md 设计系统层（frame-presets 的 YAML 规格）：colors
+    带角色、typography ramp（display/h1/stat_figure/body/label）、
+    components（hairline/invert_block）。场景显式 bg/color 仍优先。"""
+    design = spec.get("design") or {}
+    if not design:
+        return "", ""
+    colors = design.get("colors") or {}
+    typo = design.get("typography") or {}
+    comps = design.get("components") or {}
+    root_lines = ["    --ground: " + colors.get("bg_primary", bg_default)]
+    if colors.get("bg_secondary"):
+        root_lines.append("    --surface: " + colors["bg_secondary"])
+    root_lines.append("    --ink: " + colors.get("text_primary", "#ffffff"))
+    if colors.get("text_secondary"):
+        root_lines.append("    --ink-2: " + colors["text_secondary"])
+    if colors.get("accent"):
+        root_lines.append("    --accent-d: " + colors["accent"])
+    if colors.get("line"):
+        root_lines.append("    --line-d: " + colors["line"])
+
+    def tvar(name, family, size, unit, weight, lh):
+        if not family:
+            return ""
+        return ("    --t-" + name + ": " + family + " " + str(weight) + ";\n"
+                + "    --t-" + name + "-size: calc(" + str(size) + " * 1"
+                + unit + ");\n"
+                + "    --t-" + name + "-lh: " + str(lh) + ";")
+
+    scene_ov = []
+    ink = colors.get("text_primary", "")
+    ink2 = colors.get("text_secondary", "")
+    disp = typo.get("display") or {}
+    if disp.get("family"):
+        scene_ov.append(
+            "  .scene-title { font-family: " + disp["family"]
+            + "; font-size: calc(" + str(disp.get("size_vh", 7)) + " * 1vh)"
+            + "; font-weight: " + str(disp.get("weight", 700))
+            + "; line-height: " + str(disp.get("line_height", 1.1))
+            + "; letter-spacing: " + str(disp.get("tracking", "normal"))
+            + ("; color: " + ink if ink else "")
+            + "; }")
+    if ink:
+        scene_ov.append("  .scene > * { color: " + ink + "; }")
+    body_t = typo.get("body") or {}
+    if body_t.get("family"):
+        scene_ov.append(
+            "  .scene-body, .scene-item, .scene-list-item { font-family: "
+            + body_t["family"] + "; font-size: calc("
+            + str(body_t.get("size_vh", 1.0)) + " * 1vh); color: "
+            + str(body_t.get("color") or ink2 or "inherit") + "; }")
+    lbl = typo.get("label") or {}
+    if lbl.get("family"):
+        scene_ov.append(
+            "  .scene-subtitle { font-family: " + lbl["family"]
+            + "; font-size: " + str(lbl.get("px", 14)) + "px; letter-spacing: "
+            + str(lbl.get("tracking", "normal")) + "; text-transform: "
+            + ("uppercase" if lbl.get("upper") else "none") + "; color: "
+            + str(lbl.get("color", "inherit")) + "; }")
+    hl = comps.get("hairline") or ""
+    if hl and "{colors.line}" in hl and colors.get("line"):
+        scene_ov.append(
+            "  .scene-heading { border-bottom: "
+            + hl.replace("{colors.line}", colors["line"])
+            + "; padding-bottom: 12px; }")
+    root_css = "\n".join(root_lines)
+    scene_css = "\n".join(scene_ov)
+    return root_css, scene_css
+
+
+def _design_presets():
+    """内置设计预设（tools/design-presets/*.json）。"""
+    d = os.path.join(os.path.dirname(os.path.abspath(__file__)),
+                     "design-presets")
+    out = {}
+    if os.path.isdir(d):
+        for fn in sorted(os.listdir(d)):
+            if fn.endswith(".json"):
+                try:
+                    data = json.load(open(os.path.join(d, fn),
+                                          encoding="utf-8"))
+                    out[data.get("name", fn[:-5])] = data
+                except (json.JSONDecodeError, OSError):
+                    pass
+    return out
 
 
 def _fit_scene_duration(scene, fallback=3.0):
@@ -292,42 +387,58 @@ def gen_scene_html(scene, start_sec, idx, caption=None, registry=None,
     content = scene.get("content", [])
     scene_id = f"scene-{idx}"
 
-    # 场景类型 → 内部布局
+    # 场景类型 → 内部布局。设计语言（frame-worker 实测固化为模板默认）：
+    # 左对齐偏置构图（.scene-stack 容器承担，去居中对称模板感）、一根
+    # 发丝线分隔、编号等宽小标、outro 反转强调拍（ink 实块擦入反白）。
+    # 两色纪律：强调只用反转/放大/密度，不引入第三色。
+    HAIRLINE = '<i class="hairline"></i>'
     if typ == "title":
-        inner = f'<h1 class="scene-title">{text}</h1>'
+        inner = (f'<div class="scene-stack">{HAIRLINE}'
+                 f'<h1 class="scene-title">{text}</h1>')
         if subtitle:
             inner += f'<p class="scene-subtitle">{subtitle}</p>'
+        inner += '</div>'
     elif typ == "text":
-        inner = f'<p class="scene-body">{text}</p>'
+        inner = f'<div class="scene-stack">{HAIRLINE}'
+        inner += f'<p class="scene-body">{text}</p>'
         for c in content:
             cc = esc(c.get("text", ""))
             inner += f'<p class="scene-item">{cc}</p>'
+        inner += '</div>'
     elif typ == "quote":
         quote = esc(scene.get("quote", text))
         author = esc(scene.get("author", ""))
-        inner = f'<blockquote class="scene-quote">&ldquo;{quote}&rdquo;</blockquote>'
+        inner = (f'<div class="scene-stack">{HAIRLINE}'
+                 f'<p class="scene-quote"><span class="qmark">&ldquo;</span>'
+                 f'{quote}&rdquo;</p>')
         if author:
             inner += f'<p class="scene-quote-author">&mdash; {author}</p>'
+        inner += '</div>'
     elif typ == "list":
         items = content if content else [{"text": t} for t in scene.get("items", [])]
-        inner = f'<h2 class="scene-heading">{text}</h2>'
+        inner = (f'<div class="scene-stack">{HAIRLINE}'
+                 f'<h2 class="scene-heading">{text}</h2>')
         inner += '<ul class="scene-list">'
-        for c in items:
+        for j, c in enumerate(items):
             cc = esc(c.get("text", "") if isinstance(c, dict) else str(c))
-            inner += f'<li class="scene-list-item">{cc}</li>'
-        inner += '</ul>'
+            inner += (f'<li class="scene-list-item">'
+                      f'<em class="num">{j + 1:02d}</em>{cc}</li>')
+        inner += '</ul></div>'
     elif typ == "stats":
         stat_value = esc(scene.get("value", ""))
         stat_desc = esc(scene.get("description", ""))
-        inner = f'<div class="scene-stat-value">{stat_value}</div>'
+        inner = (f'<div class="scene-stack">{HAIRLINE}'
+                 f'<div class="scene-stat-value">{stat_value}</div>')
         if stat_desc:
             inner += f'<p class="scene-stat-desc">{stat_desc}</p>'
+        inner += '</div>'
     elif typ == "comparison":
         left_col = esc(scene.get("left", ""))
         right_col = esc(scene.get("right", ""))
         left_items = scene.get("left_items", [])
         right_items = scene.get("right_items", [])
-        inner = f'<h2 class="scene-heading">{text}</h2>'
+        inner = (f'<div class="scene-stack">{HAIRLINE}'
+                 f'<h2 class="scene-heading">{text}</h2>')
         inner += '<div class="scene-comparison">'
         inner += f'<div class="comp-col"><h3>{left_col}</h3><ul>'
         for c in left_items:
@@ -336,9 +447,10 @@ def gen_scene_html(scene, start_sec, idx, caption=None, registry=None,
         inner += f'<div class="comp-col"><h3>{right_col}</h3><ul>'
         for c in right_items:
             inner += f'<li>{esc(c)}</li>'
-        inner += '</ul></div></div>'
-    else:  # outro
-        inner = f'<h1 class="scene-title">{text}</h1>'
+        inner += '</ul></div></div></div>'
+    else:  # outro：反转强调拍——ink 实块擦入后文字反白（GSAP 编排）
+        inner = (f'<i class="invert-block"></i>'
+                 f'<h1 class="scene-title scene-inv">{text}</h1>')
 
     # 视频背景元素（场景级 video 字段）：铺满场景层，文本浮在其上；
     # data-start/duration 供烘焙侧逐帧对位（video.currentTime 同步）与
@@ -392,8 +504,74 @@ def gen_scene_html(scene, start_sec, idx, caption=None, registry=None,
     return html, dur
 
 
+def _element_anim_js(idx, typ, base):
+    """场景元素接力编排（frame-worker 的逐元素入场）：发丝线擦入 →
+    主文起 → 次行 stagger。base = 元素编排起点（场景入场大半完成后）。
+    全部 fromTo 挂同一条 paused 时间线（绝对秒）——seek 精确还原。
+    outro 是反转强调拍：ink 实块擦入 → 文字反白。"""
+    t = f"#scene-{idx}"
+    L = []
+    if typ == "outro":
+        blk = f"{t} .invert-block"
+        L.append(
+            f'  tl.fromTo("{blk}", {{scaleX: 0}}, '
+            f'{{scaleX: 1, duration: 0.55, ease: "power3.inOut"}}, '
+            f'{round(base, 3)});')
+        inv = f"{t} .scene-inv"
+        L.append(
+            f'  tl.fromTo("{inv}", {{opacity: 0}}, '
+            f'{{opacity: 1, duration: 0.4, ease: "power2.out"}}, '
+            f'{round(base + 0.42, 3)});')
+        return L
+    # 主文（title/body/heading/stat-value/quote）在发丝线后起
+    prim = {"title": ".scene-title", "text": ".scene-body",
+            "list": ".scene-heading", "stats": ".scene-stat-value",
+            "quote": ".scene-quote", "comparison": ".scene-heading"}.get(typ)
+    secs = {"title": [".scene-subtitle"], "text": [".scene-item"],
+            "list": [".scene-list-item"], "stats": [".scene-stat-desc"],
+            "quote": [".scene-quote-author"],
+            "comparison": [".comp-col"]}.get(typ, [])
+    if typ in ("title", "text", "quote", "list", "stats", "comparison"):
+        L.append(
+            f'  tl.fromTo("{t} .hairline", {{scaleX: 0}}, '
+            f'{{scaleX: 1, duration: 0.45, ease: "power2.out"}}, '
+            f'{round(base, 3)});')
+    if prim:
+        L.append(
+            f'  tl.fromTo("{t} {prim}", {{y: 44, opacity: 0}}, '
+            f'{{y: 0, opacity: 1, duration: 0.55, ease: "power2.out"}}, '
+            f'{round(base + 0.22, 3)});')
+    for j, sel in enumerate(secs):
+        L.append(
+            f'  tl.fromTo("{t} {sel}", {{y: 26, opacity: 0}}, '
+            f'{{y: 0, opacity: 1, duration: 0.4, ease: "power2.out"}}, '
+            f'{round(base + 0.5 + j * 0.14, 3)});')
+    return L
+
+
+def _render_template_timeline(defn, scene):
+    """模板 timeline 片段的 slot 替换：{{slot}} → JS 字符串字面量
+    （json 转义，与 body 的 HTML 转义不同通道——timeline 里是 JS 代码
+    上下文）。列表值 join 成逗号分隔的字符串字面量序列。"""
+    frag = defn.get("timeline") or ""
+    if not frag:
+        return ""
+
+    def sub(m):
+        slot = m.group(1)
+        val = scene.get(slot)
+        if val is None:
+            return '""'
+        if isinstance(val, (list, tuple)):
+            return ", ".join(json.dumps(str(x), ensure_ascii=False)
+                             for x in val)
+        return json.dumps(str(val), ensure_ascii=False)
+
+    return SLOT_RE.sub(sub, frag)
+
+
 def gen_timeline_js(scenes, starts, durs, trans, trans_durs,
-                    caption_segments=None):
+                    caption_segments=None, registry=None):
     """GSAP 时间线：每场景入场动画（duration 进 toVars，4 参数正确形）。
     游标与 clip 窗口同源（starts/durs 由 compose 的场景计划传入，含
     转场重叠）。转场类型 → 前一场景的出场动画（fade/slide/wipe）。
@@ -402,6 +580,7 @@ def gen_timeline_js(scenes, starts, durs, trans, trans_durs,
     因此 --clock seek 烘焙逐帧出图也能拿到正确字幕（不依赖 rAF/CSS 动画）。"""
     lines = []
     for idx, scene in enumerate(scenes):
+        typ = scene.get("type", "text")
         # 场景级转场窗宽（compose 已按场景算好；标量也给，方便外部调用方）。
         trans_dur = (trans_durs[idx] if isinstance(trans_durs, (list, tuple))
                      else trans_durs)
@@ -438,10 +617,32 @@ def gen_timeline_js(scenes, starts, durs, trans, trans_durs,
             to_v = to_v[:-1] + f', duration: {enter}, ease: "power2.out"}}'
             lines.append(
                 f'  tl.fromTo("{target}", {from_v}, {to_v}, {starts[idx]});')
-        # 转场交叉：该场景入场的同时，前一场景按类型出场
+        # 元素接力编排（发丝线/主文/stagger/反转拍）：入场大半完成后
+        # 接力——转场交叉窗内元素动画继续进行，视觉上重叠自然。
+        # anim=="none"（切割接缝）保持无编排。
+        if anim != "none":
+            lines.extend(_element_anim_js(idx, typ, starts[idx] + enter * 0.6))
+        # 自定义模板编排：模板 JSON 的 timeline 字段（GSAP 语句片段，
+        # {{slot}}=场景字段 JS 字面量、{tpl}=#tpl-<name>、{start}=场景
+        # 绝对起点、{dur}=场景时长）——数字滚动/条形增长/逐字/乱码等
+        # 模板级动效也走同一条 paused 主时间线，seek 确定性还原。
+        # anim=="none"（切割接缝）同样跳过。
+        if anim != "none" and registry and typ in registry:
+            frag = _render_template_timeline(registry[typ], scene)
+            if frag:
+                frag = (frag.replace("{tpl}", f"#tpl-{typ}")
+                            .replace("{start}", str(starts[idx]))
+                            .replace("{dur}", str(round(durs[idx], 3))))
+                lines.append(f"  /* tl[{typ}] */\n" + frag)
+        # 转场交叉：该场景入场的同时，前一场景按类型出场。prev 取上一个
+        # 非显式定位场景——多轨叠加层（scene.start 显式）不吃主轨交叉
+        # 动画（它有自己的独立淡入），否则会被主轨场景的入场误淡出。
         if has_trans:
-            prev = f"#scene-{idx-1}"
-            ov = min(trans_dur, durs[idx - 1])
+            prev_idx = idx - 1
+            while prev_idx > 0 and scenes[prev_idx].get("start") is not None:
+                prev_idx -= 1
+            prev = f"#scene-{prev_idx}"
+            ov = min(trans_dur, durs[prev_idx])
             if trans[idx] == "slide-left":
                 lines.append(
                     f'  tl.to("{prev}", {{x: -120, opacity: 0, duration: {ov}, '
@@ -475,17 +676,35 @@ def _load_gsap():
     份，最后才回落到 tests/testdata/（源码树的路径）。tools/ 那份是为
     npm 包准备的——`npx xmedia-kit` 装出来没有 tests/ 目录，以前会静默
     生成 `/* gsap not found */`，产物能动但所有动画都不跑。
+
+    gsap-plugins.min.js（SplitText/ScrambleText 等，GSAP 3.13 起官方
+    免费开源）存在则追加——文字逐字/乱码揭示动效（HF glyph-scramble
+    同款）的依赖；缺失时静默降级（模板 timeline 里的引用由页面
+    typeof 守卫兜底）。
     """
     tools_dir = os.path.dirname(os.path.abspath(__file__))
-    for candidate in [
-        os.path.join(_spec_dir, "gsap.min.js"),
-        os.path.join(tools_dir, "gsap.min.js"),
-        os.path.join(tools_dir, "..", "tests", "testdata", "gsap.min.js"),
-    ]:
-        if os.path.isfile(candidate):
-            with open(candidate, "r", encoding="utf-8") as f:
-                return f.read()
-    return "/* gsap not found */"
+
+    def _find(name):
+        for candidate in [
+            os.path.join(_spec_dir, name),
+            os.path.join(tools_dir, name),
+            os.path.join(tools_dir, "..", "tests", "testdata", name),
+        ]:
+            if os.path.isfile(candidate):
+                return candidate
+        return None
+
+    core = _find("gsap.min.js")
+    if not core:
+        return "/* gsap not found */"
+    src = ""
+    with open(core, "r", encoding="utf-8") as f:
+        src += f.read()
+    plugins = _find("gsap-plugins.min.js")
+    if plugins:
+        with open(plugins, "r", encoding="utf-8") as f:
+            src += "\n" + f.read()
+    return src
 
 
 def compose(spec, spec_sha=None, no_sfx=False, spec_name=None):
@@ -537,7 +756,7 @@ def compose(spec, spec_sha=None, no_sfx=False, spec_name=None):
     durs = []
     trans = []
     trans_durs = []
-    start = 0.0
+    cursor = 0.0
     registry = load_custom_templates(_spec_dir)
     tpl_css = []
     for idx, scene in enumerate(scenes):
@@ -551,12 +770,20 @@ def compose(spec, spec_sha=None, no_sfx=False, spec_name=None):
         sdur = trans_dur
         if sdur <= 0 and scene.get("transition") and ttype != "none":
             sdur = 0.5
-        if idx > 0:
-            # 转场归属进入侧：本场景提前 sdur 进入前一场景的尾窗
-            start -= (sdur if ttype != "none" else 0.0)
-        trans_durs.append(sdur)
-        scene_starts.append(start)
-        starts.append(start)
+        # 多轨显式定位（HF 多视频轨语义）：scene.start 存在 = 该场景绝对
+        # 定位（叠加层，可与主轨重叠），不占主轨游标、转场交叉跳过。
+        explicit = scene.get("start")
+        if explicit is not None:
+            pos_start = float(explicit)
+            trans_durs.append(0.0)
+        else:
+            if idx > 0:
+                # 转场归属进入侧：本场景提前 sdur 进入前一场景的尾窗
+                cursor -= (sdur if ttype != "none" else 0.0)
+            pos_start = cursor
+            trans_durs.append(sdur)
+        scene_starts.append(pos_start)
+        starts.append(pos_start)
         caption = None
         cap_segs = None
         if captions_on:
@@ -565,12 +792,13 @@ def compose(spec, spec_sha=None, no_sfx=False, spec_name=None):
             if isinstance(local, list) and local:
                 cap_segs = _norm_caption_segments(local, hint)
             elif global_caps:
-                cap_segs = _clip_caption_segments(global_caps, start, hint)
+                cap_segs = _clip_caption_segments(global_caps, pos_start,
+                                                  hint)
             if not cap_segs and scene.get("narration"):
                 cap_text = tts_text(scene)
                 if cap_text:
                     caption = cap_text
-        html, dur = gen_scene_html(scene, start, idx, caption=caption,
+        html, dur = gen_scene_html(scene, pos_start, idx, caption=caption,
                                    registry=registry, css_out=tpl_css,
                                    caption_segments=cap_segs)
         if cap_segs:
@@ -578,12 +806,45 @@ def compose(spec, spec_sha=None, no_sfx=False, spec_name=None):
         scene_html_parts.append(html)
         durs.append(dur)
         trans.append(ttype)
-        start += dur
-    total_duration = start
+        if explicit is None:
+            cursor = pos_start + dur
+    total_duration = max([cursor] + [starts[i] + durs[i]
+                                     for i in range(len(scenes))])
 
     # GSAP 时间线（含分段字幕的点亮/熄灭 tween）
     timeline_js = gen_timeline_js(scenes, starts, durs, trans, trans_durs,
-                                  cap_by_scene)
+                                  cap_by_scene, registry=registry)
+
+    # 手绘标注层（Draw 画笔 → 成片）：spec.annotations = [{points:
+    # [[x,y]…]（0-1 归一化）, color, width}]——契约页 SVG 叠加
+    # （viewBox 1000、preserveAspectRatio none 与画面比例无关），
+    # 全片窗口（data-start=0 / duration=total）——预览与导出同源。
+    ann = spec.get("annotations") or []
+    ann_svg = ""
+    polys = []
+    for a in ann:
+        pts = a.get("points") or []
+        if len(pts) < 2:
+            continue
+        pts_s = " ".join(
+            "{:.0f},{:.0f}".format(
+                max(0, min(1, float(p[0]))) * 1000,
+                max(0, min(1, float(p[1]))) * 1000)
+            for p in pts if isinstance(p, (list, tuple)) and len(p) >= 2)
+        if not pts_s:
+            continue
+        polys.append(
+            '<polyline points="' + pts_s + '" fill="none" stroke="' +
+            esc(a.get("color", "#ff4d9d")) + '" stroke-width="' +
+            esc(str(a.get("width", 4))) + '" stroke-linecap="round"'
+            ' stroke-linejoin="round"/>')
+    if polys:
+        ann_svg = ('  <svg class="ann-layer" data-start="0" data-duration="' +
+                   str(total_duration) + '" viewBox="0 0 1000 1000"'
+                   ' preserveAspectRatio="none" style="position:absolute;'
+                   ' inset:0; width:100%; height:100%; z-index:5;'
+                   ' pointer-events:none">\n    ' + "".join(polys) +
+                   "\n  </svg>\n")
 
     # 音频
     audio = spec.get("audio", {})
@@ -672,7 +933,10 @@ def compose(spec, spec_sha=None, no_sfx=False, spec_name=None):
         scene_styles.append(
             f'  #scene-{idx} {{ background: {bg_style}; color: {color}; }}')
 
+    design_root, design_scene = _design_css(spec, bg)
     style_block = "\n".join(scene_styles)
+    if design_scene:
+        design_scene = "\n" + design_scene
     if tpl_css:
         style_block += "\n" + "\n".join(tpl_css)
 
@@ -687,6 +951,7 @@ def compose(spec, spec_sha=None, no_sfx=False, spec_name=None):
     --ground: {bg};
     --ink: #ffffff;
     --font-display: sans-serif;
+{design_root}
   }}
   * {{ margin: 0; padding: 0; box-sizing: border-box; }}
   html, body {{
@@ -728,24 +993,67 @@ def compose(spec, spec_sha=None, no_sfx=False, spec_name=None):
     border-radius: 10px; text-align: center;
   }}
   .scene > .scene-caption.seg {{ opacity: 0; }}
-  .scene-title {{ font-size: 72px; font-weight: 700; }}
-  .scene-subtitle {{ font-size: 36px; opacity: 0.8; margin-top: 16px; }}
-  .scene-body {{ font-size: 42px; line-height: 1.6; }}
-  .scene-item {{ font-size: 28px; opacity: 0.85; margin-top: 12px; }}
-  .scene-quote {{ font-size: 48px; font-style: italic; line-height: 1.4;
-                  max-width: 80%; }}
-  .scene-quote-author {{ font-size: 24px; opacity: 0.7; margin-top: 20px; }}
-  .scene-heading {{ font-size: 48px; font-weight: 600; margin-bottom: 24px; }}
+  /* ---- 模板设计语言（frame-worker 实测固化为默认，design 段可覆盖）----
+     左对齐偏置构图：文字块不居中——上 20vh / 左 8vw 起，视觉重心偏置；
+     发丝线：一根 2px ink 线做呼吸分隔；两色纪律：强调只用反转/放大/
+     密度。字号按竖屏 1920 高的 vh 基准取胆量（title 8vh≈154px）。 */
+  .scene-stack {{
+    width: 84%; max-width: 84%;
+    display: flex; flex-direction: column; align-items: flex-start;
+    text-align: left;
+  }}
+  .hairline {{
+    display: block; width: 64px; height: 2px;
+    background: currentColor; opacity: .85;
+    transform-origin: left center; margin-bottom: 3.2vh;
+  }}
+  .scene-title {{
+    font-size: 8vh; font-weight: 800; line-height: 1.14;
+    letter-spacing: -0.02em; max-width: 100%;
+    text-wrap: balance;
+  }}
+  .scene-subtitle {{ font-size: 2.3vh; opacity: 0.72; margin-top: 2.4vh;
+                     font-weight: 400; }}
+  .scene-body {{ font-size: 3.4vh; line-height: 1.55; max-width: 100%; }}
+  .scene-item {{ font-size: 2.4vh; opacity: 0.82; margin-top: 1.6vh;
+                 font-weight: 400; }}
+  .scene-quote {{ font-size: 4.4vh; line-height: 1.42; font-weight: 700;
+                  max-width: 100%; }}
+  .scene-quote .qmark {{ color: currentColor; opacity: .5; margin-right: .4vh;
+                         font-weight: 800; }}
+  .scene-quote-author {{ font-size: 1.9vh; opacity: 0.62; margin-top: 2.6vh;
+                         font-weight: 400; }}
+  .scene-heading {{ font-size: 4.8vh; font-weight: 800; line-height: 1.2;
+                    margin-bottom: 3.4vh; letter-spacing: -0.01em;
+                    max-width: 100%; }}
   .scene-list {{ list-style: none; text-align: left; }}
-  .scene-list-item {{ font-size: 30px; margin: 16px 0; padding-left: 24px;
-                      border-left: 3px solid currentColor; }}
-  .scene-stat-value {{ font-size: 120px; font-weight: 800; }}
-  .scene-stat-desc {{ font-size: 28px; opacity: 0.8; margin-top: 12px; }}
-  .scene-comparison {{ display: flex; gap: 48px; }}
+  .scene-list-item {{ font-size: 2.9vh; line-height: 1.4; margin: 1.9vh 0;
+                      display: flex; align-items: baseline; }}
+  .scene-list-item .num {{
+    font-family: ui-monospace, Menlo, monospace;
+    font-size: 1.7vh; opacity: .5; margin-right: 1.6vh;
+    font-style: normal; flex: none;
+  }}
+  .scene-stat-value {{
+    font-size: 15vh; font-weight: 800; letter-spacing: -0.03em;
+    line-height: 1.05;
+  }}
+  .scene-stat-desc {{ font-size: 2.4vh; opacity: 0.78; margin-top: 2vh;
+                      font-weight: 400; }}
+  .scene-comparison {{ display: flex; gap: 6vw; width: 100%; }}
   .comp-col {{ flex: 1; text-align: left; }}
-  .comp-col h3 {{ font-size: 32px; font-weight: 600; margin-bottom: 16px;
-                  border-bottom: 2px solid currentColor; padding-bottom: 8px; }}
-  .comp-col li {{ font-size: 26px; margin: 12px 0; }}
+  .comp-col h3 {{ font-size: 2.9vh; font-weight: 800; margin-bottom: 1.8vh;
+                  border-bottom: 2px solid currentColor; padding-bottom: 1.2vh; }}
+  .comp-col li {{ font-size: 2.2vh; margin: 1.4vh 0; opacity: .9; }}
+  /* outro 反转强调拍：ink 实块盖满后文字反白（GSAP 编排驱动）。 */
+  .invert-block {{
+    position: absolute; inset: 0; background: var(--ink);
+    transform: scaleX(0); transform-origin: left center;
+    z-index: 2;
+  }}
+  .scene-inv {{ color: var(--ground); opacity: 0; position: relative;
+                z-index: 3; width: 84%; text-align: left; }}
+{design_scene}
 {style_block}
 </style>
 </head>
@@ -755,9 +1063,11 @@ def compose(spec, spec_sha=None, no_sfx=False, spec_name=None):
        data-height="{height}" data-time-unit="s" data-fps="{fps}">
 {chr(10).join(scene_html_parts)}
   </div>
-{audio_tag}{''.join(narr_audio)}{''.join(sfx_audio)}  <script>{_gsap_src}</script>
+{ann_svg}{audio_tag}{''.join(narr_audio)}{''.join(sfx_audio)}  <script>{_gsap_src}</script>
   <script>
     window.__timelines = window.__timelines || {{}};
+    if (window.SplitText) {{ gsap.registerPlugin(SplitText); }}
+    if (window.ScrambleTextPlugin) {{ gsap.registerPlugin(ScrambleTextPlugin); }}
     const tl = gsap.timeline({{ paused: true }});
 {timeline_js}
     window.__timelines["{comp_id}"] = tl;

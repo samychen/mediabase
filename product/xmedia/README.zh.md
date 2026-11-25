@@ -150,11 +150,15 @@ kit 按 `avcodec_find_encoder_by_name` 查找，要的是**编码器名**而非�
 - **进程**：`python3 studio/tools/hf_studio.py --serve --home --port 8120`（stdlib
   ThreadingHTTPServer，只绑 127.0.0.1）。编辑器 UI 与 REST API 由 Studio **自己提供**，
   浏览器直连——宿主只做监督与入口分发，**不代理任何 studio 字节**（与 MediaMTX 边界同构）。
-- **vendored 切片 + 漂移闸门**：`scripts/sync-studio.mjs` 从 kit 检出同步 14 个文件 +
-  `assets/sfx`/`templates` 到 `studio/`（副本独立运行），施加两处**机械变换**并断言锚点：
-  T1 `bake_bin()` 接缝（env `XMEDIA_BAKE_BIN` → 产品 `engine/build/xmedia-bake[.app]` 探测，
-  导出/分镜帧因此走产品烘焙管线）；T2 agent 提示词的机器路径参数化（上游硬编码
-  `/Users/.../avbase`）。`check:xmedia-drift` = `sync-studio --check` + 协议漂移检查。
+- **vendored 切片 + 漂移闸门**：`scripts/sync-studio.mjs` 从 kit 检出同步 68 个文件到
+  `studio/`（副本独立运行）：14 个清单文件 + `docs/HF_COMPOSE.md`（agent 的 schema 参考）、
+  `assets/sfx`/`templates`/`tools/design-presets`/`skills/launch` 目录（含 SKILL.md 与
+  references/scripts）+ `gsap.min.js`/`gsap-plugins.min.js`（文字动效）。两处**机械变换**
+  均断言锚点：T1 `bake_bin()` 接缝（env `XMEDIA_BAKE_BIN` → 产品
+  `engine/build/xmedia-bake[.app]` 探测，导出/分镜帧因此走产品烘焙管线）；T2 守卫——
+  上游已把 agent 提示词的机器路径改为动态 `ROOT_DIR`（指向同步副本根），守卫确保
+  `/Users/samychen` 不再回流。kit 检出自动向上查找，也可显式设 `XMEDIA_KIT_SOURCE_DIR`。
+  `check:xmedia-drift` = `sync-studio --check` + 协议漂移检查。
 - **身份对齐**：Studio 默认项目根 `~/.xmedia/projects` 与本产品身份目录 `.xmedia` 是
   **同一个目录**（刻意：项目数据在产品 home 内）。
 - **监督**：spawn/崩溃事件（`xmedia.studio`）/重启上限/秒退判定都在能力包，
@@ -511,7 +515,7 @@ pnpm run host:xmedia                       # http://127.0.0.1:3092
 | `XMEDIA_STUDIO_PORT` | Studio loopback 端口（浏览器直连，宿主不代理） | 8120 |
 | `XMEDIA_BAKE_BIN` | 烘焙 CLI（Studio 导出/分镜帧经此接缝调用） | 空 = bake_bin() 探测 |
 | `XMEDIA_STUDIO_AUTO_START` / `_AUTO_RESTART` / `_MAX_RESTARTS` / `_RESTART_DELAY_MS` | Studio 监督策略 | 开 / 开 / 3 / 500 |
-| `XMEDIA_KIT_ROOT` | （agent 对话提示词用）kit 源码根，默认为同步副本根 | 空 |
+| `XMEDIA_AGENT_CMD` / `XMEDIA_AGENT_NAME` | 自定义 agent CLI（JSON 数组或 shell 串，prompt 作最后一个参数）/ 显示名；未设则自动探测 claude/codebuddy/codex | 空 |
 | `XMEDIA_MTX_SERVER_URL` | MediaMTX v3 API 基址（桥接能力；未起时 `mediamtx.*` 如实报错） | `http://127.0.0.1:9997` |
 | `XMEDIA_MTX_USERNAME` / `XMEDIA_MTX_PASSWORD` / `XMEDIA_MTX_SERVER_TOKEN` | MediaMTX API 鉴权（auth* 开启时才需要；token 优先于 basic） | 空 |
 | `XMEDIA_MTX_SERVER_NAME` / `XMEDIA_MTX_SERVERS_FILE` / `XMEDIA_MTX_TIMEOUT_MS` | 桥的多服务器注册表与超时；serversFile 默认 `<home>/xmedia-mtx-servers.json` | `default` / 空 / 8000 |

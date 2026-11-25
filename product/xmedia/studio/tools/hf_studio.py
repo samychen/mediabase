@@ -22,6 +22,7 @@ import shutil
 import json
 import os
 import re
+import shlex
 import subprocess
 import sys
 import tempfile
@@ -108,7 +109,7 @@ def build_chrome(total_s, scenes, mix_url=""):
   .mc-studio-sel {{ outline: 3px solid #ff5c7a; outline-offset: -3px; }}
   /* Studio 实时预览是真实浏览器，没有 CEF 烘焙侧的原生视频层，
      必须让 .scene-video 可见；烘焙侧不注入本 chrome，不受影响。 */
-  html.mc-studio .scene-video {{ visibility: visible; }}
+  html.mc-studio .scene-video {{ visibility: inherit; }}
 </style>
 <div id="__mc-studio-chrome">
   <button id="__mc-studio-play">▶</button>
@@ -385,6 +386,18 @@ def build_chrome(total_s, scenes, mix_url=""):
     }} else if (typeof window.seek === "function") {{
       try {{ window.seek(sec * 1000); }} catch (e) {{}}
     }}
+    // 场景窗口可见性（预览与 bake 同源语义）：按 data-start/duration 切
+    // 每个 clip 的 visibility——animation="none" 的场景（导入接缝/叠加
+    // 轨）没有入场 tween，可见性只能在这里按窗口切换，否则它们从 t=0
+    // 就叠在最上层盖住主轨（预览与导出不一致的根因）。
+    for (var si = 0; si < SCENES.length; si++) {{
+      var scE = document.getElementById(SCENES[si].id);
+      if (!scE) {{ continue; }}
+      var stS = parseFloat(scE.getAttribute("data-start") || "0");
+      var duS = parseFloat(scE.getAttribute("data-duration") || "0");
+      scE.style.visibility =
+        (sec >= stS - 0.02 && sec <= stS + duS + 0.05) ? "visible" : "hidden";
+    }}
     // 视频元素同步到时间轴位置（Studio 实时预览是真实浏览器，需显式
     // play/pause；烘焙侧由 CEF 原生视频层供给画面，不依赖此逻辑）。
     // 播放态只在进入本窗口时 play 一次、离开时 pause——绝不逐帧 seek，
@@ -402,6 +415,9 @@ def build_chrome(total_s, scenes, mix_url=""):
         var loc = sec - vs;
         var at = Math.max(0, loc + vf);
         var inWin = loc >= -0.02 && loc <= vd + 0.05;
+        // video 可见性跟随窗口（visibility inherit 语义下父场景
+        // hidden 时 video 也该 hidden——强制 visible 会盖住主轨）。
+        v.style.visibility = inWin ? "visible" : "hidden";
         if (playing && inWin) {{
           if (v.paused) {{
             if (Math.abs(v.currentTime - at) > 0.05) {{
@@ -623,8 +639,19 @@ def build_chrome(total_s, scenes, mix_url=""):
     }}
   }});
   var lastSel = null;
+  // 元素语义类 → spec 字段映射（元素级画布：点哪个元素，编辑器就
+  // 定位到哪个字段）。自定义模板元素（data-tpl）按类名近似映射。
+  var FIELD_BY_CLASS = [
+    ["scene-title", "text"], ["scene-subtitle", "subtitle"],
+    ["scene-body", "text"], ["scene-item", "content"],
+    ["scene-heading", "text"], ["scene-list-item", "content"],
+    ["scene-stat-value", "value"], ["scene-stat-desc", "description"],
+    ["scene-quote", "quote"], ["scene-quote-author", "author"],
+    ["scene-caption", "narration"]
+  ];
   // 预览点选联动：点击场景元素 → 高亮 + 上报父页选中（Remotion 式
-  // "预览里点 → 编辑器选中"闭环）。
+  // "预览里点 → 编辑器选中"闭环）；元素级：命中的具体元素类名一并
+  // 上报（父页定位 Inspector 对应字段）。
   document.addEventListener("click", function (ev) {{
     var el = ev.target.closest("[data-start]");
     if (!el || el.tagName === "AUDIO") {{ return; }}
@@ -638,8 +665,22 @@ def build_chrome(total_s, scenes, mix_url=""):
       lastSel.classList.remove("mc-studio-sel");
     }}
     lastSel = el;
+    var field = "";
+    var hit = ev.target.closest(
+      ".scene-title,.scene-subtitle,.scene-body,.scene-item," +
+      ".scene-heading,.scene-list-item,.scene-stat-value," +
+      ".scene-stat-desc,.scene-quote,.scene-quote-author,.scene-caption");
+    if (hit) {{
+      for (var j = 0; j < FIELD_BY_CLASS.length; j++) {{
+        if (hit.classList.contains(FIELD_BY_CLASS[j][0])) {{
+          field = FIELD_BY_CLASS[j][1];
+          break;
+        }}
+      }}
+    }}
     if (window.parent !== window) {{
-      try {{ window.parent.postMessage({{ mcStudioSelect: idx }}, "*");
+      try {{ window.parent.postMessage({{ mcStudioSelect: idx,
+        mcStudioField: field }}, "*");
       }} catch (e) {{}}
     }}
   }}, true);
@@ -753,12 +794,25 @@ def _ff_env():
 
 
 def studio_ui():
+    """构建版本角标（右下 build <hash6>）：内容寻址——页面渲染的角标
+    直接暴露浏览器加载的是哪个构建，判定「旧页面 vs bug」一锤定音。"""
     try:
         with open(STUDIO_UI_PATH, "r", encoding="utf-8") as f:
-            return f.read()
+            html = f.read()
     except OSError:
         return "<html><body><p>studio_ui.html 缺失</p></body></html>"
+    tag = hashlib.md5(html.encode("utf-8")).hexdigest()[:6]
+    return html.replace(
+        "</body>",
+        '<div id="build-tag">build ' + tag + '</div>'
+        '<script>(function(){'
+        'if(location.search.indexOf("diag=1")>=0){'
+        'history.replaceState(null,"",location.pathname);}})();</script></body>')
 
+
+# 服务内所有 html_bake 的全局串行锁：并发 bake 的 CEF 实例会互相拖死
+# （实测 Arc 预览线程与分镜烘焙并发时整片纯黑）。
+_BAKE_LOCK = threading.Lock()
 
 
 class StudioServer:
@@ -780,6 +834,8 @@ class StudioServer:
         self.no_sfx = no_sfx
         self.job = None
         self.job_seq = 0
+        self.agent_jobs = {}       # agent chat job 表（id → 状态）
+        self.agent_chat_seq = 0
         self.current_html = ""
         if self.contract_path:
             with open(self.contract_path, "r", encoding="utf-8") as f:
@@ -1191,7 +1247,9 @@ class StudioServer:
     def _start_bake(self, opts=None):
         opts = opts or {}
         if self.job and self.job["proc"].poll() is None:
-            raise RuntimeError("已有导出任务在跑")
+            raise RuntimeError(
+                "上一次导出还在进行中——导出面板已恢复进度显示，"
+                "请等它完成后再点渲染")
         import hf_compose
         spec = self.current_spec or {}
         w, h = self._dims(spec)
@@ -1233,7 +1291,7 @@ class StudioServer:
             bake,
             "--url", url, "--out", out,
             "--seconds", f"{total:.2f}", "--fps", str(fps),
-            "--width", str(w), "--height", str(h), "--clock", "seek",
+            "--width", str(w), "--height", str(h), "--clock", "seek", "--paint-wait", "1500",
         ]
         proc = subprocess.Popen(cmd, stdout=subprocess.PIPE,
                                 stderr=subprocess.STDOUT, text=True)
@@ -1321,11 +1379,12 @@ class StudioServer:
         total = parse_total(self.current_html, parse_scenes(self.current_html))
         sb_mp4 = os.path.join(cache, "sb.mp4")
         url = "file://" + urllib.parse.quote(self.contract_path)
-        proc = subprocess.run(
-            [bake, "--url", url, "--out", sb_mp4,
-             "--seconds", f"{total:.2f}", "--fps", "1",
-             "--width", str(bw), "--height", str(bh), "--clock", "seek"],
-            capture_output=True, text=True, timeout=900)
+        with _BAKE_LOCK:
+            proc = subprocess.run(
+                [bake, "--url", url, "--out", sb_mp4,
+                 "--seconds", f"{total:.2f}", "--fps", "1",
+                 "--width", str(bw), "--height", str(bh), "--clock", "seek", "--paint-wait", "1500"],
+                capture_output=True, text=True, timeout=900)
         if proc.returncode != 0:
             raise RuntimeError((proc.stderr or proc.stdout or "")[-300:])
         urls = []
@@ -1340,6 +1399,133 @@ class StudioServer:
         with open(marker, "w", encoding="utf-8") as f:
             json.dump(data, f, ensure_ascii=False)
         return data
+
+    # 每个 Arc 的示例 brief（真帧 tile 的内容——占位文案按它填充，
+    # 展示的是「这个类型做出来长什么样」）
+    ARC_PREVIEW_MESSAGE = {
+        "launch": "给团队的新工作流发布片「一次搞定」",
+        "problem-solution": "切片发布从半天缩短到一分钟",
+        "listicle": "三个理由换掉手工剪辑",
+        "explainer": "我们的视频管线是怎么工作的",
+        "comparison": "手工剪辑对比确定性合成",
+    }
+
+    def _ensure_arc_previews(self):
+        """Arc 示例真帧（Home「做个东西」宫格的真实画面墙，对齐 HF
+        first-cut 的 survey tiles）。两级来源：
+        1) 复用现有项目已验证的分镜帧（thumbs/sb/s*.jpg——分镜管线
+           长期稳定，零烘焙成本）；
+        2) 缺失的 Arc 用示例 spec 现烘（全局 bake 锁串行——并发
+           html_bake 会互相拖死，实测整片纯黑）。
+        单 Arc 失败静默（前端色条兜底）。"""
+        import hf_storyboard
+        import hf_compose
+        import xmedia as _xm
+        out_dir = os.path.expanduser("~/.xmedia/arc-previews")
+        os.makedirs(out_dir, exist_ok=True)
+        # 1) 现有项目分镜帧直接复用（按项目的 Arc 归属）
+        try:
+            projects = self._projects_list()
+        except Exception:
+            projects = []
+        for p in projects:
+            arc = p.get("arc") or ""
+            jpg = os.path.join(out_dir, arc + ".jpg")
+            if not arc or os.path.exists(jpg) or \
+                    arc not in hf_storyboard.ARCS:
+                continue
+            d = os.path.join(self._projects_root(), p["name"])
+            for cand in ("thumbs/sb/s1.jpg", "thumbs/sb/s0.jpg"):
+                src = os.path.join(d, cand)
+                if os.path.isfile(src) and os.path.getsize(src) > 3000:
+                    try:
+                        shutil.copyfile(src, jpg)
+                        break
+                    except OSError:
+                        pass
+        # 2) 缺失的 Arc 现烘（串行）
+        bake = _xm.bake_bin()
+        if not bake:
+            return
+        for arc in hf_storyboard.ARCS:
+            jpg = os.path.join(out_dir, arc + ".jpg")
+            if os.path.exists(jpg):
+                continue
+            try:
+                with _BAKE_LOCK:
+                    self._bake_arc_preview(bake, arc, out_dir)
+            except Exception:
+                continue  # 预览帧是增强不是依赖，失败保持色条兜底
+
+    def _bake_arc_preview(self, bake, arc, out_dir):
+        """单 Arc 示例 spec → compose → bake → 抽帧（调用方持锁）。"""
+        import hf_storyboard
+        import hf_compose
+        d = os.path.join(out_dir, "work", arc)
+        os.makedirs(d, exist_ok=True)
+        spec = hf_storyboard.build(
+            arc, self.ARC_PREVIEW_MESSAGE.get(arc, "示例视频"))
+        with open(os.path.join(d, "spec.json"), "w", encoding="utf-8") as f:
+            json.dump(spec, f, ensure_ascii=False, indent=1)
+        html_path = os.path.join(d, "contract.html")
+        html = hf_compose.compose(spec)
+        with open(html_path, "w", encoding="utf-8") as f:
+            f.write(html)
+        w, h = self._dims(spec)
+        scale = 480.0 / max(1, max(w, h))
+        bw = max(2, int(w * scale) // 2 * 2)
+        bh = max(2, int(h * scale) // 2 * 2)
+        scenes = parse_scenes(html)
+        total = parse_total(html, scenes)
+        if not scenes or total <= 0:
+            return
+        mp4 = os.path.join(d, "sb.mp4")
+        proc = subprocess.run(
+            [bake, "--url", "file://" + urllib.parse.quote(html_path),
+             "--out", mp4, "--seconds", f"{total:.2f}", "--fps", "1",
+             "--width", str(bw), "--height", str(bh),
+             "--clock", "seek", "--paint-wait", "1500"],
+            capture_output=True, text=True, timeout=900)
+        if proc.returncode != 0:
+            return
+        jpg = os.path.join(out_dir, arc + ".jpg")
+        # 全片逐帧采样 + 字节选优：页面加载延迟让内容整体后移且幅度
+        # 不定（实测 2.5-3.5s），timeline 播完后契约页清场——固定候选
+        # 点不可靠，直接每 0.5s 采一遍（fps=1 的 mp4 帧少，12 帧 ≈ 4s），
+        # 取字节最大的帧（内容帧 3-11KB vs 空态 ~1-2KB）。跳过头部
+        # 3s（GSAP 未就绪的纯背景区）。
+        probe = subprocess.run(
+            ["ffprobe", "-v", "error", "-show_entries", "format=duration",
+             "-of", "csv=p=0", mp4], capture_output=True, text=True,
+            timeout=60)
+        try:
+            dur = float(probe.stdout.strip())
+        except (ValueError, OSError):
+            dur = total
+        best = None
+        k = 3.0
+        while k < dur - 0.3:
+            # 每个候选点独立文件名——共用一个路径会让 os.replace 拿到
+            # 最后一次 ffmpeg 的输出（末尾清场空帧）而非字节最大的帧
+            # （此前"间歇出纯色 tile"的真凶）。
+            cand = os.path.join(d, f"pick-{int(k * 10):03d}.jpg")
+            p3 = subprocess.run(
+                ["ffmpeg", "-y", "-ss", f"{k:.2f}", "-i", mp4,
+                 "-frames:v", "1", cand], capture_output=True, timeout=60)
+            k += 0.5
+            if p3.returncode != 0 or not os.path.exists(cand):
+                continue
+            sz = os.path.getsize(cand)
+            if best is None or sz > best[0]:
+                best = (sz, cand)
+        if best and best[0] > 3000:
+            os.replace(best[1], jpg)
+        for f in os.listdir(d):
+            if f.startswith("pick-"):
+                try:
+                    os.remove(os.path.join(d, f))
+                except OSError:
+                    pass
 
     def _projects_root(self):
         """Home 模式的项目根：每个项目 = <root>/<名>/（spec.json +
@@ -1371,6 +1557,83 @@ class StudioServer:
                             "%Y-%m-%d %H:%M",
                             time.localtime(os.path.getmtime(spec_file)))})
         return out
+
+    def _project_rename(self, body):
+        """项目重命名（HF 顶栏的铅笔行内编辑）：目录改名 + 返回新 url。
+        服务实例状态由前端跳转新 url 时的 open_project 重建，无需原地
+        重绑——但当前打开的就是该项目时，先解绑避免父页残留引用。"""
+        import shutil
+        name = str(body.get("name") or "").strip()
+        new_name = str(body.get("new_name") or "").strip()
+        if not re.fullmatch(r"[\w\-]+", new_name or ""):
+            raise RuntimeError("项目名只能是字母/数字/下划线/连字符")
+        if name == new_name:
+            return {"ok": True, "name": new_name,
+                    "url": "/project/" + new_name}
+        root = self._projects_root()
+        d_old = os.path.join(root, name)
+        d_new = os.path.join(root, new_name)
+        if not os.path.isdir(d_old):
+            raise RuntimeError(f"项目 {name} 不存在")
+        if os.path.isdir(d_new):
+            raise RuntimeError(f"项目 {new_name} 已存在")
+        os.rename(d_old, d_new)
+        # 打开中的项目被改名：解绑契约/spec 引用（前端随即跳新地址）。
+        if self.spec_path and \
+                os.path.dirname(os.path.abspath(self.spec_path)) == \
+                os.path.abspath(d_old):
+            self.contract_path = os.path.join(d_new, "contract.html")
+            self.spec_path = os.path.join(d_new, "spec.json")
+            self.spec_dir = d_new
+        return {"ok": True, "name": new_name,
+                "url": "/project/" + new_name}
+
+    def _project_delete(self, body):
+        """项目删除（HF 管理能力）：整目录 rmtree。当前打开的项目
+        被删时解绑引用（前端随即跳 Home）。"""
+        import shutil
+        name = str(body.get("name") or "").strip()
+        if not re.fullmatch(r"[\w\-]+", name or ""):
+            raise RuntimeError("项目名不合法")
+        d = os.path.realpath(os.path.join(self._projects_root(), name))
+        root = os.path.realpath(self._projects_root())
+        if not d.startswith(root + os.sep) or not os.path.isdir(d):
+            raise RuntimeError(f"项目 {name} 不存在")
+        if self.spec_path and os.path.dirname(
+                os.path.abspath(self.spec_path)) == d:
+            # 打开中的项目：解绑（前端跳 Home 重建上下文）
+            self.contract_path = None
+            self.spec_path = None
+            self.spec_dir = None
+            self.current_spec = {}
+            self.current_html = ""
+        shutil.rmtree(d)
+        return {"ok": True, "name": name}
+
+    def _brand_delete(self, body):
+        """品牌 kit 删除：JSON + 专属 logo/截图文件；default pin 指向
+        该 kit 时一并清除。"""
+        import shutil
+        name = str(body.get("name") or "").strip()
+        if not re.fullmatch(r"[\w\-]+", name or ""):
+            raise RuntimeError("品牌名不合法")
+        d = os.path.expanduser(os.environ.get(
+            "XMEDIA_BRAND_DIR", "~/.xmedia/brands"))
+        d = os.path.realpath(d)
+        removed = []
+        for rel in (name + ".json", "assets/" + name + "-logo.png",
+                    "assets/" + name + "-logo.jpg",
+                    "assets/" + name + "-logo.svg",
+                    "assets/" + name + "-logo.webp",
+                    "shots/" + name + "-home.jpg"):
+            fp = os.path.realpath(os.path.join(d, rel))
+            if fp.startswith(d + os.sep) and os.path.isfile(fp):
+                os.remove(fp)
+                removed.append(rel)
+        pin = os.path.join(d, ".default")
+        if os.path.isfile(pin) and open(pin, encoding="utf-8").read().strip() == name:
+            os.remove(pin)
+        return {"ok": True, "name": name, "removed": removed}
 
     def open_project(self, name):
         """Home → 编辑视图：重绑到项目目录的契约页/spec（单用户本地
@@ -1424,6 +1687,30 @@ class StudioServer:
             fps=int(body.get("fps") or 30),
             voice=str(body.get("voice") or "Tingting"))
         spec["composition"]["id"] = name
+        # 品牌 kit 注入（HF brand kits 语义）：Make Something 向导显式
+        # 选 kit > workspace default pin > 无品牌保持 Arc 默认色板。
+        brand_name = str(body.get("brand") or "").strip()
+        if not brand_name:
+            try:
+                broot = os.path.expanduser(os.environ.get(
+                    "XMEDIA_BRAND_DIR", "~/.xmedia/brands"))
+                pin = os.path.join(broot, ".default")
+                if os.path.isfile(pin):
+                    brand_name = open(pin, encoding="utf-8").read().strip()
+            except OSError:
+                brand_name = ""
+        if brand_name:
+            try:
+                broot = os.path.expanduser(os.environ.get(
+                    "XMEDIA_BRAND_DIR", "~/.xmedia/brands"))
+                bfile = os.path.join(broot, brand_name + ".json")
+                if os.path.isfile(bfile):
+                    brand = json.load(open(bfile, encoding="utf-8"))
+                    sys.path.insert(0, TOOLS_DIR)
+                    import hf_agent
+                    spec, _ = hf_agent.apply_brand(spec, brand)
+            except (OSError, json.JSONDecodeError, ValueError):
+                pass
         spec_file = os.path.join(d, "spec.json")
         with open(spec_file, "w", encoding="utf-8") as f:
             json.dump(spec, f, ensure_ascii=False, indent=1)
@@ -1436,9 +1723,20 @@ class StudioServer:
         self._register_spec_paths(spec)
         self._compose()   # 写项目目录的 contract.html
         findings, errors, _, _ = hf_validate.validate(self.current_html)
+        # 首剪的听觉维度（HF first-cut 产出"能看能听"的一条）：旁白
+        # 后台生成——用户跳进编辑器时分镜已就绪，TTS 完成后刷新即见。
+        # 线程失败静默（无 say/音色环境 TTS 失败是常态）。
+        threading.Thread(target=self._safe_tts, daemon=True).start()
         return {"name": name, "url": "/project/" + name,
                 "scenes": len(spec.get("scenes") or []),
                 "errors": errors}
+
+    def _safe_tts(self):
+        try:
+            self._run_tts()
+            self._compose()
+        except Exception:
+            pass
 
     def _cancel_bake(self):
         """终止进行中的导出（Export 面板的取消渲染）。"""
@@ -1538,6 +1836,9 @@ class StudioServer:
         if proc.returncode != 0:
             raise RuntimeError(proc.stderr[-400:] or "TTS 失败")
         self.current_spec = self._load_spec()
+        # 旁白字幕依赖 narration——重组契约页把字幕 DOM 带进去
+        # （不重组的话预览/导出里字幕永远不出现，用户观感"TTS 没用"）。
+        self._compose()
         return {"generated": proc.stdout.strip()[-200:],
                 "spec": self.current_spec}
 
@@ -1734,6 +2035,96 @@ class StudioServer:
                 "notes": notes, "composed": self._apply_spec(spec),
                 "spec": self.current_spec}
 
+    def _brands_dir(self):
+        return os.path.expanduser(
+            os.environ.get("XMEDIA_BRAND_DIR", "~/.xmedia/brands"))
+
+    def _brands_list(self):
+        """品牌 kits 清单（HF Brand kits 左栏列表）：名/来源/色板/字体/
+        logo/是否默认。brand JSON 很小，全量随列表下发，详情免二次请求。"""
+        d = self._brands_dir()
+        pin = os.path.join(d, ".default")
+        pinned = ""
+        if os.path.isfile(pin):
+            try:
+                pinned = open(pin, encoding="utf-8").read().strip()
+            except OSError:
+                pinned = ""
+        kits = []
+        if os.path.isdir(d):
+            for f in sorted(os.listdir(d)):
+                if not f.endswith(".json"):
+                    continue
+                try:
+                    b = json.load(open(os.path.join(d, f),
+                                       encoding="utf-8"))
+                except (OSError, json.JSONDecodeError):
+                    continue
+                b["_default"] = (f[:-5] == pinned)
+                # Files 清单（HF kit 的 Files 分类）：该 kit 专属的
+                # 落盘文件（JSON/logo/截图），相对路径+大小。
+                base_name = f[:-5]
+                files = []
+                for rel in (f, "assets/" + base_name + "-logo.png",
+                            "assets/" + base_name + "-logo.jpg",
+                            "assets/" + base_name + "-logo.svg",
+                            "assets/" + base_name + "-logo.webp",
+                            "shots/" + base_name + "-home.jpg"):
+                    fp = os.path.join(d, rel)
+                    if os.path.isfile(fp):
+                        files.append({"path": rel,
+                                      "bytes": os.path.getsize(fp)})
+                b["_files"] = files
+                kits.append(b)
+        return {"brands": kits}
+
+    def _brand_scan_api(self, body):
+        """HF Brand kits 的「Scan my site」：抓站点色板/字体/logo 存 kit
+        （subprocess 复用 xmedia brand scan，扫描同步、至多 ~60s）。"""
+        url = str(body.get("url") or "").strip()
+        if not url:
+            raise ValueError("需要 url")
+        name = re.sub(r"[^\w\-]", "", str(body.get("name") or ""))[:24]
+        if not name:
+            host = url.split("//", 1)[-1].split("/", 1)[0]
+            host = host.split(":")[0].lower()
+            if host.startswith("www."):
+                host = host[4:]
+            name = re.sub(r"[^\w\-]", "", host.split(".")[0]) or "scanned"
+        try:
+            r = subprocess.run(
+                [sys.executable, os.path.join(TOOLS_DIR, "xmedia.py"),
+                 "brand", "scan", name, "--url", url],
+                capture_output=True, text=True, timeout=60,
+                cwd=os.path.dirname(TOOLS_DIR))
+        except subprocess.TimeoutExpired:
+            raise ValueError("扫描超时（网站响应太慢），稍后再试")
+        fpath = os.path.join(self._brands_dir(), name + ".json")
+        if r.returncode != 0 or not os.path.isfile(fpath):
+            tail = [ln for ln in (r.stderr or r.stdout or "").strip()
+                    .splitlines() if ln.strip()]
+            raise ValueError("扫描失败：" +
+                             (tail[-1] if tail else "未知错误"))
+        brand = json.load(open(fpath, encoding="utf-8"))
+        return {"ok": True, "name": name, "brand": brand}
+
+    def _brand_default(self, body):
+        """default pin（HF brand kits 的 default 语义）：新项目创建时
+        自动应用该品牌；name 为空 = 取消 pin。"""
+        name = str(body.get("name") or "").strip()
+        d = self._brands_dir()
+        os.makedirs(d, exist_ok=True)
+        pin = os.path.join(d, ".default")
+        if not name:
+            if os.path.isfile(pin):
+                os.remove(pin)
+            return {"ok": True, "default": ""}
+        if not os.path.isfile(os.path.join(d, name + ".json")):
+            raise ValueError(f"品牌 {name} 不存在")
+        with open(pin, "w", encoding="utf-8") as fh:
+            fh.write(name + "\n")
+        return {"ok": True, "default": name}
+
     def _run_agent(self, message):
         import hf_agent
         result = hf_agent.handle(message, self.current_spec, self._spec_root())
@@ -1770,14 +2161,41 @@ class StudioServer:
                 out["reply"] += f"（动作执行失败：{emsg}）"
         return out
 
-    AGENT_CHAT_TIMEOUT_S = 600
+    AGENT_CHAT_TIMEOUT_S = 900
     AGENT_HISTORY_ROUNDS = 5
 
     @staticmethod
     def _agent_probe():
-        """本地 agent CLI 探测：优先 claude（非交互 -p），备选 codex exec。"""
+        """本地 agent CLI 探测：
+        1. XMEDIA_AGENT_CMD 环境变量（最高优先）——任意 agent CLI 接入：
+           JSON 数组（'["codebuddy","-p"]'）或 shell 串（'codebuddy -p'）。
+           约定：CLI 收到【prompt 作为最后一个参数】，输出纯文本回复
+           （claude 的 --output-format json 解析仅对 cli=="claude" 生效）。
+           XMEDIA_AGENT_NAME 可选显示名（默认取可执行文件名）。
+        2. 内置探测：claude/codebuddy -p --output-format stream-json
+           （逐行 JSON 事件流——assistant text 实时进 tail，进程退出 =
+           真完成）→ codex exec。"""
+        custom = os.environ.get("XMEDIA_AGENT_CMD")
+        if custom:
+            cmd = None
+            try:
+                parsed = json.loads(custom)
+                if isinstance(parsed, list):
+                    cmd = [str(x) for x in parsed]
+            except (json.JSONDecodeError, ValueError):
+                cmd = None
+            if cmd is None:
+                cmd = shlex.split(custom)
+            if cmd:
+                name = (os.environ.get("XMEDIA_AGENT_NAME")
+                        or os.path.basename(cmd[0]))
+                return {"cli": name, "cmd": cmd, "custom": True}
         for name, cmd in (("claude", ["claude", "-p", "--output-format",
-                                      "json"]),
+                                      "stream-json", "--verbose"]),
+                          ("codebuddy", ["codebuddy", "-p",
+                                         "--output-format", "stream-json",
+                                         "--permission-mode",
+                                         "acceptEdits"]),
                           ("codex", ["codex", "exec"])):
             path = shutil.which(name)
             if path:
@@ -1812,24 +2230,8 @@ class StudioServer:
         except OSError:
             pass
 
-    def _run_agent_chat(self, message):
-        """agent 模式：子进程驱动本地 agent CLI（真会话，能改项目文件）。
-
-        与规则引擎模式（_run_agent）的区别：LLM 自主理解任意表述并执行
-        多步操作（读文档 → 改 spec → 重跑 compose），不限于预置指令。
-        历史持久化到 <spec 根>/chat.jsonl；spec 被改时重载并重组契约页。
-        """
-        probe = self._agent_probe()
-        if not probe["cli"]:
-            return {"agent": "none", "mode": "help",
-                    "reply": "本机未检测到可用的 agent CLI（claude / codex）。\n"
-                             "接入方式二选一：\n"
-                             "1. 安装 Claude Code 后重启 Studio（本模式以\n"
-                             "   claude -p 子进程驱动，可自主改文件）\n"
-                             "2. 外部 agent + skill 驱动：仓库内\n"
-                             "   .agents/skills/xmedia-ai-video/SKILL.md\n"
-                             "   （xmedia CLI 全能力，脱离 Studio 也可用）\n"
-                             "3. 继续用「规则引擎」模式改 spec（本页预置指令）"}
+    def _agent_chat_body(self, message, probe):
+        """agent prompt 构造（路径/skill 工作流/叙事纪律/历史）。"""
         spec_path = self.spec_path or ""
         root = self._spec_root()
         history = self._chat_history_tail()
@@ -1837,77 +2239,258 @@ class StudioServer:
             f"[{r.get('backend', '?')}] 用户: {str(r.get('user', ''))[:120]}"
             f"\n助手: {str(r.get('assistant', ''))[:200]}"
             for r in history) or "（无）"
-        prompt = (
-            "你在 xmedia-kit Studio 的 agent 模式里帮用户编辑视频。\n"
-            f"- spec JSON 路径: {spec_path}\n"
-            f"- spec 所在目录: {root}\n"
-            "- 仓库根: {os.environ.get('XMEDIA_KIT_ROOT', ROOT_DIR)}\n"
-            "- schema 文档: {os.environ.get('XMEDIA_KIT_ROOT', ROOT_DIR)}/docs/HF_COMPOSE.md"
-            "（改 spec 前先读它的 schema 段）\n"
-            f"- 改完 spec 后运行: python3 {os.environ.get('XMEDIA_KIT_ROOT', ROOT_DIR)}/"
-            f"tools/xmedia.py compose {spec_path} -o {self.contract_path}"
-            "（重新生成契约页）\n"
-            "- 只改 spec 与契约页相关文件，不要动渲染引擎代码。\n"
-            "- 回复用中文，简短说明做了什么改动。\n\n"
+        # 品牌规则注入（HF brand kit 的 Do's and Don'ts prose）：默认
+        # 品牌存在时读其 rules 注入 agent 上下文。
+        brand_rules = ""
+        try:
+            broot = os.path.expanduser(os.environ.get(
+                "XMEDIA_BRAND_DIR", "~/.xmedia/brands"))
+            pin = os.path.join(broot, ".default")
+            if os.path.isfile(pin):
+                bname = open(pin, encoding="utf-8").read().strip()
+                bfile = os.path.join(broot, bname + ".json")
+                if os.path.isfile(bfile):
+                    brand = json.load(open(bfile, encoding="utf-8"))
+                    rules = brand.get("rules") or {}
+                    dos = rules.get("dos") or []
+                    donts = rules.get("donts") or []
+                    if dos or donts:
+                        brand_rules = (
+                            "\n【品牌规则（brand kit，必须遵守）】\n"
+                            + ("".join(f"- 应该：{d}\n" for d in dos))
+                            + ("".join(f"- 禁止：{d}\n" for d in donts)))
+        except (OSError, json.JSONDecodeError, ValueError):
+            pass
+        # 叙事纪律注入：spec.storyboard.direction 存在时（HF Storyboard
+        # 工作流的方向块），agent 逐帧编辑必须遵守这些规则。
+        sb = (self.current_spec or {}).get("storyboard") or {}
+        discipline = ""
+        direction = sb.get("direction") or {}
+        if direction:
+            two = direction.get("two_color") or {}
+            discipline = (
+                "\n【叙事纪律（storyboard 方向块，逐帧编辑必须遵守）】\n"
+                f"- Arc: {sb.get('arc', '')} · message: "
+                f"{sb.get('message', '')[:80]}\n"
+                + (f"- 两色纪律: ground {two.get('ground', '')} / ink "
+                   f"{two.get('ink', '')}——强调只允许反转/放大/密度，"
+                   "永不引入第三色\n" if two else "")
+                + (f"- breather: 第 {direction.get('breather', '?') + 1} 帧"
+                   "是刻意更静的节拍，不要过度动画\n"
+                   if "breather" in direction else "")
+                + (f"- 负面清单（禁止）: "
+                   f"{('、'.join(direction.get('banned', [])))}\n"
+                   if direction.get("banned") else ""))
+        # HF chatSystemPrompt 的编排规则移植（chatRules.mjs 对齐）：
+        # plan/edit 分流 / 文件白名单 / 历史感知 / gate 循环 / 时长联动 /
+        # 回复风格——语义照搬，命令换 xmedia 对应物。
+        runs = self._load_runs()
+        hist_note = ""
+        for r in reversed(runs):
+            if r.get("backend") in ("claude", "codebuddy", "agent"):
+                hist_note = (f"- 历史感知：项目在 {r['ts']} 之后有人（非 "
+                             "agent）改过的话，在那些改动之上继续，永不撤销"
+                             "人的修改\n")
+                break
+        return (
+            "你在 xmedia-kit Studio 的 agent 模式里，与用户一起编辑这个"
+            "文件夹里的视频项目。像终端里的编码 agent 一样读用户消息。\n"
+            "【消息分流】要求计划/大纲/头脑风暴/解释、或提出问题的消息——"
+            "只用文字回答（被要求时给一份平实的计划），不改任何文件、不跑"
+            "任何会写文件的命令，可以提议继续执行。消息要求做或改什么、或"
+            "在计划后说继续——才动手改文件。\n"
+            "【文件白名单】只编辑 spec.json 与 contract.html（以及你自己"
+            "创建的临时文件）；chat.jsonl / project.json / __thumbs__/ 是"
+            "应用自己的，读可以、永不删除或改动。\n"
+            "【历史感知】改一个已存在的项目前，看 project.json 的 runs："
+            "你上一次编辑之后由人或其他 agent 做的改动，要在那些改动之上"
+            "继续，永不撤销它们。\n"
+            f"【gate 循环】每次改动 spec 后：python3 {TOOLS_DIR}/"
+            "hf_validate.py "
+            f"{spec_path} 修到 0 errors → 用分镜真实帧（/api/sb-frames 或 "
+            "xmedia.py render 抽帧）看被改的瞬间，回复前自己看帧——"
+            "「看起来顺」不是验证，用数字与帧说话。\n"
+            "【时长联动】视频总长 = 所有场景 duration 之和（compose 自动"
+            "排 data-start）：新增/删除/加长/缩短场景时，确认后续场景"
+            "时长与总长衔接，视频永不留空白尾巴、永不切掉一镜。\n"
+            "【回复风格】一两句平实的话，说屏幕上改了什么。名字用它们"
+            "显示的样子（「第一镜的大标题」），不用 id/文件名/mount 这类"
+            "词，除非用户先用了。从不声称没验证的东西。\n"
+            f"【路径】spec: {spec_path} · 目录: {root} · 仓库: {ROOT_DIR}"
+            f"\n- schema 文档: {ROOT_DIR}/docs/HF_COMPOSE.md（改 spec 前"
+            "先读它的 schema 段）\n"
+            f"- 【skill 工作流】大改动（新项目/多场景结构）先读 "
+            f"{ROOT_DIR}/skills/launch/SKILL.md 按其 Order 执行；技能"
+            "清单里没有的技能，看 skills/ 目录下有没有对应的 SKILL.md\n"
+            f"{brand_rules}{discipline}\n"
             f"最近对话（供参考）：\n{hist_txt}\n\n用户请求：{message}\n")
+
+    def _spec_diff_summary(self, before_scenes, after_scenes):
+        """agent 前后场景 diff 摘要（改动明细卡）。"""
+        out = []
+        if len(before_scenes) != len(after_scenes):
+            out.append(f"场景数 {len(before_scenes)} → {len(after_scenes)}")
+        for i, (b, a) in enumerate(zip(before_scenes, after_scenes)):
+            for k in ("text", "subtitle", "duration", "bg", "type"):
+                bv, av = (b or {}).get(k), (a or {}).get(k)
+                if bv != av:
+                    sb_ = str(bv)[:24] if bv is not None else "—"
+                    sa_ = str(av)[:24] if av is not None else "—"
+                    out.append(f"镜{i+1}.{k}: {sb_} → {sa_}")
+        return out[:10]
+
+    def _start_agent_chat(self, message):
+        """agent chat job 化：后台线程驱动 CLI，前端轮询 tail——
+        HF 的 agent 过程可视化（"正在改第 2 镜…"实时可见）。"""
+        probe = self._agent_probe()
+        if not probe["cli"]:
+            return {"job": None, "agent": "none", "mode": "help",
+                    "reply": "本机未检测到可用的 agent CLI（claude / codex）。\n"
+                             "接入方式二选一：\n"
+                             "1. 安装 Claude Code / CodeBuddy 后重启 Studio\n"
+                             "2. 外部 agent + skill 驱动：.agents/skills/"
+                             "xmedia-ai-video/SKILL.md\n"
+                             "3. 继续用「规则引擎」模式"}
+        job_id = self.agent_chat_seq
+        self.agent_chat_seq += 1
+        spec_path = self.spec_path or ""
+        before_scenes = json.loads(json.dumps(
+            (self.current_spec or {}).get("scenes") or []))
+        job = {"id": job_id, "message": message, "agent": probe["cli"],
+               "running": True, "tail": "（启动 agent…）", "reply": "",
+               "spec_updated": False, "error": None, "done": False,
+               "diff": []}
+        self.agent_jobs[job_id] = job
+        th = threading.Thread(
+            target=self._agent_chat_thread,
+            args=(job, message, probe, spec_path, before_scenes),
+            daemon=True)
+        th.start()
+        return {"job": job_id, "agent": probe["cli"]}
+
+    def _agent_chat_thread(self, job, message, probe, spec_path,
+                           before_scenes):
         cli = probe["cli"]
+        root = self._spec_root()
+        prompt = self._agent_chat_body(message, probe)
         spec_mtime_before = (os.path.getmtime(spec_path)
                              if spec_path and os.path.exists(spec_path)
                              else 0)
         self._record_run(message, cli)   # agent 改文件前压快照
         try:
-            proc = subprocess.run(probe["cmd"] + [prompt],
-                                  capture_output=True, text=True,
-                                  timeout=self.AGENT_CHAT_TIMEOUT_S,
-                                  cwd=root or ".")
-        except subprocess.TimeoutExpired:
-            self._chat_log(message, "（agent 运行超时）", cli)
-            return {"agent": cli, "mode": "agent",
-                    "reply": f"agent 运行超时（{self.AGENT_CHAT_TIMEOUT_S}s "
-                             "上限），任务可能仍在后台继续",
-                    "error": "timeout"}
-        reply_raw = (proc.stdout or "").strip()
-        reply, is_error, parsed = reply_raw, False, False
-        if cli == "claude":
-            # --output-format json：取 result 字段（text 模式的 stdout 尾部
-            # 会被 SessionEnd hook 噪音污染，实测）。stdout 可能混有噪音行
-            # ——整体与逐行都试一遍，取第一个含 result 的 JSON 对象。
-            payload = None
-            for cand in [reply_raw] + reply_raw.splitlines():
-                try:
-                    obj = json.loads(cand)
-                except (json.JSONDecodeError, ValueError):
-                    continue
-                if isinstance(obj, dict) and "result" in obj:
-                    payload = obj
+            proc = subprocess.Popen(
+                probe["cmd"] + [prompt], stdout=subprocess.PIPE,
+                stderr=subprocess.STDOUT, text=True, cwd=root or ".")
+        except OSError as e:
+            job.update({"running": False, "done": True,
+                        "reply": f"agent 启动失败：{e}", "error": "spawn"})
+            self._chat_log(message, job["reply"], cli)
+            return
+        tail_lines = []
+        texts = []          # assistant text 块累积（= 回复）
+        tool_steps = []     # 工具步骤（tail 显示）
+        is_error = False
+        import selectors
+        sel = selectors.DefaultSelector()
+        sel.register(proc.stdout, selectors.EVENT_READ)
+        deadline = time.time() + self.AGENT_CHAT_TIMEOUT_S
+        buf = ""
+        idle = 0   # 无新输出的轮询计数（0.5s/轮，挂起兜底用）
+        while True:
+            if time.time() > deadline:
+                proc.kill()
+                job.update({"running": False, "done": True,
+                            "reply": f"agent 运行超时"
+                                     f"（{self.AGENT_CHAT_TIMEOUT_S}s）",
+                            "error": "timeout"})
+                self._chat_log(message, "（agent 运行超时）", cli)
+                return
+            events = sel.select(timeout=0.5)
+            eof = False
+            for key, _ in events:
+                line = key.fileobj.readline()
+                if line == "":
+                    eof = True   # stdout 关闭 = agent 输出完成
                     break
-            if payload is not None:
-                reply = str(payload.get("result") or "")
-                is_error = bool(payload.get("is_error"))
-                parsed = True
-        if proc.returncode != 0 and not parsed:
-            # 非零退出且没有可解析的回复才视为失败——本机 hook 配置
-            # （SessionEnd 钩子被取消）会让 claude -p 以 exit 1 结束，
-            # 但 stdout 仍携带有效 result JSON。
-            return {"agent": cli, "mode": "agent",
-                    "reply": (proc.stderr or reply_raw)[-600:]
-                              or "agent 非零退出",
-                    "error": f"exit {proc.returncode}"}
+                line = line.strip()
+                if not line:
+                    continue
+                # stream-json 事件流（claude/codebuddy 同构）：逐行 JSON，
+                # assistant 的 text 块实时进 tail（HF 过程可视化）、
+                # tool_use 显示工具步骤、result 是最终回复。
+                obj = None
+                try:
+                    obj = json.loads(line)
+                except (json.JSONDecodeError, ValueError):
+                    tail_lines.append(line[:120])
+                    job["tail"] = "\n".join(tail_lines[-6:])
+                    continue
+                etype = obj.get("type")
+                if etype == "assistant":
+                    msg = obj.get("message") or {}
+                    for c in (msg.get("content") or []):
+                        ctype = c.get("type")
+                        if ctype == "text" and c.get("text"):
+                            texts.append(c["text"])
+                            job["tail"] = c["text"][:300]
+                        elif ctype == "tool_use":
+                            step = "[工具] " + c.get("name", "?")
+                            tool_steps.append(step)
+                            job["tail"] = step
+                elif etype == "result":
+                    texts.append(str(obj.get("result") or ""))
+                    is_error = bool(obj.get("is_error"))
+                    parsed = True
+            if eof or proc.poll() is not None:
+                break
+            if not events:
+                idle += 1
+            # 挂起兜底：stdout 长时间无新行且进程未退（agent 完成后偶发
+            # 挂住，实测）——40s 无新行视为完成，收 tail。
+            if buf and idle >= 80:
+                proc.kill()
+                break
+        proc.wait()
+        # stream-json 收集的 texts 最后一条 = agent 的最终回复；
+        # is_error 已在事件流里提取。
+        reply = (texts[-1] if texts else "").strip() or \
+            ("\n".join(tool_steps[-3:]) or "（agent 无文本输出）")
         spec_changed = (bool(spec_path) and os.path.exists(spec_path) and
                         os.path.getmtime(spec_path) > spec_mtime_before)
-        out = {"agent": cli, "mode": "agent",
-               "reply": reply[-1500:] or "（agent 无输出）",
-               "spec_updated": spec_changed}
+        job["spec_updated"] = spec_changed
+        if proc.returncode != 0 and not parsed:
+            job.update({"running": False, "done": True,
+                        "reply": (proc.stderr or reply_raw)[-600:]
+                                  or "agent 非零退出",
+                        "error": f"exit {proc.returncode}"})
+            self._chat_log(message, job["reply"], cli)
+            return
         if is_error:
-            out["error"] = ("agent 上报错误（回复文本是 CLI 的错误说明，"
-                            "常见为 CLI 配置的模型不可用：claude --model "
-                            "换可用模型）")
+            job["error"] = ("agent 上报错误（常见为 CLI 配置的模型不可用："
+                            "claude --model 换可用模型）")
+        job["reply"] = reply[-1500:] or "（agent 无输出）"
+        job["done"] = True
+        # spec 被改 → 重载重组 + diff 摘要（线程内完成，前端轮询到 done）
         if spec_changed:
             self.current_spec = self._load_spec()
-            out["composed"] = self._compose()
-            out["spec"] = self.current_spec
-        self._chat_log(message, reply, cli)
-        return out
+            self._compose()
+            job["diff"] = self._spec_diff_summary(before_scenes,
+                                                  self.current_spec.get(
+                                                      "scenes") or [])
+        self._chat_log(message, job["reply"], cli)
+
+    def _agent_chat_status(self, job_id):
+        job = self.agent_jobs.get(job_id)
+        if job is None:
+            raise RuntimeError("无此 agent 任务")
+        return {"running": job.get("running", False),
+                "done": job.get("done", False),
+                "agent": job.get("agent"),
+                "tail": job.get("tail", ""),
+                "reply": job.get("reply", ""),
+                "spec_updated": job.get("spec_updated", False),
+                "diff": job.get("diff", []),
+                "error": job.get("error")}
 
 
 def make_handler(server_ref):
@@ -1947,6 +2530,93 @@ def make_handler(server_ref):
                     self._send(404, str(e), "text/plain")
                     return
                 self._send(200, studio_ui(), "text/html; charset=utf-8")
+            elif path == "/api/templates":
+                import hf_compose
+                registry = hf_compose.load_custom_templates(
+                    srv._spec_root())
+                self._json({"templates": [
+                    {"name": d.get("name", ""),
+                     "description": d.get("description", ""),
+                     "slots": d.get("slots", [])}
+                    for d in sorted(registry.values(),
+                                    key=lambda x: x.get("name", ""))]})
+            elif path == "/api/inspirations":
+                # 灵感库（HF Inspirations 的本地对应）：内置示例 brief
+                # 一键新建——冷启动不用从零想 brief。
+                self._json({"inspirations": [
+                    {"id": "launch-20s", "arc": "launch",
+                     "title": "20 秒产品发布片",
+                     "hint": "Hook → 亮点 → 证明 → CTA 的标准四段",
+                     "message": "给团队发布我们的新工作流「一次搞定」，"
+                                "把发布节奏压缩到 20 秒"},
+                    {"id": "explainer-101", "arc": "explainer",
+                     "title": "一分钟讲清一件事",
+                     "hint": "What → Why → How 的科普节奏",
+                     "message": "讲清楚我们的确定性视频管线是怎么工作的"},
+                    {"id": "listicle-3", "arc": "listicle",
+                     "title": "三个理由清单体",
+                     "hint": "numbered enumeration，条目逐一点亮",
+                     "message": "换掉手工剪辑的三个理由"},
+                    {"id": "compare-orbit", "arc": "comparison",
+                     "title": "新旧方案对比",
+                     "hint": "之前/之后 双列擦入，证明差异化",
+                     "message": "手工剪辑对比确定性合成「一次合成永不翻车」"},
+                    {"id": "problem-fix", "arc": "problem-solution",
+                     "title": "痛点-方案钩子",
+                     "hint": "Hook 抛问题 → 方案反转 → 证明",
+                     "message": "切片发布还在被手工流程拖慢「从半天到一分钟」"},
+                ]})
+            elif path == "/api/brands":
+                self._json(srv._brands_list())
+            elif path.startswith("/api/brand-shot/"):
+                # 品牌网页截图（scan 时 html_bake 烘的首屏视觉证据）
+                nm = path[len("/api/brand-shot/"):]
+                if not re.fullmatch(r"[\w\-]+", nm or ""):
+                    self._send(404, "not found", "text/plain")
+                    return
+                broot = os.path.expanduser(os.environ.get(
+                    "XMEDIA_BRAND_DIR", "~/.xmedia/brands"))
+                jpg = os.path.join(broot, "shots", nm + "-home.jpg")
+                if not os.path.isfile(jpg):
+                    self._send(404, "not found", "text/plain")
+                    return
+                with open(jpg, "rb") as fh:
+                    self._send(200, fh.read(), "image/jpeg")
+            elif path.startswith("/api/brand-logo/"):
+                self._serve_brand_logo(path[len("/api/brand-logo/"):])
+            elif path.startswith("/api/project-thumb/"):
+                # Home 项目卡缩略图（HF Home 卡片的项目截图同款）：
+                # 分镜帧产物（__thumbs__/sb/）直读，无则 404（前端
+                # 色块兜底）。s1 优先（首镜中点可能抽到入场半透明态）。
+                nm = path[len("/api/project-thumb/"):]
+                if not re.fullmatch(r"[\w\-]+", nm or ""):
+                    self._send(404, "not found", "text/plain")
+                    return
+                for f in ("s1.jpg", "s0.jpg"):
+                    jpg = os.path.join(srv._projects_root(), nm,
+                                       "__thumbs__", "sb", f)
+                    if os.path.isfile(jpg):
+                        with open(jpg, "rb") as fh:
+                            self._send(200, fh.read(), "image/jpeg")
+                        return
+                self._send(404, "not found", "text/plain")
+            elif path.startswith("/api/arc-preview/"):
+                arc = path[len("/api/arc-preview/"):]
+                if not re.fullmatch(r"[\w\-]+", arc or ""):
+                    self._send(404, "not found", "text/plain")
+                    return
+                jpg = os.path.expanduser(
+                    f"~/.xmedia/arc-previews/{arc}.jpg")
+                if not os.path.isfile(jpg):
+                    self._send(404, "not found", "text/plain")
+                    return
+                with open(jpg, "rb") as f:
+                    self._send(200, f.read(), "image/jpeg")
+            elif path == "/api/agent/chat/status":
+                q = urllib.parse.parse_qs(urllib.parse.urlparse(
+                    self.path).query)
+                self._json(srv._agent_chat_status(
+                    int((q.get("id") or ["0"])[0])))
             elif path == "/api/projects":
                 self._json({"projects": srv._projects_list()})
             elif path == "/api/state":
@@ -1990,6 +2660,14 @@ def make_handler(server_ref):
                                        mix_url=mix_url,
                                        external_files=srv.external_files),
                            "text/html; charset=utf-8")
+            elif path == "/api/job/current":
+                # 进行中的导出任务（expOpen 恢复进度显示用）：
+                # job 还在跑 → {job: id}；无/已结束 → {job: None}。
+                j = srv.job
+                if j and j.get("proc") and j["proc"].poll() is None:
+                    self._json({"job": j["id"], "out": j.get("out", "")})
+                else:
+                    self._json({"job": None})
             elif path == "/api/job":
                 q = urllib.parse.parse_qs(urllib.parse.urlparse(self.path).query)
                 try:
@@ -2087,6 +2765,65 @@ def make_handler(server_ref):
                     self._json({"cleared": True})
                 elif path == "/api/project/create":
                     self._json(srv._project_create(body))
+                elif path == "/api/project/rename":
+                    self._json(srv._project_rename(body))
+                elif path == "/api/project/delete":
+                    self._json(srv._project_delete(body))
+                elif path == "/api/brand/delete":
+                    self._json(srv._brand_delete(body))
+                elif path == "/api/annotation/add":
+                    if not isinstance(srv.current_spec, dict):
+                        raise RuntimeError("未绑定 spec 文件")
+                    # 手绘标注原子追加（Draw 笔划的持久化）：服务端
+                    # append 消除前端 read-modify-write 竞态——连续
+                    # 快速笔划不再互相覆盖丢笔划。
+                    import hf_agent
+                    strokes = body.get("strokes") or []
+                    if not isinstance(strokes, list) or not strokes:
+                        raise ValueError("strokes 必须是非空数组")
+                    spec = srv.current_spec
+                    spec["annotations"] = (spec.get("annotations") or []) + \
+                        [s for s in strokes if isinstance(s, dict) and
+                         isinstance(s.get("points"), list) and
+                         len(s["points"]) >= 2]
+                    hf_agent.validate_spec(spec, srv._spec_root())
+                    srv._write_spec(spec)
+                    srv._compose()
+                    self._json({"ok": True,
+                                "count": len(spec["annotations"])})
+                elif path == "/api/annotation/clear":
+                    if not isinstance(srv.current_spec, dict):
+                        raise RuntimeError("未绑定 spec 文件")
+                    import hf_agent
+                    spec = srv.current_spec
+                    spec["annotations"] = []
+                    hf_agent.validate_spec(spec, srv._spec_root())
+                    srv._write_spec(spec)
+                    srv._compose()
+                    self._json({"ok": True})
+                elif path == "/api/reveal":
+                    # 在 Finder 中定位导出产物（本地产品实用项）。
+                    # realpath 前缀校验项目根（防 open -R 任意路径）。
+                    import shutil
+                    target = str(body.get("path") or "")
+                    real = os.path.realpath(target)
+                    root_real = os.path.realpath(srv._projects_root())
+                    if not real.startswith(root_real + os.sep):
+                        raise RuntimeError("路径不在项目目录内")
+                    if not os.path.isfile(real):
+                        raise RuntimeError("文件不存在")
+                    subprocess.run(["open", "-R", real], timeout=15,
+                                   check=False)
+                    self._json({"ok": True})
+                elif path == "/api/spec-save":
+                    # 轻量 spec 保存（Comment/标注类元数据）：写回不重组
+                    # ——评论不进契约页，重组是浪费。
+                    import hf_validate
+                    srv.current_spec = body["spec"]
+                    srv._write_spec(srv.current_spec)
+                    findings, errors, _, _ = hf_validate.validate(
+                        srv.current_html, spec=srv.current_spec)
+                    self._json({"ok": True, "errors": errors})
                 elif path == "/api/tts":
                     srv.current_spec = body["spec"]
                     srv._write_spec(srv.current_spec)
@@ -2132,10 +2869,14 @@ def make_handler(server_ref):
                     self._json(srv._run_import(body))
                 elif path == "/api/import/undo":
                     self._json(srv._undo_import())
+                elif path == "/api/brand/scan":
+                    self._json(srv._brand_scan_api(body))
+                elif path == "/api/brand/default":
+                    self._json(srv._brand_default(body))
                 elif path == "/api/agent":
                     self._json(srv._run_agent(str(body.get("message") or "")))
                 elif path == "/api/agent/chat":
-                    self._json(srv._run_agent_chat(
+                    self._json(srv._start_agent_chat(
                         str(body.get("message") or "")))
                 else:
                     self._json({"error": "unknown endpoint"}, 404)
@@ -2186,6 +2927,36 @@ def make_handler(server_ref):
                 return
             with open(jpg, "rb") as f:
                 self._send(200, f.read(), "image/jpeg")
+
+        def _serve_brand_logo(self, name):
+            """品牌 logo 图片（详情页预览）。仅认 kit 名（防路径穿越），
+            实际文件从 brand JSON 的 logo_image 解析且必须仍在品牌目录内。"""
+            if not re.fullmatch(r"[\w\-]+", name or ""):
+                self._send(404, "not found", "text/plain")
+                return
+            d = os.path.realpath(os.path.expanduser(os.environ.get(
+                "XMEDIA_BRAND_DIR", "~/.xmedia/brands")))
+            try:
+                brand = json.load(open(os.path.join(d, name + ".json"),
+                                       encoding="utf-8"))
+            except (OSError, json.JSONDecodeError):
+                self._send(404, "not found", "text/plain")
+                return
+            li = brand.get("logo_image") or ""
+            if not li or li.startswith(("http://", "https://")):
+                self._send(404, "no local logo", "text/plain")
+                return
+            img = os.path.realpath(os.path.join(d, li))
+            if not img.startswith(d + os.sep) or not os.path.isfile(img):
+                self._send(404, "not found", "text/plain")
+                return
+            ctype = "image/png" if img.endswith(".png") else (
+                "image/jpeg" if img.endswith((".jpg", ".jpeg")) else (
+                "image/svg+xml" if img.endswith(".svg") else (
+                "image/webp" if img.endswith(".webp") else
+                "application/octet-stream")))
+            with open(img, "rb") as fh:
+                self._send(200, fh.read(), ctype)
 
         def _serve_thumb(self, path):
             srv = server_ref
@@ -2295,19 +3066,37 @@ def make_handler(server_ref):
 
 
 def home_html(projects):
-    """Home 页（项目管理）：一句话新建 + 项目卡片网格。
+    """Home 页（项目管理）：Make Something 三步向导 + 项目卡片网格。
+
+    对齐 HF first-cut 的「What do you want to make? → A bit about you →
+    合成首剪」形态：类型宫格选叙事 Arc → 一句话 brief（受众/语气可选）
+    → 品牌 kit 可选 → /api/project/create 一键建项目跳编辑器。
     独立小页面（不进 web 构建），风格对齐 studio tokens。"""
     cards = "".join(
         f'<a class="pj" href="/project/{p["name"]}">'
+        f'<div class="pj-thumb"><img src="/api/project-thumb/{p["name"]}"'
+        f' alt="" onerror="this.classList.add(\'miss\')"></div>'
         f'<div class="pj-name">{p["name"]}</div>'
         f'<div class="pj-meta">{p["scenes"]} 场景'
         + (f' · {p["arc"]}' if p["arc"] else "")
         + f' · {p["updated"]}</div>'
         f'<div class="pj-msg">{p["message"]}</div></a>'
         for p in projects)
-    arc_opts = "".join(
-        f'<option value="{a["id"]}">{a["label"]}</option>'
-        for a in __import__("hf_storyboard").arcs())
+    # 类型宫格（HF survey 的 grid-cols-4 形态）：Arc 清单 → 卡片。
+    # tile = 真实渲染帧（/api/arc-preview，后台线程生成；未就绪时
+    # onerror 藏图显渐变色条兜底）——HF survey tiles 的本地对应物。
+    arc_cards = "".join(
+        f'<button type="button" class="mk-arc" data-arc="{a["id"]}">'
+        f'<span class="mk-arc-tile">'
+        f'<img src="/api/arc-preview/{a["id"]}" alt="" '
+        f'onerror="this.classList.add(\'miss\')">'
+        f'<span class="mk-arc-strip s-{i % 5}"></span>'
+        f'</span>'
+        f'<b>{a["label"].split("（")[0]}</b>'
+        f'<i>{a["label"].split("（")[1].rstrip("）") if "（" in a["label"] else ""}</i>'
+        f'</button>'
+        for i, a in enumerate(__import__("hf_storyboard").arcs()))
+    # 品牌 kit 下拉由前端 fetch /api/brands 动态填充（default pin 标记）
     return f"""<!doctype html>
 <html lang="zh"><head><meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
@@ -2322,27 +3111,74 @@ body {{ margin:0; background:var(--bg); color:var(--ink);
 .wrap {{ max-width: 860px; margin: 0 auto; padding: 40px 20px }}
 h1 {{ font-size: 22px; margin: 0 0 4px }}
 .sub {{ color: var(--dim); font-size: 12.5px; margin-bottom: 30px }}
-.new {{ background: var(--panel); border: 1px solid var(--line2);
-       border-radius: 14px; padding: 20px; margin-bottom: 34px }}
-.new textarea {{ width: 100%; min-height: 64px; background: var(--panel2);
-                 color: var(--ink); border: 1px solid var(--line);
-                 border-radius: 8px; padding: 10px 12px; font: inherit;
-                 resize: vertical; outline: none }}
-.new textarea:focus {{ border-color: var(--acc) }}
-.new .row {{ display: flex; gap: 10px; margin-top: 12px; flex-wrap: wrap }}
-.new select, .new input {{ background: var(--panel2); color: var(--ink);
-                           border: 1px solid var(--line); border-radius: 8px;
-                           padding: 8px 10px; font: inherit; outline: none }}
-.new .go {{ background: linear-gradient(135deg,var(--acc),var(--acc2));
-            border: 0; color: #0d1122; font-weight: 600; border-radius: 8px;
-            padding: 8px 18px; }}
+/* ---- Make Something 向导（HF first-cut 形态）---- */
+.mk {{ background: var(--panel); border: 1px solid var(--line2);
+      border-radius: 14px; padding: 20px; margin-bottom: 34px }}
+.mk-step {{ font-size: 11.5px; color: var(--dim); letter-spacing: .04em;
+      margin-bottom: 10px }}
+.mk-grid {{ display: grid; grid-template-columns: repeat(5, 1fr); gap: 10px }}
+.mk-arc {{ display: flex; flex-direction: column; gap: 6px;
+      background: var(--panel2); border: 1px solid var(--line);
+      border-radius: 12px; padding: 12px 10px; cursor: pointer;
+      color: var(--ink); text-align: left; font: inherit;
+      transition: border-color .12s, transform .12s }}
+.mk-arc:hover {{ border-color: var(--dim) }}
+.mk-arc.sel {{ border-color: var(--acc);
+      box-shadow: 0 0 0 1px var(--acc) }}
+.mk-arc:active {{ transform: scale(.98) }}
+.mk-arc b {{ font-size: 13px }}
+.mk-arc i {{ font-style: normal; font-size: 10.5px; color: var(--dim);
+      line-height: 1.4 }}
+.mk-arc-tile {{ display: block; position: relative; height: 64px;
+      border-radius: 8px; overflow: hidden; background: var(--panel2) }}
+.mk-arc-tile img {{ position: absolute; inset: 0; width: 100%;
+      height: 100%; object-fit: cover; z-index: 2 }}
+.mk-arc-tile img.miss {{ display: none }}
+.mk-arc-strip {{ display: flex; height: 100%; min-height: 22px;
+      border-radius: 5px; overflow: hidden }}
+.mk-arc-strip::before {{ content: ""; flex: 2 }}
+.mk-arc-strip::after {{ content: ""; flex: 1 }}
+.s-0 {{ background: linear-gradient(90deg, #ffcc00, #00a3ff) }}
+.s-1 {{ background: linear-gradient(90deg, #e84b5f, #6d8bff) }}
+.s-2 {{ background: linear-gradient(90deg, #3ecf8e, #1a6dff) }}
+.s-3 {{ background: linear-gradient(90deg, #8b6dff, #ff661a) }}
+.s-4 {{ background: linear-gradient(90deg, #fa9600, #3ecf8e) }}
+.mk-fields {{ display: flex; flex-direction: column; gap: 10px;
+      margin-top: 14px }}
+.mk-fields textarea {{ width: 100%; min-height: 64px; background: var(--panel2);
+      color: var(--ink); border: 1px solid var(--line);
+      border-radius: 8px; padding: 10px 12px; font: inherit;
+      resize: vertical; outline: none }}
+.mk-fields textarea:focus {{ border-color: var(--acc) }}
+.mk-row {{ display: flex; gap: 10px; flex-wrap: wrap }}
+.mk-row select, .mk-row input {{ background: var(--panel2); color: var(--ink);
+      border: 1px solid var(--line); border-radius: 8px;
+      padding: 8px 10px; font: inherit; outline: none; flex: 1;
+      min-width: 140px }}
+.mk-go {{ margin-top: 14px; background: linear-gradient(135deg,var(--acc),
+      var(--acc2)); border: 0; color: #0d1122; font-weight: 700;
+      border-radius: 10px; padding: 11px 26px; font-size: 14px;
+      cursor: pointer }}
+.mk-go:disabled {{ opacity: .6; cursor: default }}
 #msg {{ margin-top: 12px; font-size: 12.5px; color: var(--dim);
         white-space: pre-wrap }}
+.guide {{ background: var(--panel); border: 1px solid var(--line);
+         border-radius: 12px; padding: 14px 18px; margin-bottom: 34px;
+         display: flex; flex-direction: column; gap: 8px }}
+.g-step {{ font-size: 12.5px; color: var(--dim) }}
+.g-step b {{ display: inline-grid; place-items: center; width: 20px;
+            height: 20px; border-radius: 50%; background: var(--acc);
+            color: #0d1122; font-size: 11px; margin-right: 8px }}
 .pjs {{ display: grid; grid-template-columns: repeat(auto-fill, minmax(240px,1fr));
         gap: 14px }}
 .pj {{ display: block; background: var(--panel); border: 1px solid var(--line2);
-       border-radius: 12px; padding: 14px 16px; text-decoration: none;
-       color: var(--ink) }}
+       border-radius: 12px; padding: 10px 14px; text-decoration: none;
+       color: var(--ink); transition: border-color .12s }}
+.pj-thumb {{ margin: -2px -6px 10px; border-radius: 9px; overflow: hidden;
+       background: linear-gradient(135deg, #16213e, #0f3460); min-height: 96px; }}
+.pj-thumb img {{ display: block; width: 100%; height: 110px;
+       object-fit: cover; }}
+.pj-thumb img.miss {{ display: none; }}
 .pj:hover {{ border-color: var(--acc) }}
 .pj-name {{ font-weight: 600; font-size: 14px }}
 .pj-meta {{ font-size: 11px; color: var(--dim); margin: 6px 0 }}
@@ -2351,40 +3187,110 @@ h1 {{ font-size: 22px; margin: 0 0 4px }}
 .empty {{ color: var(--dim); font-size: 13px }}
 </style></head><body><div class="wrap">
 <h1>xmedia Studio</h1>
-<div class="sub">一句话建项目 → 分镜审阅 → 导出 MP4（全部本地、确定性管线）</div>
-<div class="new">
-  <textarea id="message" placeholder="一句话说你要做什么视频，例如：把切片发布从半天缩短到一分钟「切片工作流」"></textarea>
-  <div class="row">
-    <select id="arc">{arc_opts}</select>
-    <input id="audience" placeholder="受众（可选）">
-    <input id="mood" placeholder="音乐/能量（可选）">
-    <input id="name" placeholder="项目名（可选，默认自动）">
-    <button class="go" id="create">创建项目</button>
+<div class="sub">做个东西 → 分镜审阅 → 导出 MP4（全部本地、确定性管线）</div>
+<div class="mk">
+  <div class="mk-step" id="mk-step-label">1 of 3 · 你想做个什么？</div>
+  <div class="mk-grid" role="group" aria-label="你想做个什么？">{arc_cards}</div>
+  <div class="mk-fields" id="mk-fields" style="display:none">
+    <div class="mk-step">2 of 3 · 这条片子说什么</div>
+    <textarea id="message" placeholder="一句话说你要做什么视频，例如：把切片发布从半天缩短到一分钟「切片工作流」"></textarea>
+    <div class="mk-row">
+      <input id="audience" placeholder="受众（可选）">
+      <input id="mood" placeholder="音乐/能量（可选）">
+    </div>
+    <div class="mk-step" style="margin-top:8px">3 of 3 · 品牌（可选）</div>
+    <div class="mk-row">
+      <select id="brand"><option value="">不用品牌（默认色板）</option></select>
+      <input id="name" placeholder="项目名（可选，默认自动）" style="flex:1">
+    </div>
+    <button class="go mk-go" id="create">合成首剪</button>
   </div>
   <div id="msg"></div>
 </div>
+<div class="guide">
+  <div class="g-step"><b>1</b> 选一个叙事类型 → 一句话 brief →「合成首剪」（5 个商业叙事 Arc）</div>
+  <div class="g-step"><b>2</b> 编辑页左栏「对话」说一句话改内容 ·「分镜」逐镜看真实帧（卡上直接改文案/时长）</div>
+  <div class="g-step"><b>3</b> 顶栏「导出 MP4」选画质/格式/帧率出片（全部本地、确定性管线）</div>
+</div>
 <h2 style="font-size:15px">项目</h2>
-<div class="pjs">{cards or '<div class="empty">还没有项目——上面一句话创建第一个</div>'}</div>
+<div class="pjs">{cards or '<div class="empty">还没有项目——上面选个类型开做</div>'}</div>
 </div>
 <script>
-document.getElementById("create").onclick = function () {{
-  var body = {{ message: document.getElementById("message").value,
-               arc: document.getElementById("arc").value,
-               audience: document.getElementById("audience").value,
-               mood: document.getElementById("mood").value,
-               name: document.getElementById("name").value }};
-  var msg = document.getElementById("msg");
-  msg.textContent = "创建中…";
-  fetch("/api/project/create", {{ method: "POST",
-    headers: {{ "Content-Type": "application/json" }},
-    body: JSON.stringify(body) }})
-    .then(function (r) {{ return r.json(); }})
-    .then(function (r) {{
-      if (r.error) {{ msg.textContent = "失败：" + r.error; return; }}
-      location.href = r.url;
-    }})
-    .catch(function (e) {{ msg.textContent = "失败：" + e.message; }});
-}};
+(function () {{
+  var arc = null;
+  var grid = document.querySelector(".mk-grid");
+  var fields = document.getElementById("mk-fields");
+  var label = document.getElementById("mk-step-label");
+  grid.addEventListener("click", function (ev) {{
+    var btn = ev.target.closest(".mk-arc");
+    if (!btn) return;
+    arc = btn.dataset.arc;
+    grid.querySelectorAll(".mk-arc").forEach(function (b) {{
+      b.classList.toggle("sel", b === btn);
+    }});
+    fields.style.display = "flex";
+    label.textContent = "已选「" + btn.querySelector("b").textContent +
+                        "」· 2 of 3 这条片子说什么";
+    /* sentence 引导（HF 把挑选合成一句话的本地对应）：按 Arc 换
+       完整例句作 placeholder——用户改句子而不是从空白填表 */
+    document.getElementById("message").placeholder = {{
+      "launch": "给{{受众}}的一条 20 秒发布片：{{钩子}}「{{一句话主张}}」→ 三点证明 → 立即开始",
+      "problem-solution": "{{受众}}还在被{{旧流程}}拖慢？我们把它从{{耗时}}缩到{{结果}}",
+      "listicle": "换掉{{旧方案}}的三个理由：{{理由一}} · {{理由二}} · {{理由三}}",
+      "explainer": "一分钟讲清{{主题}}：它是什么 → 为什么重要 → 怎么用",
+      "comparison": "还在用{{旧方案}}？{{新方案}}在{{关键指标}}上快{{N}}倍"
+    }}[arc] || "一句话说你要做什么视频";
+    document.getElementById("message").focus();
+  }});
+  /* ?new=1（编辑器「＋ New video」入口）：直接聚焦向导 */
+  if (location.search.indexOf("new=1") >= 0) {{
+    document.querySelector(".mk").scrollIntoView({{ behavior: "smooth" }});
+    document.getElementById("message").focus();
+  }}
+  /* 品牌 kits 注入（/api/brands 同源数据，default pin 标记） */
+  fetch("/api/brands").then(function (r) {{ return r.json(); }}).then(function (r) {{
+    var sel = document.getElementById("brand");
+    (r.brands || []).forEach(function (b) {{
+      var o = document.createElement("option");
+      o.value = b.name;
+      o.textContent = b.name + (b._default ? "（默认）" : "");
+      sel.appendChild(o);
+    }});
+  }}).catch(function () {{}});
+  document.getElementById("create").onclick = function () {{
+    if (!arc) {{ document.getElementById("msg").textContent = "先选一个类型"; return; }}
+    var body = {{ message: document.getElementById("message").value,
+                 arc: arc,
+                 audience: document.getElementById("audience").value,
+                 mood: document.getElementById("mood").value,
+                 name: document.getElementById("name").value,
+                 brand: document.getElementById("brand").value }};
+    if (!body.message.trim()) {{
+      document.getElementById("msg").textContent = "说一句话你要做什么";
+      document.getElementById("message").focus();
+      return;
+    }}
+    var btn = this, msg = document.getElementById("msg");
+    btn.disabled = true;
+    msg.textContent = "合成中…（叙事骨架 → 占位文案 → 契约页）";
+    fetch("/api/project/create", {{ method: "POST",
+      headers: {{ "Content-Type": "application/json" }},
+      body: JSON.stringify(body) }})
+      .then(function (r) {{ return r.json(); }})
+      .then(function (r) {{
+        if (r.error) {{
+          msg.textContent = "失败：" + r.error;
+          btn.disabled = false;
+          return;
+        }}
+        location.href = r.url + "?fresh=1";
+      }})
+      .catch(function (e) {{
+        msg.textContent = "失败：" + e.message;
+        btn.disabled = false;
+      }});
+  }};
+}})();
 </script></body></html>"""
 
 
@@ -2406,6 +3312,10 @@ def serve(contract_path, spec_path, port, no_sfx, home=False):
     if contract_path is None:
         # Home 模式：上面那段自动发现跳过，spec 维持 None。
         srv = StudioServer(None, None, port, no_sfx, home=True)
+        # Arc 示例真帧后台生成（Home 宫格的"画面墙"，几秒后就位；
+        # 已缓存则跳过）。
+        threading.Thread(target=srv._ensure_arc_previews,
+                         daemon=True).start()
     else:
         srv = StudioServer(contract_path, spec_path, port, no_sfx)
 
